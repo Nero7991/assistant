@@ -21,10 +21,10 @@ export function SidebarNav({ className, isCollapsed }: SidebarNavProps) {
 
   const NavContent = () => (
     <div className="flex flex-col h-full">
-      <div className="p-4 border-b border-sidebar-border flex items-center gap-2">
-        <Brain className="h-6 w-6 text-sidebar-primary" />
+      <div className="p-4 border-b flex items-center gap-2">
+        <Brain className="h-6 w-6" />
         {!isCollapsed && (
-          <span className="font-bold text-sidebar-foreground">ADHD Coach</span>
+          <span className="font-bold">ADHD Coach</span>
         )}
       </div>
 
@@ -36,7 +36,7 @@ export function SidebarNav({ className, isCollapsed }: SidebarNavProps) {
                 variant="ghost"
                 className={cn(
                   "w-full justify-start",
-                  isActive && "bg-sidebar-accent text-sidebar-accent-foreground"
+                  isActive && "bg-accent"
                 )}
               >
                 <item.icon className="h-4 w-4 mr-2" />
@@ -47,10 +47,10 @@ export function SidebarNav({ className, isCollapsed }: SidebarNavProps) {
         ))}
       </nav>
 
-      <div className="p-2 border-t border-sidebar-border mt-auto">
+      <div className="p-2 border-t mt-auto">
         {user && (
           <>
-            <div className="px-2 py-1.5 text-sm text-sidebar-foreground">
+            <div className="px-2 py-1.5 text-sm">
               {!isCollapsed && `Signed in as ${user.username}`}
             </div>
             <Button
@@ -76,7 +76,7 @@ export function SidebarNav({ className, isCollapsed }: SidebarNavProps) {
             <SheetTrigger asChild>
               <Menu className="h-5 w-5" />
             </SheetTrigger>
-            <SheetContent side="left" className="p-0 w-64 bg-sidebar">
+            <SheetContent side="left" className="p-0 w-64">
               <NavContent />
             </SheetContent>
           </Sheet>
@@ -86,13 +86,13 @@ export function SidebarNav({ className, isCollapsed }: SidebarNavProps) {
   }
 
   return (
-    <div
+    <aside
       className={cn(
-        "hidden md:block fixed inset-y-0 left-0 z-20 w-64 bg-sidebar border-r border-sidebar-border",
+        "hidden md:block fixed inset-y-0 left-0 z-40 w-64 bg-background border-r",
         className
       )}
     >
       <NavContent />
-    </div>
+    </aside>
   );
 }
