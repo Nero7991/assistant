@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { verificationCodeSchema } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import {
   Dialog,
   DialogContent,
@@ -43,6 +44,7 @@ export function VerificationDialog({
   showSkip = false,
 }: VerificationDialogProps) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [isVerifying, setIsVerifying] = useState(false);
   const [isResending, setIsResending] = useState(false);
 
@@ -55,7 +57,7 @@ export function VerificationDialog({
 
   async function onSubmit(data: { code: string }) {
     try {
-      console.log("Attempting verification with:", { code: data.code, type });
+      console.log("Attempting verification with:", { code: data.code, type, userId: user?.id });
       setIsVerifying(true);
 
       const res = await fetch("/api/verify-contact", {

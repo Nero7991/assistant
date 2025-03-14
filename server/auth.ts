@@ -113,6 +113,7 @@ export function setupAuth(app: Express) {
           console.error("Login error after registration:", err);
           return next(err);
         }
+        console.log("User logged in after registration:", { id: user.id, isAuthenticated: req.isAuthenticated() });
         res.status(201).json(user);
       });
     } catch (error) {
@@ -126,6 +127,7 @@ export function setupAuth(app: Express) {
       console.log("Verification attempt:", {
         isAuthenticated: req.isAuthenticated(),
         user: req.user?.id,
+        sessionID: req.sessionID,
         body: req.body
       });
 
@@ -165,6 +167,11 @@ export function setupAuth(app: Express) {
           console.error("Session refresh error:", err);
           return res.status(500).json({ message: "Failed to update session" });
         }
+        console.log("Verification successful:", { 
+          userId: updatedUser.id, 
+          type, 
+          isAuthenticated: req.isAuthenticated() 
+        });
         res.json({ message: "Contact verified successfully" });
       });
     } catch (error) {
@@ -203,6 +210,7 @@ export function setupAuth(app: Express) {
 
       req.login(user, (err) => {
         if (err) return next(err);
+        console.log("User logged in:", { id: user.id, isAuthenticated: req.isAuthenticated() });
         res.status(200).json(user);
       });
     })(req, res, next);
@@ -216,6 +224,11 @@ export function setupAuth(app: Express) {
   });
 
   app.get("/api/user", (req, res) => {
+    console.log("Get user request:", { 
+      isAuthenticated: req.isAuthenticated(),
+      sessionID: req.sessionID,
+      user: req.user?.id 
+    });
     if (!req.isAuthenticated()) return res.sendStatus(401);
     res.json(req.user);
   });
