@@ -32,16 +32,16 @@ async function comparePasswords(supplied: string, stored: string) {
 export function setupAuth(app: Express) {
   const sessionSettings: session.SessionOptions = {
     secret: process.env.SESSION_SECRET!,
-    resave: true, 
-    saveUninitialized: true, 
+    resave: true,
+    saveUninitialized: true,
     store: storage.sessionStore,
     cookie: {
-      secure: false, 
+      secure: false,
       httpOnly: true,
       sameSite: 'lax',
-      maxAge: 24 * 60 * 60 * 1000 
+      maxAge: 24 * 60 * 60 * 1000
     },
-    name: 'connect.sid' 
+    name: 'connect.sid'
   };
 
   app.use(session(sessionSettings));
@@ -107,10 +107,17 @@ export function setupAuth(app: Express) {
         expiresAt,
       });
 
-      // In development, log the verification code
-      if (process.env.NODE_ENV !== 'production') {
-        console.log("Email verification code:", verificationCode);
-      }
+      // Send verification email
+      const emailSent = await sendVerificationMessage(
+        'email',
+        user.email,
+        verificationCode
+      );
+
+      console.log("Verification email sending result:", {
+        success: emailSent,
+        email: user.email
+      });
 
       // Generate new session
       req.session.regenerate((err) => {
@@ -125,10 +132,10 @@ export function setupAuth(app: Express) {
             console.error("Login error after registration:", err);
             return next(err);
           }
-          console.log("User logged in after registration:", { 
-            id: user.id, 
+          console.log("User logged in after registration:", {
+            id: user.id,
             isAuthenticated: req.isAuthenticated(),
-            session: req.sessionID 
+            session: req.sessionID
           });
           // Save the session before sending response
           req.session.save((err) => {
@@ -202,11 +209,11 @@ export function setupAuth(app: Express) {
               console.error("Session save error:", err);
               return res.status(500).json({ message: "Failed to save session" });
             }
-            console.log("Verification successful:", { 
-              userId: updatedUser.id, 
-              type, 
+            console.log("Verification successful:", {
+              userId: updatedUser.id,
+              type,
               isAuthenticated: req.isAuthenticated(),
-              session: req.sessionID 
+              session: req.sessionID
             });
             res.json({ message: "Contact verified successfully" });
           });
@@ -248,8 +255,8 @@ export function setupAuth(app: Express) {
 
       req.login(user, (err) => {
         if (err) return next(err);
-        console.log("User logged in:", { 
-          id: user.id, 
+        console.log("User logged in:", {
+          id: user.id,
           isAuthenticated: req.isAuthenticated(),
           session: req.sessionID
         });
@@ -266,7 +273,7 @@ export function setupAuth(app: Express) {
   });
 
   app.get("/api/user", (req, res) => {
-    console.log("Get user request:", { 
+    console.log("Get user request:", {
       isAuthenticated: req.isAuthenticated(),
       sessionID: req.sessionID,
       user: req.user?.id,
