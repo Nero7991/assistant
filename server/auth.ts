@@ -44,7 +44,6 @@ export function setupAuth(app: Express) {
     name: 'connect.sid' 
   };
 
-  
   app.use(session(sessionSettings));
   app.use(passport.initialize());
   app.use(passport.session());
