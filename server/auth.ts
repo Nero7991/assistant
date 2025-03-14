@@ -32,19 +32,19 @@ async function comparePasswords(supplied: string, stored: string) {
 export function setupAuth(app: Express) {
   const sessionSettings: session.SessionOptions = {
     secret: process.env.SESSION_SECRET!,
-    resave: true, // Changed to true to ensure session is saved
-    saveUninitialized: false,
+    resave: true, 
+    saveUninitialized: true, 
     store: storage.sessionStore,
     cookie: {
-      secure: false, // Set to true in production with HTTPS
+      secure: false, 
       httpOnly: true,
       sameSite: 'lax',
-      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+      maxAge: 24 * 60 * 60 * 1000 
     },
-    name: 'connect.sid' // Match the default cookie name
+    name: 'connect.sid' 
   };
 
-  // Important: Session middleware must be before passport middleware
+  
   app.use(session(sessionSettings));
   app.use(passport.initialize());
   app.use(passport.session());
