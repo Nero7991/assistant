@@ -20,11 +20,13 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { Loader2, CheckCircle } from "lucide-react";
 
 export function CheckInDialog() {
   const [open, setOpen] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
   const form = useForm({
     resolver: zodResolver(insertCheckInSchema),
     defaultValues: {
@@ -40,6 +42,15 @@ export function CheckInDialog() {
   } | null>(null);
 
   async function onSubmit(data: { content: string }) {
+    if (!user) {
+      toast({
+        title: "Not authenticated",
+        description: "Please log in to submit a check-in",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       const res = await apiRequest("POST", "/api/checkins", data);
@@ -47,9 +58,10 @@ export function CheckInDialog() {
       setResponse(result.coachingResponse);
       queryClient.invalidateQueries({ queryKey: ["/api/checkins"] });
     } catch (error) {
+      console.error("Check-in error:", error);
       toast({
         title: "Check-in failed",
-        description: error instanceof Error ? error.message : "Unknown error",
+        description: error instanceof Error ? error.message : "Failed to submit check-in",
         variant: "destructive",
       });
     } finally {
