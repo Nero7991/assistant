@@ -8,7 +8,7 @@ export interface IStorage {
   sessionStore: session.Store;
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: { username: string; password: string; phoneNumber?: string; contactPreference?: string }): Promise<User>;
+  createUser(user: { username: string; password: string; phoneNumber?: string; email: string; contactPreference?: string }): Promise<User>;
 
   getGoals(userId: number): Promise<Goal[]>;
   createGoal(goal: Omit<Goal, "id">): Promise<Goal>;
@@ -69,15 +69,17 @@ export class MemStorage implements IStorage {
     );
   }
 
-  async createUser(insertUser: { username: string; password: string; phoneNumber?: string; contactPreference?: string }): Promise<User> {
+  async createUser(insertUser: { username: string; password: string; phoneNumber?: string; email: string; contactPreference?: string }): Promise<User> {
     const id = this.currentId++;
     const user = { 
       ...insertUser, 
       id,
       isPhoneVerified: false,
       isEmailVerified: false,
-      contactPreference: insertUser.contactPreference || 'whatsapp',
-      email: null
+      contactPreference: insertUser.contactPreference || 'email',
+      phoneNumber: insertUser.phoneNumber || null,
+      allowEmailNotifications: true,
+      allowPhoneNotifications: false
     };
     this.users.set(id, user);
     return user;
@@ -135,7 +137,6 @@ export class MemStorage implements IStorage {
     code: string;
     expiresAt: Date;
   }): Promise<void> {
-    const id = this.currentId++;
     const verificationList = this.verifications.get(verification.userId) || [];
     verificationList.push({
       ...verification,
@@ -159,9 +160,14 @@ export class MemStorage implements IStorage {
     const user = this.users.get(userId);
     if (!user) throw new Error("User not found");
 
+    const updatedUser = { ...user };
     if (type === 'phone') {
-      this.users.set(userId, { ...user, isPhoneVerified: true });
+      updatedUser.isPhoneVerified = true;
+    } else if (type === 'email') {
+      updatedUser.isEmailVerified = true;
     }
+
+    this.users.set(userId, updatedUser);
   }
 }
 

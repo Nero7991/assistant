@@ -97,30 +97,14 @@ export function setupAuth(app: Express) {
 
       await storage.createContactVerification({
         userId: user.id,
-        type: user.contactPreference,
+        type: 'email',
         code: verificationCode,
         expiresAt,
       });
 
-      // Send verification message
-      const contact = user.phoneNumber;
-      if (!contact) {
-        return res.status(400).json({ message: "Phone number is required for WhatsApp/iMessage verification" });
-      }
-
-      console.log("Sending verification code:", verificationCode);
-      const messageSent = await sendVerificationMessage(
-        user.contactPreference as "whatsapp" | "imessage",
-        contact,
-        verificationCode
-      );
-
-      if (!messageSent) {
-        console.error("Failed to send verification message");
-        // In development, continue anyway since we're using test credentials
-        if (process.env.NODE_ENV === 'production') {
-          return res.status(500).json({ message: "Failed to send verification message" });
-        }
+      // In development, log the verification code
+      if (process.env.NODE_ENV !== 'production') {
+        console.log("Email verification code:", verificationCode);
       }
 
       req.login(user, (err) => {
@@ -155,7 +139,18 @@ export function setupAuth(app: Express) {
     }
 
     await storage.markContactVerified(req.user.id, verification.type);
-    res.json({ message: "Contact verified successfully" });
+
+    // Get updated user and refresh session
+    const updatedUser = await storage.getUser(req.user.id);
+    if (updatedUser) {
+      req.login(updatedUser, (err) => {
+        if (err) {
+          console.error("Session refresh error:", err);
+          return res.status(500).json({ message: "Failed to update session" });
+        }
+        res.json({ message: "Contact verified successfully" });
+      });
+    }
   });
 
   app.post("/api/resend-verification", async (req, res) => {
@@ -167,17 +162,24 @@ export function setupAuth(app: Express) {
 
     await storage.createContactVerification({
       userId: user.id,
-      type: user.contactPreference,
+      type: req.body.type || 'email',
       code: verificationCode,
       expiresAt,
     });
 
-    const contact = user.contactPreference === "email" ? user.email! : user.phoneNumber!;
-    await sendVerificationMessage(
-      user.contactPreference as "whatsapp" | "imessage" | "email",
-      contact,
-      verificationCode
-    );
+    // In development, log the verification code
+    if (process.env.NODE_ENV !== 'production') {
+      console.log("Resent verification code:", verificationCode);
+    }
+
+    const contact = req.body.type === "email" ? user.email : user.phoneNumber;
+    if (req.body.type !== "email") {
+      await sendVerificationMessage(
+        user.contactPreference as "whatsapp" | "imessage",
+        contact!,
+        verificationCode
+      );
+    }
 
     res.json({ message: "Verification code resent" });
   });
