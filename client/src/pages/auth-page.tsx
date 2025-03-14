@@ -99,7 +99,10 @@ function LoginForm() {
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit((data) => loginMutation.mutate(data))} className="space-y-4">
+      <form onSubmit={form.handleSubmit((data) => {
+        console.log('Attempting login...', { ...data, password: '[REDACTED]' });
+        loginMutation.mutate(data)
+      })} className="space-y-4">
         <FormField
           control={form.control}
           name="username"
@@ -149,22 +152,19 @@ function RegisterForm() {
       username: "",
       password: "",
       phoneNumber: "",
-      email: "",
       contactPreference: "whatsapp",
     },
   });
 
-  const contactPreference = form.watch("contactPreference");
-  const isSubmitting = registerMutation.isPending;
-
-  async function onSubmit(data: any) {
+  const onSubmit = async (data: any) => {
     try {
+      console.log('Starting registration process...', { ...data, password: '[REDACTED]' });
       await registerMutation.mutateAsync(data);
     } catch (error) {
+      console.error('Registration failed:', error);
       // Error will be handled by the mutation's onError callback
-      console.error("Form submission error:", error);
     }
-  }
+  };
 
   return (
     <Form {...form}>
@@ -239,29 +239,31 @@ function RegisterForm() {
           )}
         />
 
-        <Button 
-          type="submit" 
-          className="w-full" 
-          disabled={isSubmitting}
-          variant={isSubmitting ? "outline" : "default"}
-        >
-          {isSubmitting ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Creating Account...
-            </>
-          ) : (
-            "Create Account"
-          )}
-        </Button>
+        <div className="space-y-4">
+          <Button 
+            type="submit" 
+            className="w-full"
+            disabled={registerMutation.isPending}
+            variant={registerMutation.isPending ? "outline" : "default"}
+          >
+            {registerMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Creating Account...
+              </>
+            ) : (
+              "Create Account"
+            )}
+          </Button>
 
-        {registerMutation.isError && (
-          <p className="text-sm text-destructive text-center">
-            {registerMutation.error instanceof Error 
-              ? registerMutation.error.message 
-              : "Failed to create account. Please try again."}
-          </p>
-        )}
+          {registerMutation.isError && (
+            <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">
+              {registerMutation.error instanceof Error 
+                ? registerMutation.error.message 
+                : "Failed to create account. Please try again."}
+            </div>
+          )}
+        </div>
       </form>
     </Form>
   );
