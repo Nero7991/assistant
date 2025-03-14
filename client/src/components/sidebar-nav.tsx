@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { Brain, Home, Target, LogOut, Menu, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
+import { useSidebar } from "@/hooks/use-sidebar";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useMediaQuery } from "@/hooks/use-media-query";
@@ -12,16 +12,7 @@ interface SidebarNavProps extends React.HTMLAttributes<HTMLElement> {}
 export function SidebarNav({ className }: SidebarNavProps) {
   const { user, logoutMutation } = useAuth();
   const isMobile = useMediaQuery("(max-width: 768px)");
-  const [isCollapsed, setIsCollapsed] = useState(() => {
-    // Check local storage for saved state
-    const saved = localStorage.getItem("sidebarCollapsed");
-    return saved ? JSON.parse(saved) : false;
-  });
-
-  // Save collapsed state to local storage
-  useEffect(() => {
-    localStorage.setItem("sidebarCollapsed", JSON.stringify(isCollapsed));
-  }, [isCollapsed]);
+  const { isCollapsed, toggle } = useSidebar();
 
   const items = [
     { icon: Home, label: "Dashboard", href: "/" },
@@ -97,33 +88,26 @@ export function SidebarNav({ className }: SidebarNavProps) {
   }
 
   return (
-    <>
-      <aside
-        className={cn(
-          "hidden md:block fixed inset-y-0 left-0 z-40 bg-background border-r transition-all duration-300",
-          isCollapsed ? "w-16" : "w-64",
-          className
-        )}
+    <aside
+      className={cn(
+        "hidden md:block fixed inset-y-0 left-0 z-40 bg-background border-r transition-all duration-300",
+        isCollapsed ? "w-16" : "w-64",
+        className
+      )}
+    >
+      <NavContent />
+      <Button
+        variant="ghost"
+        size="icon"
+        className="absolute -right-4 top-8 hidden md:flex h-8 w-8 rounded-full border bg-background"
+        onClick={toggle}
       >
-        <NavContent />
-        <Button
-          variant="ghost"
-          size="icon"
-          className="absolute -right-4 top-8 hidden md:flex h-8 w-8 rounded-full border bg-background"
-          onClick={() => setIsCollapsed(!isCollapsed)}
-        >
-          {isCollapsed ? (
-            <ChevronRight className="h-4 w-4" />
-          ) : (
-            <ChevronLeft className="h-4 w-4" />
-          )}
-        </Button>
-      </aside>
-      {/* Add padding to main content based on sidebar state */}
-      <div className={cn(
-        "hidden md:block fixed inset-y-0 left-0 transition-all duration-300",
-        isCollapsed ? "pl-16" : "pl-64"
-      )} /> {/*Corrected padding class to affect main content*/}
-    </>
+        {isCollapsed ? (
+          <ChevronRight className="h-4 w-4" />
+        ) : (
+          <ChevronLeft className="h-4 w-4" />
+        )}
+      </Button>
+    </aside>
   );
 }

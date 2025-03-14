@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { CheckIn } from "@shared/schema";
 import { SidebarNav } from "@/components/sidebar-nav";
+import { useSidebar } from "@/hooks/use-sidebar";
 import { CheckInDialog } from "@/components/check-in-dialog";
 import {
   Card,
@@ -12,16 +13,21 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
 import { Brain, MessageSquare, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export default function HomePage() {
   const { data: checkIns, isLoading } = useQuery<CheckIn[]>({
     queryKey: ["/api/checkins"],
   });
+  const { isCollapsed } = useSidebar();
 
   return (
     <div className="flex min-h-screen bg-background">
       <SidebarNav />
-      <main className="flex-1">
+      <main className={cn(
+        "flex-1 transition-all duration-300",
+        isCollapsed ? "pl-16" : "pl-64"
+      )}>
         <div className="h-full p-4 md:p-8 pt-16 md:pt-8">
           <div className="max-w-4xl mx-auto w-full">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
