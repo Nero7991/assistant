@@ -40,7 +40,8 @@ export function setupAuth(app: Express) {
       httpOnly: true,
       sameSite: 'lax',
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
-    }
+    },
+    name: 'session' // Use a generic name
   };
 
   // Important: Session middleware must be before passport middleware
@@ -62,9 +63,14 @@ export function setupAuth(app: Express) {
     }),
   );
 
-  passport.serializeUser((user, done) => done(null, user.id));
+  passport.serializeUser((user, done) => {
+    console.log("Serializing user:", user.id);
+    done(null, user.id);
+  });
+
   passport.deserializeUser(async (id: number, done) => {
     try {
+      console.log("Deserializing user:", id);
       const user = await storage.getUser(id);
       done(null, user);
     } catch (error) {
@@ -113,7 +119,11 @@ export function setupAuth(app: Express) {
           console.error("Login error after registration:", err);
           return next(err);
         }
-        console.log("User logged in after registration:", { id: user.id, isAuthenticated: req.isAuthenticated() });
+        console.log("User logged in after registration:", { 
+          id: user.id, 
+          isAuthenticated: req.isAuthenticated(),
+          session: req.sessionID
+        });
         res.status(201).json(user);
       });
     } catch (error) {
@@ -210,7 +220,11 @@ export function setupAuth(app: Express) {
 
       req.login(user, (err) => {
         if (err) return next(err);
-        console.log("User logged in:", { id: user.id, isAuthenticated: req.isAuthenticated() });
+        console.log("User logged in:", { 
+          id: user.id, 
+          isAuthenticated: req.isAuthenticated(),
+          session: req.sessionID
+        });
         res.status(200).json(user);
       });
     })(req, res, next);
