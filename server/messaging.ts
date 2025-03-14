@@ -1,5 +1,6 @@
 import twilio from "twilio";
 import { randomInt } from "crypto";
+import { sendVerificationEmail } from "./email";
 
 const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 const twilioPhone = process.env.TWILIO_PHONE_NUMBER;
@@ -51,7 +52,7 @@ export function generateVerificationCode(): string {
 }
 
 export async function sendVerificationMessage(
-  type: "whatsapp" | "imessage",
+  type: "whatsapp" | "imessage" | "email",
   contact: string,
   code: string
 ) {
@@ -62,5 +63,7 @@ export async function sendVerificationMessage(
       return sendWhatsAppMessage(contact, message);
     case "imessage":
       return sendSMS(contact, message);
+    case "email":
+      return sendVerificationEmail(contact, code);
   }
 }
