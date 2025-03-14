@@ -9,7 +9,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Form,
@@ -56,8 +55,26 @@ export function VerificationDialog({
 
   async function onSubmit(data: { code: string }) {
     try {
+      console.log("Attempting verification with:", { code: data.code, type });
       setIsVerifying(true);
-      await apiRequest("POST", "/api/verify-contact", { code: data.code, type });
+
+      const res = await fetch("/api/verify-contact", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ code: data.code, type }),
+        credentials: "include",
+      });
+
+      console.log("Verification response status:", res.status);
+      const responseText = await res.text();
+      console.log("Verification response body:", responseText);
+
+      if (!res.ok) {
+        throw new Error(`${res.status}: ${responseText}`);
+      }
+
       toast({
         title: "Verification successful",
         description: `Your ${type} has been verified.`,
@@ -79,7 +96,20 @@ export function VerificationDialog({
   async function handleResend() {
     try {
       setIsResending(true);
-      await apiRequest("POST", "/api/resend-verification", { type });
+      const res = await fetch("/api/resend-verification", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ type }),
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`${res.status}: ${text}`);
+      }
+
       toast({
         title: "Code resent",
         description: `A new verification code has been sent to your ${type}.`,
