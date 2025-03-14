@@ -19,10 +19,10 @@ export default function HomePage() {
   });
 
   return (
-    <div className="min-h-screen bg-background">
-      <SidebarNav />
-      <main className="md:ml-64 p-4 md:p-8 pt-16 md:pt-8">
-        <div className="max-w-4xl mx-auto">
+    <div className="flex min-h-screen bg-background">
+      <SidebarNav className="w-64 flex-shrink-0" />
+      <main className="flex-1 flex flex-col h-screen overflow-auto p-8">
+        <div className="max-w-4xl mx-auto w-full">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
             <div>
               <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Dashboard</h1>

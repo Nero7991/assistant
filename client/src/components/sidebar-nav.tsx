@@ -20,7 +20,7 @@ export function SidebarNav({ className, isCollapsed }: SidebarNavProps) {
   ];
 
   const NavContent = () => (
-    <>
+    <div className="flex flex-col h-full">
       <div className="p-4 border-b border-sidebar-border flex items-center gap-2">
         <Brain className="h-6 w-6 text-sidebar-primary" />
         {!isCollapsed && (
@@ -47,7 +47,7 @@ export function SidebarNav({ className, isCollapsed }: SidebarNavProps) {
         ))}
       </nav>
 
-      <div className="p-2 border-t border-sidebar-border">
+      <div className="p-2 border-t border-sidebar-border mt-auto">
         {user && (
           <>
             <div className="px-2 py-1.5 text-sm text-sidebar-foreground">
@@ -65,28 +65,30 @@ export function SidebarNav({ className, isCollapsed }: SidebarNavProps) {
           </>
         )}
       </div>
-    </>
+    </div>
   );
 
   if (isMobile) {
     return (
-      <Sheet>
-        <SheetTrigger asChild>
-          <Button variant="ghost" size="icon" className="md:hidden fixed top-4 left-4 z-50">
-            <Menu className="h-5 w-5" />
-          </Button>
-        </SheetTrigger>
-        <SheetContent side="left" className="p-0 w-[240px] bg-sidebar">
-          <NavContent />
-        </SheetContent>
-      </Sheet>
+      <>
+        <Button variant="ghost" size="icon" className="fixed top-4 left-4 z-50 md:hidden">
+          <Sheet>
+            <SheetTrigger asChild>
+              <Menu className="h-5 w-5" />
+            </SheetTrigger>
+            <SheetContent side="left" className="p-0 w-64 bg-sidebar">
+              <NavContent />
+            </SheetContent>
+          </Sheet>
+        </Button>
+      </>
     );
   }
 
   return (
     <div
       className={cn(
-        "hidden md:flex flex-col h-screen bg-sidebar border-r border-sidebar-border",
+        "hidden md:block fixed inset-y-0 left-0 z-20 w-64 bg-sidebar border-r border-sidebar-border",
         className
       )}
     >
