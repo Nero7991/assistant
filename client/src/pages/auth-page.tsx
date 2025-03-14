@@ -150,15 +150,25 @@ function RegisterForm() {
       password: "",
       phoneNumber: "",
       email: "",
-      contactPreference: "email",
+      contactPreference: "whatsapp",
     },
   });
 
   const contactPreference = form.watch("contactPreference");
+  const isSubmitting = registerMutation.isPending;
+
+  async function onSubmit(data: any) {
+    try {
+      await registerMutation.mutateAsync(data);
+    } catch (error) {
+      // Error will be handled by the mutation's onError callback
+      console.error("Form submission error:", error);
+    }
+  }
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit((data) => registerMutation.mutate(data))} className="space-y-4">
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
         <FormField
           control={form.control}
           name="username"
@@ -200,62 +210,42 @@ function RegisterForm() {
                 <SelectContent>
                   <SelectItem value="whatsapp">WhatsApp</SelectItem>
                   <SelectItem value="imessage">iMessage</SelectItem>
-                  <SelectItem value="email">Email</SelectItem>
                 </SelectContent>
               </Select>
               <FormMessage />
             </FormItem>
           )}
         />
-        {(contactPreference === "whatsapp" || contactPreference === "imessage") && (
-          <FormField
-            control={form.control}
-            name="phoneNumber"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Phone Number</FormLabel>
-                <FormControl>
-                  <Input
-                    {...field}
-                    placeholder="+1234567890"
-                    type="tel"
-                    autoComplete="tel"
-                  />
-                </FormControl>
-                <FormMessage />
-                <p className="text-xs text-muted-foreground">
-                  Include country code, e.g. +1 for US/Canada
-                </p>
-              </FormItem>
-            )}
-          />
-        )}
-        {contactPreference === "email" && (
-          <FormField
-            control={form.control}
-            name="email"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Email Address</FormLabel>
-                <FormControl>
-                  <Input
-                    {...field}
-                    type="email"
-                    placeholder="you@example.com"
-                    autoComplete="email"
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        )}
+
+        <FormField
+          control={form.control}
+          name="phoneNumber"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Phone Number</FormLabel>
+              <FormControl>
+                <Input
+                  {...field}
+                  placeholder="+1234567890"
+                  type="tel"
+                  autoComplete="tel"
+                />
+              </FormControl>
+              <FormMessage />
+              <p className="text-xs text-muted-foreground">
+                Include country code, e.g. +1 for US/Canada
+              </p>
+            </FormItem>
+          )}
+        />
+
         <Button 
           type="submit" 
           className="w-full" 
-          disabled={registerMutation.isPending}
+          disabled={isSubmitting}
+          variant={isSubmitting ? "outline" : "default"}
         >
-          {registerMutation.isPending ? (
+          {isSubmitting ? (
             <>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Creating Account...
@@ -264,6 +254,7 @@ function RegisterForm() {
             "Create Account"
           )}
         </Button>
+
         {registerMutation.isError && (
           <p className="text-sm text-destructive text-center">
             {registerMutation.error instanceof Error 
