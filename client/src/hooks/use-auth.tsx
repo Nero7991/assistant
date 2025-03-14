@@ -73,10 +73,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return data;
     },
     onSuccess: (user: SelectUser) => {
-      queryClient.setQueryData(["/api/user"], user);
+      // Don't update user context until verification is complete
       toast({
         title: "Account created!",
-        description: "Please check your phone for a verification code.",
+        description: "Please check your email for a verification code.",
       });
     },
     onError: (error: Error) => {

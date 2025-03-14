@@ -33,10 +33,11 @@ import { useState } from "react";
 import { VerificationDialog } from "@/components/verification-dialog";
 
 export default function AuthPage() {
-  const { user, loginMutation, registerMutation } = useAuth();
+  const { user } = useAuth();
   const [, setLocation] = useLocation();
 
-  if (user) {
+  // Only redirect if user is logged in AND email is verified
+  if (user?.isEmailVerified) {
     setLocation("/");
     return null;
   }

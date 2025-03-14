@@ -29,5 +29,14 @@ export function ProtectedRoute({
     );
   }
 
-  return <Component />
+  // Redirect to auth page if email is not verified
+  if (!user.isEmailVerified) {
+    return (
+      <Route path={path}>
+        <Redirect to="/auth" />
+      </Route>
+    );
+  }
+
+  return <Route path={path}><Component /></Route>;
 }
