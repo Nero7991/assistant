@@ -122,9 +122,16 @@ export function setupAuth(app: Express) {
         console.log("User logged in after registration:", { 
           id: user.id, 
           isAuthenticated: req.isAuthenticated(),
-          session: req.sessionID
+          session: req.sessionID 
         });
-        res.status(201).json(user);
+        // Save the session before sending response
+        req.session.save((err) => {
+          if (err) {
+            console.error("Session save error:", err);
+            return next(err);
+          }
+          res.status(201).json(user);
+        });
       });
     } catch (error) {
       console.error("Registration error:", error);
@@ -172,19 +179,31 @@ export function setupAuth(app: Express) {
         return res.status(404).json({ message: "User not found" });
       }
 
-      // Update the session with the new user data
-      req.login(updatedUser, (err) => {
+      // Save the updated user to the session
+      req.session.regenerate((err) => {
         if (err) {
-          console.error("Session refresh error:", err);
+          console.error("Session regenerate error:", err);
           return res.status(500).json({ message: "Failed to update session" });
         }
-        console.log("Verification successful:", { 
-          userId: updatedUser.id, 
-          type, 
-          isAuthenticated: req.isAuthenticated(),
-          session: req.sessionID 
+        req.login(updatedUser, (err) => {
+          if (err) {
+            console.error("Session refresh error:", err);
+            return res.status(500).json({ message: "Failed to update session" });
+          }
+          req.session.save((err) => {
+            if (err) {
+              console.error("Session save error:", err);
+              return res.status(500).json({ message: "Failed to save session" });
+            }
+            console.log("Verification successful:", { 
+              userId: updatedUser.id, 
+              type, 
+              isAuthenticated: req.isAuthenticated(),
+              session: req.sessionID 
+            });
+            res.json({ message: "Contact verified successfully" });
+          });
         });
-        res.json({ message: "Contact verified successfully" });
       });
     } catch (error) {
       console.error("Verification error:", error);
@@ -243,7 +262,8 @@ export function setupAuth(app: Express) {
     console.log("Get user request:", { 
       isAuthenticated: req.isAuthenticated(),
       sessionID: req.sessionID,
-      user: req.user?.id 
+      user: req.user?.id,
+      cookies: req.headers.cookie
     });
     if (!req.isAuthenticated()) return res.sendStatus(401);
     res.json(req.user);
