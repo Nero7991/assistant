@@ -73,7 +73,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return data;
     },
     onSuccess: (user: SelectUser) => {
-      // Don't update user context until verification is complete
+      // Update the cached user data after registration
+      queryClient.setQueryData(["/api/user"], user);
       toast({
         title: "Account created!",
         description: "Please check your email for a verification code.",
