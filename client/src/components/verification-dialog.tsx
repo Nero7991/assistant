@@ -60,6 +60,10 @@ export function VerificationDialog({
       console.log("Attempting verification with:", { code: data.code, type, userId: user?.id });
       setIsVerifying(true);
 
+      // First check if we're authenticated
+      const checkSession = await apiRequest("GET", "/api/debug-session");
+      console.log("Session check before verification:", await checkSession.json());
+
       const res = await apiRequest("POST", "/api/verify-contact", { code: data.code, type });
       const result = await res.json();
 
