@@ -7,7 +7,7 @@ if (!process.env.SENDGRID_API_KEY) {
 const mailService = new MailService();
 mailService.setApiKey(process.env.SENDGRID_API_KEY);
 
-const FROM_EMAIL = 'noreply@adhdcoach.repl.co'; // Replace with your verified sender
+const FROM_EMAIL = 'kona@orencollaco.com'; // Updated sender email
 
 export async function sendVerificationEmail(
   to: string,
