@@ -21,7 +21,7 @@ export default function HomePage() {
   return (
     <div className="flex min-h-screen bg-background">
       <SidebarNav />
-      <main className="flex-1 md:pl-64">
+      <main className="flex-1">
         <div className="h-full p-4 md:p-8 pt-16 md:pt-8">
           <div className="max-w-4xl mx-auto w-full">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">

@@ -1,18 +1,27 @@
+import { useState, useEffect } from "react";
 import { Link } from "wouter";
-import { Brain, Home, Target, LogOut, Menu } from "lucide-react";
+import { Brain, Home, Target, LogOut, Menu, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useMediaQuery } from "@/hooks/use-media-query";
 
-interface SidebarNavProps extends React.HTMLAttributes<HTMLElement> {
-  isCollapsed?: boolean;
-}
+interface SidebarNavProps extends React.HTMLAttributes<HTMLElement> {}
 
-export function SidebarNav({ className, isCollapsed }: SidebarNavProps) {
+export function SidebarNav({ className }: SidebarNavProps) {
   const { user, logoutMutation } = useAuth();
   const isMobile = useMediaQuery("(max-width: 768px)");
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    // Check local storage for saved state
+    const saved = localStorage.getItem("sidebarCollapsed");
+    return saved ? JSON.parse(saved) : false;
+  });
+
+  // Save collapsed state to local storage
+  useEffect(() => {
+    localStorage.setItem("sidebarCollapsed", JSON.stringify(isCollapsed));
+  }, [isCollapsed]);
 
   const items = [
     { icon: Home, label: "Dashboard", href: "/" },
@@ -39,8 +48,8 @@ export function SidebarNav({ className, isCollapsed }: SidebarNavProps) {
                   isActive && "bg-accent"
                 )}
               >
-                <item.icon className="h-4 w-4 mr-2" />
-                {!isCollapsed && item.label}
+                <item.icon className="h-4 w-4" />
+                {!isCollapsed && <span className="ml-2">{item.label}</span>}
               </Button>
             )}
           </Link>
@@ -50,17 +59,19 @@ export function SidebarNav({ className, isCollapsed }: SidebarNavProps) {
       <div className="p-2 border-t mt-auto">
         {user && (
           <>
-            <div className="px-2 py-1.5 text-sm">
-              {!isCollapsed && `Signed in as ${user.username}`}
-            </div>
+            {!isCollapsed && (
+              <div className="px-2 py-1.5 text-sm">
+                Signed in as {user.username}
+              </div>
+            )}
             <Button
               variant="ghost"
               className="w-full justify-start text-destructive hover:text-destructive"
               onClick={() => logoutMutation.mutate()}
               disabled={logoutMutation.isPending}
             >
-              <LogOut className="h-4 w-4 mr-2" />
-              {!isCollapsed && "Sign Out"}
+              <LogOut className="h-4 w-4" />
+              {!isCollapsed && <span className="ml-2">Sign Out</span>}
             </Button>
           </>
         )}
@@ -86,13 +97,33 @@ export function SidebarNav({ className, isCollapsed }: SidebarNavProps) {
   }
 
   return (
-    <aside
-      className={cn(
-        "hidden md:block fixed inset-y-0 left-0 z-40 w-64 bg-background border-r",
-        className
-      )}
-    >
-      <NavContent />
-    </aside>
+    <>
+      <aside
+        className={cn(
+          "hidden md:block fixed inset-y-0 left-0 z-40 bg-background border-r transition-all duration-300",
+          isCollapsed ? "w-16" : "w-64",
+          className
+        )}
+      >
+        <NavContent />
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute -right-4 top-8 hidden md:flex h-8 w-8 rounded-full border bg-background"
+          onClick={() => setIsCollapsed(!isCollapsed)}
+        >
+          {isCollapsed ? (
+            <ChevronRight className="h-4 w-4" />
+          ) : (
+            <ChevronLeft className="h-4 w-4" />
+          )}
+        </Button>
+      </aside>
+      {/* Add padding to main content based on sidebar state */}
+      <div className={cn(
+        "hidden md:block fixed inset-y-0 left-0 transition-all duration-300",
+        isCollapsed ? "pl-16" : "pl-64"
+      )} /> {/*Corrected padding class to affect main content*/}
+    </>
   );
 }
