@@ -28,7 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Brain } from "lucide-react";
+import { Brain, Loader2 } from "lucide-react";
 
 export default function AuthPage() {
   const { user, loginMutation, registerMutation } = useAuth();
@@ -127,7 +127,14 @@ function LoginForm() {
           )}
         />
         <Button type="submit" className="w-full" disabled={loginMutation.isPending}>
-          {loginMutation.isPending ? "Loading..." : "Login"}
+          {loginMutation.isPending ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Logging in...
+            </>
+          ) : (
+            "Login"
+          )}
         </Button>
       </form>
     </Form>
@@ -159,7 +166,7 @@ function RegisterForm() {
             <FormItem>
               <FormLabel>Username</FormLabel>
               <FormControl>
-                <Input {...field} />
+                <Input {...field} autoComplete="username" />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -172,7 +179,7 @@ function RegisterForm() {
             <FormItem>
               <FormLabel>Password</FormLabel>
               <FormControl>
-                <Input type="password" {...field} />
+                <Input type="password" {...field} autoComplete="new-password" />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -212,9 +219,13 @@ function RegisterForm() {
                     {...field}
                     placeholder="+1234567890"
                     type="tel"
+                    autoComplete="tel"
                   />
                 </FormControl>
                 <FormMessage />
+                <p className="text-xs text-muted-foreground">
+                  Include country code, e.g. +1 for US/Canada
+                </p>
               </FormItem>
             )}
           />
@@ -231,6 +242,7 @@ function RegisterForm() {
                     {...field}
                     type="email"
                     placeholder="you@example.com"
+                    autoComplete="email"
                   />
                 </FormControl>
                 <FormMessage />
@@ -238,9 +250,27 @@ function RegisterForm() {
             )}
           />
         )}
-        <Button type="submit" className="w-full" disabled={registerMutation.isPending}>
-          {registerMutation.isPending ? "Creating Account..." : "Create Account"}
+        <Button 
+          type="submit" 
+          className="w-full" 
+          disabled={registerMutation.isPending}
+        >
+          {registerMutation.isPending ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Creating Account...
+            </>
+          ) : (
+            "Create Account"
+          )}
         </Button>
+        {registerMutation.isError && (
+          <p className="text-sm text-destructive text-center">
+            {registerMutation.error instanceof Error 
+              ? registerMutation.error.message 
+              : "Failed to create account. Please try again."}
+          </p>
+        )}
       </form>
     </Form>
   );
