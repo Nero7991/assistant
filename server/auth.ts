@@ -107,6 +107,7 @@ export function setupAuth(app: Express) {
         console.log("Email verification code:", verificationCode);
       }
 
+      // Log in the user immediately after registration
       req.login(user, (err) => {
         if (err) {
           console.error("Login error after registration:", err);
@@ -121,28 +122,44 @@ export function setupAuth(app: Express) {
   });
 
   app.post("/api/verify-contact", async (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      console.log("Verification attempt:", {
+        isAuthenticated: req.isAuthenticated(),
+        user: req.user?.id,
+        body: req.body
+      });
 
-    const { code } = req.body;
-    const verification = await storage.getLatestContactVerification(req.user.id);
+      if (!req.isAuthenticated()) {
+        console.log("User not authenticated");
+        return res.status(401).json({ message: "Not authenticated" });
+      }
 
-    if (!verification) {
-      return res.status(400).json({ message: "No verification pending" });
-    }
+      const { code, type } = req.body;
+      const verification = await storage.getLatestContactVerification(req.user.id);
 
-    if (verification.code !== code) {
-      return res.status(400).json({ message: "Invalid verification code" });
-    }
+      console.log("Found verification:", verification);
 
-    if (new Date() > verification.expiresAt) {
-      return res.status(400).json({ message: "Verification code expired" });
-    }
+      if (!verification) {
+        return res.status(400).json({ message: "No verification pending" });
+      }
 
-    await storage.markContactVerified(req.user.id, verification.type);
+      if (verification.code !== code) {
+        return res.status(400).json({ message: "Invalid verification code" });
+      }
 
-    // Get updated user and refresh session
-    const updatedUser = await storage.getUser(req.user.id);
-    if (updatedUser) {
+      if (new Date() > verification.expiresAt) {
+        return res.status(400).json({ message: "Verification code expired" });
+      }
+
+      await storage.markContactVerified(req.user.id, type || 'email');
+
+      // Get updated user and refresh session
+      const updatedUser = await storage.getUser(req.user.id);
+      if (!updatedUser) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Update the session with the new user data
       req.login(updatedUser, (err) => {
         if (err) {
           console.error("Session refresh error:", err);
@@ -150,18 +167,22 @@ export function setupAuth(app: Express) {
         }
         res.json({ message: "Contact verified successfully" });
       });
+    } catch (error) {
+      console.error("Verification error:", error);
+      res.status(500).json({ message: "Verification failed" });
     }
   });
 
   app.post("/api/resend-verification", async (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
 
-    const user = req.user;
     const verificationCode = generateVerificationCode();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
     await storage.createContactVerification({
-      userId: user.id,
+      userId: req.user.id,
       type: req.body.type || 'email',
       code: verificationCode,
       expiresAt,
@@ -170,15 +191,6 @@ export function setupAuth(app: Express) {
     // In development, log the verification code
     if (process.env.NODE_ENV !== 'production') {
       console.log("Resent verification code:", verificationCode);
-    }
-
-    const contact = req.body.type === "email" ? user.email : user.phoneNumber;
-    if (req.body.type !== "email") {
-      await sendVerificationMessage(
-        user.contactPreference as "whatsapp" | "imessage",
-        contact!,
-        verificationCode
-      );
     }
 
     res.json({ message: "Verification code resent" });
