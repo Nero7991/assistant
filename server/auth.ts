@@ -112,24 +112,32 @@ export function setupAuth(app: Express) {
         console.log("Email verification code:", verificationCode);
       }
 
-      // Log in the user immediately after registration
-      req.login(user, (err) => {
+      // Generate new session
+      req.session.regenerate((err) => {
         if (err) {
-          console.error("Login error after registration:", err);
+          console.error("Session regenerate error:", err);
           return next(err);
         }
-        console.log("User logged in after registration:", { 
-          id: user.id, 
-          isAuthenticated: req.isAuthenticated(),
-          session: req.sessionID 
-        });
-        // Save the session before sending response
-        req.session.save((err) => {
+
+        // Log in the user immediately after registration
+        req.login(user, (err) => {
           if (err) {
-            console.error("Session save error:", err);
+            console.error("Login error after registration:", err);
             return next(err);
           }
-          res.status(201).json(user);
+          console.log("User logged in after registration:", { 
+            id: user.id, 
+            isAuthenticated: req.isAuthenticated(),
+            session: req.sessionID 
+          });
+          // Save the session before sending response
+          req.session.save((err) => {
+            if (err) {
+              console.error("Session save error:", err);
+              return next(err);
+            }
+            res.status(201).json(user);
+          });
         });
       });
     } catch (error) {
@@ -266,5 +274,21 @@ export function setupAuth(app: Express) {
     });
     if (!req.isAuthenticated()) return res.sendStatus(401);
     res.json(req.user);
+  });
+
+  // Add debug endpoint
+  app.get("/api/debug-session", (req, res) => {
+    console.log("Debug session:", {
+      sessionID: req.sessionID,
+      isAuthenticated: req.isAuthenticated(),
+      user: req.user?.id,
+      cookies: req.headers.cookie,
+      session: req.session
+    });
+    res.json({
+      sessionID: req.sessionID,
+      isAuthenticated: req.isAuthenticated(),
+      userId: req.user?.id
+    });
   });
 }
