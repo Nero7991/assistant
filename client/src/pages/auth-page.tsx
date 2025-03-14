@@ -29,6 +29,8 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Brain, Loader2 } from "lucide-react";
+import { useState } from "react";
+import { VerificationDialog } from "@/components/verification-dialog";
 
 export default function AuthPage() {
   const { user, loginMutation, registerMutation } = useAuth();
@@ -146,13 +148,18 @@ function LoginForm() {
 
 function RegisterForm() {
   const { registerMutation } = useAuth();
+  const [showEmailVerification, setShowEmailVerification] = useState(false);
+  const [showPhoneVerification, setShowPhoneVerification] = useState(false);
+  const [verificationComplete, setVerificationComplete] = useState(false);
+
   const form = useForm({
     resolver: zodResolver(insertUserSchema),
     defaultValues: {
       username: "",
       password: "",
       phoneNumber: "",
-      contactPreference: "whatsapp",
+      email: "",
+      contactPreference: "email",
     },
   });
 
@@ -160,111 +167,179 @@ function RegisterForm() {
     try {
       console.log('Starting registration process...', { ...data, password: '[REDACTED]' });
       await registerMutation.mutateAsync(data);
+      setShowEmailVerification(true);
     } catch (error) {
       console.error('Registration failed:', error);
       // Error will be handled by the mutation's onError callback
     }
   };
 
+  const handleEmailVerificationSuccess = () => {
+    setShowEmailVerification(false);
+    // If phone number was provided, show phone verification
+    if (form.getValues("phoneNumber")) {
+      setShowPhoneVerification(true);
+    } else {
+      setVerificationComplete(true);
+    }
+  };
+
+  const handlePhoneVerificationSuccess = () => {
+    setShowPhoneVerification(false);
+    setVerificationComplete(true);
+  };
+
+  const handleSkipPhoneVerification = () => {
+    setVerificationComplete(true);
+  };
+
+  const contactPreference = form.watch("contactPreference");
+
   return (
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-        <FormField
-          control={form.control}
-          name="username"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Username</FormLabel>
-              <FormControl>
-                <Input {...field} autoComplete="username" />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="password"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Password</FormLabel>
-              <FormControl>
-                <Input type="password" {...field} autoComplete="new-password" />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="contactPreference"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Preferred Contact Method</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+    <>
+      <Form {...form}>
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+          <FormField
+            control={form.control}
+            name="username"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Username</FormLabel>
                 <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select contact method" />
-                  </SelectTrigger>
+                  <Input {...field} autoComplete="username" />
                 </FormControl>
-                <SelectContent>
-                  <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                  <SelectItem value="imessage">iMessage</SelectItem>
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
-          name="phoneNumber"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Phone Number</FormLabel>
-              <FormControl>
-                <Input
-                  {...field}
-                  placeholder="+1234567890"
-                  type="tel"
-                  autoComplete="tel"
-                />
-              </FormControl>
-              <FormMessage />
-              <p className="text-xs text-muted-foreground">
-                Include country code, e.g. +1 for US/Canada
-              </p>
-            </FormItem>
-          )}
-        />
-
-        <div className="space-y-4">
-          <Button 
-            type="submit" 
-            className="w-full"
-            disabled={registerMutation.isPending}
-            variant={registerMutation.isPending ? "outline" : "default"}
-          >
-            {registerMutation.isPending ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Creating Account...
-              </>
-            ) : (
-              "Create Account"
+                <FormMessage />
+              </FormItem>
             )}
-          </Button>
+          />
 
-          {registerMutation.isError && (
-            <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">
-              {registerMutation.error instanceof Error 
-                ? registerMutation.error.message 
-                : "Failed to create account. Please try again."}
-            </div>
+          <FormField
+            control={form.control}
+            name="password"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Password</FormLabel>
+                <FormControl>
+                  <Input type="password" {...field} autoComplete="new-password" />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="email"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Email Address</FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    type="email"
+                    placeholder="you@example.com"
+                    autoComplete="email"
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="contactPreference"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Preferred Contact Method</FormLabel>
+                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select contact method" />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                    <SelectItem value="imessage">iMessage</SelectItem>
+                    <SelectItem value="email">Email Only</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          {(contactPreference === "whatsapp" || contactPreference === "imessage") && (
+            <FormField
+              control={form.control}
+              name="phoneNumber"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Phone Number</FormLabel>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      placeholder="+1234567890"
+                      type="tel"
+                      autoComplete="tel"
+                    />
+                  </FormControl>
+                  <FormMessage />
+                  <p className="text-xs text-muted-foreground">
+                    Include country code, e.g. +1 for US/Canada
+                  </p>
+                </FormItem>
+              )}
+            />
           )}
-        </div>
-      </form>
-    </Form>
+
+          <div className="space-y-4">
+            <Button 
+              type="submit" 
+              className="w-full"
+              disabled={registerMutation.isPending}
+              variant={registerMutation.isPending ? "outline" : "default"}
+            >
+              {registerMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Creating Account...
+                </>
+              ) : (
+                "Create Account"
+              )}
+            </Button>
+
+            {registerMutation.isError && (
+              <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">
+                {registerMutation.error instanceof Error 
+                  ? registerMutation.error.message 
+                  : "Failed to create account. Please try again."}
+              </div>
+            )}
+          </div>
+        </form>
+      </Form>
+
+      <VerificationDialog
+        open={showEmailVerification}
+        onOpenChange={setShowEmailVerification}
+        onSuccess={handleEmailVerificationSuccess}
+        title="Verify Your Email"
+        description="Please check your email for a verification code"
+        type="email"
+      />
+
+      <VerificationDialog
+        open={showPhoneVerification}
+        onOpenChange={setShowPhoneVerification}
+        onSuccess={handlePhoneVerificationSuccess}
+        onSkip={handleSkipPhoneVerification}
+        title="Verify Your Phone Number"
+        description="Please check your phone for a verification code"
+        type="phone"
+        showSkip={true}
+      />
+    </>
   );
 }

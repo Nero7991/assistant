@@ -6,11 +6,13 @@ export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
+  email: text("email").notNull(),
   phoneNumber: text("phone_number"),
-  email: text("email"),
   contactPreference: text("contact_preference").notNull().default('email'),
   isPhoneVerified: boolean("is_phone_verified").notNull().default(false),
   isEmailVerified: boolean("is_email_verified").notNull().default(false),
+  allowEmailNotifications: boolean("allow_email_notifications").notNull().default(true),
+  allowPhoneNotifications: boolean("allow_phone_notifications").notNull().default(false),
 });
 
 export const goals = pgTable("goals", {
@@ -42,8 +44,8 @@ export const contactVerifications = pgTable("contact_verifications", {
 export const insertUserSchema = createInsertSchema(users).extend({
   username: z.string().min(3, "Username must be at least 3 characters"),
   password: z.string().min(6, "Password must be at least 6 characters"),
+  email: z.string().email("Please enter a valid email address"),
   phoneNumber: z.string().regex(/^\+\d{1,3}\d{10}$/, "Please enter a valid phone number with country code (e.g. +1234567890)").optional(),
-  email: z.string().email("Please enter a valid email address").optional(),
   contactPreference: z.enum(["whatsapp", "imessage", "email"], {
     required_error: "Please select a contact preference",
   }),
@@ -57,6 +59,10 @@ export const insertGoalSchema = createInsertSchema(goals).pick({
 
 export const insertCheckInSchema = createInsertSchema(checkIns).pick({
   content: true,
+});
+
+export const verificationCodeSchema = z.object({
+  code: z.string().length(6, "Verification code must be 6 digits"),
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
