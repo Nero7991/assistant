@@ -41,7 +41,7 @@ export function setupAuth(app: Express) {
       sameSite: 'lax',
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
     },
-    name: 'session' // Use a generic name
+    name: 'connect.sid' // Match the default cookie name
   };
 
   // Important: Session middleware must be before passport middleware
@@ -138,7 +138,8 @@ export function setupAuth(app: Express) {
         isAuthenticated: req.isAuthenticated(),
         user: req.user?.id,
         sessionID: req.sessionID,
-        body: req.body
+        body: req.body,
+        cookies: req.headers.cookie
       });
 
       if (!req.isAuthenticated()) {
@@ -180,7 +181,8 @@ export function setupAuth(app: Express) {
         console.log("Verification successful:", { 
           userId: updatedUser.id, 
           type, 
-          isAuthenticated: req.isAuthenticated() 
+          isAuthenticated: req.isAuthenticated(),
+          session: req.sessionID 
         });
         res.json({ message: "Contact verified successfully" });
       });

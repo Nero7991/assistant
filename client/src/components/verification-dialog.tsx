@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { verificationCodeSchema } from "@shared/schema";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -60,22 +60,11 @@ export function VerificationDialog({
       console.log("Attempting verification with:", { code: data.code, type, userId: user?.id });
       setIsVerifying(true);
 
-      const res = await fetch("/api/verify-contact", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ code: data.code, type }),
-        credentials: "include",
-      });
+      const res = await apiRequest("POST", "/api/verify-contact", { code: data.code, type });
+      const result = await res.json();
 
-      console.log("Verification response status:", res.status);
-      const responseText = await res.text();
-      console.log("Verification response body:", responseText);
-
-      if (!res.ok) {
-        throw new Error(`${res.status}: ${responseText}`);
-      }
+      console.log("Verification response:", result);
+      queryClient.invalidateQueries({ queryKey: ["/api/user"] });
 
       toast({
         title: "Verification successful",
@@ -98,19 +87,10 @@ export function VerificationDialog({
   async function handleResend() {
     try {
       setIsResending(true);
-      const res = await fetch("/api/resend-verification", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ type }),
-        credentials: "include",
-      });
+      const res = await apiRequest("POST", "/api/resend-verification", { type });
+      const result = await res.json();
 
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`${res.status}: ${text}`);
-      }
+      console.log("Resend response:", result);
 
       toast({
         title: "Code resent",
