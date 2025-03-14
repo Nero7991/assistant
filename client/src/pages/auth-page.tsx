@@ -20,6 +20,13 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Brain } from "lucide-react";
 
@@ -52,18 +59,10 @@ export default function AuthPage() {
                 <TabsTrigger value="register">Register</TabsTrigger>
               </TabsList>
               <TabsContent value="login">
-                <AuthForm
-                  mode="login"
-                  onSubmit={(data) => loginMutation.mutate(data)}
-                  isPending={loginMutation.isPending}
-                />
+                <LoginForm />
               </TabsContent>
               <TabsContent value="register">
-                <AuthForm
-                  mode="register"
-                  onSubmit={(data) => registerMutation.mutate(data)}
-                  isPending={registerMutation.isPending}
-                />
+                <RegisterForm />
               </TabsContent>
             </Tabs>
           </CardContent>
@@ -88,17 +87,10 @@ export default function AuthPage() {
   );
 }
 
-function AuthForm({
-  mode,
-  onSubmit,
-  isPending,
-}: {
-  mode: "login" | "register";
-  onSubmit: (data: { username: string; password: string }) => void;
-  isPending: boolean;
-}) {
+function LoginForm() {
+  const { loginMutation } = useAuth();
   const form = useForm({
-    resolver: zodResolver(insertUserSchema),
+    resolver: zodResolver(insertUserSchema.pick({ username: true, password: true })),
     defaultValues: {
       username: "",
       password: "",
@@ -107,7 +99,7 @@ function AuthForm({
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+      <form onSubmit={form.handleSubmit((data) => loginMutation.mutate(data))} className="space-y-4">
         <FormField
           control={form.control}
           name="username"
@@ -134,8 +126,120 @@ function AuthForm({
             </FormItem>
           )}
         />
-        <Button type="submit" className="w-full" disabled={isPending}>
-          {isPending ? "Loading..." : mode === "login" ? "Login" : "Register"}
+        <Button type="submit" className="w-full" disabled={loginMutation.isPending}>
+          {loginMutation.isPending ? "Loading..." : "Login"}
+        </Button>
+      </form>
+    </Form>
+  );
+}
+
+function RegisterForm() {
+  const { registerMutation } = useAuth();
+  const form = useForm({
+    resolver: zodResolver(insertUserSchema),
+    defaultValues: {
+      username: "",
+      password: "",
+      phoneNumber: "",
+      email: "",
+      contactPreference: "email",
+    },
+  });
+
+  const contactPreference = form.watch("contactPreference");
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit((data) => registerMutation.mutate(data))} className="space-y-4">
+        <FormField
+          control={form.control}
+          name="username"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Username</FormLabel>
+              <FormControl>
+                <Input {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
+          name="password"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Password</FormLabel>
+              <FormControl>
+                <Input type="password" {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
+          name="contactPreference"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Preferred Contact Method</FormLabel>
+              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select contact method" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                  <SelectItem value="imessage">iMessage</SelectItem>
+                  <SelectItem value="email">Email</SelectItem>
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        {(contactPreference === "whatsapp" || contactPreference === "imessage") && (
+          <FormField
+            control={form.control}
+            name="phoneNumber"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Phone Number</FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    placeholder="+1234567890"
+                    type="tel"
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
+        {contactPreference === "email" && (
+          <FormField
+            control={form.control}
+            name="email"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Email Address</FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    type="email"
+                    placeholder="you@example.com"
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        )}
+        <Button type="submit" className="w-full" disabled={registerMutation.isPending}>
+          {registerMutation.isPending ? "Creating Account..." : "Create Account"}
         </Button>
       </form>
     </Form>

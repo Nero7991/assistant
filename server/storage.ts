@@ -8,22 +8,43 @@ export interface IStorage {
   sessionStore: session.Store;
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: { username: string; password: string }): Promise<User>;
-  
+  createUser(user: { username: string; password: string; phoneNumber?: string; contactPreference?: string }): Promise<User>;
+
   getGoals(userId: number): Promise<Goal[]>;
   createGoal(goal: Omit<Goal, "id">): Promise<Goal>;
   updateGoal(id: number, goal: Partial<Goal>): Promise<Goal>;
   deleteGoal(id: number): Promise<void>;
-  
+
   getCheckIns(userId: number): Promise<CheckIn[]>;
   createCheckIn(checkIn: Omit<CheckIn, "id">): Promise<CheckIn>;
   updateCheckIn(id: number, response: string): Promise<CheckIn>;
+
+  // Contact verification methods
+  createContactVerification(verification: {
+    userId: number;
+    type: string;
+    code: string;
+    expiresAt: Date;
+  }): Promise<void>;
+  getLatestContactVerification(userId: number): Promise<{
+    type: string;
+    code: string;
+    expiresAt: Date;
+  } | undefined>;
+  markContactVerified(userId: number, type: string): Promise<void>;
 }
 
 export class MemStorage implements IStorage {
   private users: Map<number, User>;
   private goals: Map<number, Goal>;
   private checkIns: Map<number, CheckIn>;
+  private verifications: Map<number, Array<{
+    userId: number;
+    type: string;
+    code: string;
+    expiresAt: Date;
+    createdAt: Date;
+  }>>;
   sessionStore: session.Store;
   private currentId: number;
 
@@ -31,6 +52,7 @@ export class MemStorage implements IStorage {
     this.users = new Map();
     this.goals = new Map();
     this.checkIns = new Map();
+    this.verifications = new Map();
     this.currentId = 1;
     this.sessionStore = new MemoryStore({
       checkPeriod: 86400000,
@@ -47,9 +69,16 @@ export class MemStorage implements IStorage {
     );
   }
 
-  async createUser(insertUser: { username: string; password: string }): Promise<User> {
+  async createUser(insertUser: { username: string; password: string; phoneNumber?: string; contactPreference?: string }): Promise<User> {
     const id = this.currentId++;
-    const user = { ...insertUser, id };
+    const user = { 
+      ...insertUser, 
+      id,
+      isPhoneVerified: false,
+      isEmailVerified: false,
+      contactPreference: insertUser.contactPreference || 'whatsapp',
+      email: null
+    };
     this.users.set(id, user);
     return user;
   }
@@ -98,6 +127,41 @@ export class MemStorage implements IStorage {
     const updatedCheckIn = { ...checkIn, response };
     this.checkIns.set(id, updatedCheckIn);
     return updatedCheckIn;
+  }
+
+  async createContactVerification(verification: {
+    userId: number;
+    type: string;
+    code: string;
+    expiresAt: Date;
+  }): Promise<void> {
+    const id = this.currentId++;
+    const verificationList = this.verifications.get(verification.userId) || [];
+    verificationList.push({
+      ...verification,
+      createdAt: new Date()
+    });
+    this.verifications.set(verification.userId, verificationList);
+  }
+
+  async getLatestContactVerification(userId: number): Promise<{
+    type: string;
+    code: string;
+    expiresAt: Date;
+  } | undefined> {
+    const verificationList = this.verifications.get(userId) || [];
+    return verificationList
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      [0];
+  }
+
+  async markContactVerified(userId: number, type: string): Promise<void> {
+    const user = this.users.get(userId);
+    if (!user) throw new Error("User not found");
+
+    if (type === 'phone') {
+      this.users.set(userId, { ...user, isPhoneVerified: true });
+    }
   }
 }
 

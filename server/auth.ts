@@ -6,6 +6,7 @@ import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
+import { sendVerificationMessage, generateVerificationCode } from "./messaging";
 
 declare global {
   namespace Express {
@@ -83,6 +84,25 @@ export function setupAuth(app: Express) {
         password: await hashPassword(req.body.password),
       });
 
+      // Generate and store verification code
+      const verificationCode = generateVerificationCode();
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+      await storage.createContactVerification({
+        userId: user.id,
+        type: user.contactPreference,
+        code: verificationCode,
+        expiresAt,
+      });
+
+      // Send verification message
+      const contact = user.contactPreference === "email" ? user.email! : user.phoneNumber!;
+      await sendVerificationMessage(
+        user.contactPreference as "whatsapp" | "imessage" | "email",
+        contact,
+        verificationCode
+      );
+
       req.login(user, (err) => {
         if (err) return next(err);
         res.status(201).json(user);
@@ -90,6 +110,52 @@ export function setupAuth(app: Express) {
     } catch (error) {
       next(error);
     }
+  });
+
+  app.post("/api/verify-contact", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+
+    const { code } = req.body;
+    const verification = await storage.getLatestContactVerification(req.user.id);
+
+    if (!verification) {
+      return res.status(400).json({ message: "No verification pending" });
+    }
+
+    if (verification.code !== code) {
+      return res.status(400).json({ message: "Invalid verification code" });
+    }
+
+    if (new Date() > verification.expiresAt) {
+      return res.status(400).json({ message: "Verification code expired" });
+    }
+
+    await storage.markContactVerified(req.user.id, verification.type);
+    res.json({ message: "Contact verified successfully" });
+  });
+
+  app.post("/api/resend-verification", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+
+    const user = req.user;
+    const verificationCode = generateVerificationCode();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    await storage.createContactVerification({
+      userId: user.id,
+      type: user.contactPreference,
+      code: verificationCode,
+      expiresAt,
+    });
+
+    const contact = user.contactPreference === "email" ? user.email! : user.phoneNumber!;
+    await sendVerificationMessage(
+      user.contactPreference as "whatsapp" | "imessage" | "email",
+      contact,
+      verificationCode
+    );
+
+    res.json({ message: "Verification code resent" });
   });
 
   app.post("/api/login", (req, res, next) => {
