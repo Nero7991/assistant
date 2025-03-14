@@ -74,15 +74,22 @@ export function setupAuth(app: Express) {
 
   app.post("/api/register", async (req, res, next) => {
     try {
+      console.log("Registration request received:", {
+        ...req.body,
+        password: '[REDACTED]'
+      });
+
       const existingUser = await storage.getUserByUsername(req.body.username);
       if (existingUser) {
-        return res.status(400).send("Username already exists");
+        return res.status(400).json({ message: "Username already exists" });
       }
 
       const user = await storage.createUser({
         ...req.body,
         password: await hashPassword(req.body.password),
       });
+
+      console.log("User created:", { id: user.id, username: user.username });
 
       // Generate and store verification code
       const verificationCode = generateVerificationCode();
@@ -96,18 +103,35 @@ export function setupAuth(app: Express) {
       });
 
       // Send verification message
-      const contact = user.contactPreference === "email" ? user.email! : user.phoneNumber!;
-      await sendVerificationMessage(
-        user.contactPreference as "whatsapp" | "imessage" | "email",
+      const contact = user.phoneNumber;
+      if (!contact) {
+        return res.status(400).json({ message: "Phone number is required for WhatsApp/iMessage verification" });
+      }
+
+      console.log("Sending verification code:", verificationCode);
+      const messageSent = await sendVerificationMessage(
+        user.contactPreference as "whatsapp" | "imessage",
         contact,
         verificationCode
       );
 
+      if (!messageSent) {
+        console.error("Failed to send verification message");
+        // In development, continue anyway since we're using test credentials
+        if (process.env.NODE_ENV === 'production') {
+          return res.status(500).json({ message: "Failed to send verification message" });
+        }
+      }
+
       req.login(user, (err) => {
-        if (err) return next(err);
+        if (err) {
+          console.error("Login error after registration:", err);
+          return next(err);
+        }
         res.status(201).json(user);
       });
     } catch (error) {
+      console.error("Registration error:", error);
       next(error);
     }
   });

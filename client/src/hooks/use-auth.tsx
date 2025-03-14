@@ -46,6 +46,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
     },
     onError: (error: Error) => {
+      console.error("Login error:", error);
       toast({
         title: "Login failed",
         description: "Invalid username or password",
@@ -56,21 +57,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const registerMutation = useMutation({
     mutationFn: async (credentials: InsertUser) => {
-      const res = await apiRequest("POST", "/api/register", credentials);
-      const data = await res.json();
-      return data;
+      console.log("Attempting registration with:", {
+        ...credentials,
+        password: '[REDACTED]'
+      });
+      try {
+        const res = await apiRequest("POST", "/api/register", credentials);
+        const data = await res.json();
+        console.log("Registration response:", data);
+        return data;
+      } catch (error) {
+        console.error("Registration error:", error);
+        throw error;
+      }
     },
     onSuccess: (user: SelectUser) => {
       queryClient.setQueryData(["/api/user"], user);
       toast({
-        title: "Welcome!",
-        description: "Your account has been created successfully",
+        title: "Account created!",
+        description: "Please check your phone for a verification code.",
       });
     },
     onError: (error: Error) => {
+      console.error("Registration error in handler:", error);
       toast({
         title: "Registration failed",
-        description: error instanceof Error ? error.message : "An error occurred",
+        description: error instanceof Error ? error.message : "Failed to create account",
         variant: "destructive",
       });
     },
