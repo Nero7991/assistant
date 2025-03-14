@@ -19,13 +19,13 @@ export default function HomePage() {
   });
 
   return (
-    <div className="flex h-screen">
-      <SidebarNav className="w-64" />
-      <main className="flex-1 overflow-auto p-8">
+    <div className="min-h-screen bg-background">
+      <SidebarNav />
+      <main className="md:ml-64 p-4 md:p-8 pt-16 md:pt-8">
         <div className="max-w-4xl mx-auto">
-          <div className="flex items-center justify-between mb-8">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+              <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Dashboard</h1>
               <p className="text-muted-foreground">
                 Your personal ADHD coaching assistant
               </p>
@@ -76,7 +76,9 @@ export default function HomePage() {
                 ) : !checkIns?.length ? (
                   <div className="text-center py-8 text-muted-foreground">
                     <p>No check-ins yet. Start your first coaching session!</p>
-                    <CheckInDialog />
+                    <div className="mt-4">
+                      <CheckInDialog />
+                    </div>
                   </div>
                 ) : (
                   <ScrollArea className="h-[400px] pr-4">
@@ -88,7 +90,7 @@ export default function HomePage() {
                             key={checkIn.id}
                             className="border rounded-lg p-4 space-y-2"
                           >
-                            <div className="flex justify-between items-start">
+                            <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-2">
                               <div className="font-medium">Your Check-in</div>
                               <div className="text-sm text-muted-foreground">
                                 {format(

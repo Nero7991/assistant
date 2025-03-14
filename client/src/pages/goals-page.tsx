@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 import { PlusCircle, Calendar, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils"; // Changed from classnames to cn utility
 
 export default function GoalsPage() {
   const { toast } = useToast();
@@ -58,13 +59,13 @@ export default function GoalsPage() {
   });
 
   return (
-    <div className="flex h-screen">
-      <SidebarNav className="w-64" />
-      <main className="flex-1 overflow-auto p-8">
+    <div className="min-h-screen bg-background">
+      <SidebarNav />
+      <main className="md:ml-64 p-4 md:p-8 pt-16 md:pt-8">
         <div className="max-w-4xl mx-auto">
-          <div className="flex items-center justify-between mb-8">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">Goals</h1>
+              <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Goals</h1>
               <p className="text-muted-foreground">
                 Track and manage your ADHD-friendly goals
               </p>
@@ -113,40 +114,40 @@ export default function GoalsPage() {
               {goals?.map((goal) => (
                 <Card key={goal.id}>
                   <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-start gap-2">
-                        <Checkbox
-                          checked={goal.completed}
-                          onCheckedChange={(checked) =>
-                            updateGoalMutation.mutate({
-                              id: goal.id,
-                              completed: checked as boolean,
-                            })
-                          }
-                        />
-                        <div>
-                          <CardTitle
-                            className={
-                              goal.completed ? "line-through text-muted-foreground" : ""
-                            }
-                          >
-                            {goal.title}
-                          </CardTitle>
-                          {goal.deadline && (
-                            <CardDescription className="flex items-center mt-1">
-                              <Calendar className="h-3 w-3 mr-1" />
-                              {format(new Date(goal.deadline), "PPP")}
-                            </CardDescription>
+                    <div className="flex items-start gap-3">
+                      <Checkbox
+                        checked={goal.completed}
+                        onCheckedChange={(checked) =>
+                          updateGoalMutation.mutate({
+                            id: goal.id,
+                            completed: checked as boolean,
+                          })
+                        }
+                      />
+                      <div className="flex-1">
+                        <CardTitle
+                          className={cn(
+                            "text-lg md:text-xl",
+                            goal.completed && "line-through text-muted-foreground"
                           )}
-                        </div>
+                        >
+                          {goal.title}
+                        </CardTitle>
+                        {goal.deadline && (
+                          <CardDescription className="flex items-center mt-1">
+                            <Calendar className="h-3 w-3 mr-1" />
+                            {format(new Date(goal.deadline), "PPP")}
+                          </CardDescription>
+                        )}
                       </div>
                     </div>
                   </CardHeader>
                   <CardContent>
                     <p
-                      className={
-                        goal.completed ? "line-through text-muted-foreground" : ""
-                      }
+                      className={cn(
+                        "text-sm",
+                        goal.completed && "line-through text-muted-foreground"
+                      )}
                     >
                       {goal.description}
                     </p>

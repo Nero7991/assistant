@@ -1,8 +1,10 @@
 import { Link } from "wouter";
-import { Brain, Home, Target, LogOut } from "lucide-react";
+import { Brain, Home, Target, LogOut, Menu } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { useMediaQuery } from "@/hooks/use-media-query";
 
 interface SidebarNavProps extends React.HTMLAttributes<HTMLElement> {
   isCollapsed?: boolean;
@@ -10,19 +12,15 @@ interface SidebarNavProps extends React.HTMLAttributes<HTMLElement> {
 
 export function SidebarNav({ className, isCollapsed }: SidebarNavProps) {
   const { user, logoutMutation } = useAuth();
+  const isMobile = useMediaQuery("(max-width: 768px)");
 
   const items = [
     { icon: Home, label: "Dashboard", href: "/" },
     { icon: Target, label: "Goals", href: "/goals" },
   ];
 
-  return (
-    <div
-      className={cn(
-        "flex flex-col h-screen bg-sidebar border-r border-sidebar-border",
-        className
-      )}
-    >
+  const NavContent = () => (
+    <>
       <div className="p-4 border-b border-sidebar-border flex items-center gap-2">
         <Brain className="h-6 w-6 text-sidebar-primary" />
         {!isCollapsed && (
@@ -67,6 +65,32 @@ export function SidebarNav({ className, isCollapsed }: SidebarNavProps) {
           </>
         )}
       </div>
+    </>
+  );
+
+  if (isMobile) {
+    return (
+      <Sheet>
+        <SheetTrigger asChild>
+          <Button variant="ghost" size="icon" className="md:hidden fixed top-4 left-4 z-50">
+            <Menu className="h-5 w-5" />
+          </Button>
+        </SheetTrigger>
+        <SheetContent side="left" className="p-0 w-[240px] bg-sidebar">
+          <NavContent />
+        </SheetContent>
+      </Sheet>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "hidden md:flex flex-col h-screen bg-sidebar border-r border-sidebar-border",
+        className
+      )}
+    >
+      <NavContent />
     </div>
   );
 }
