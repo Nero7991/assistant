@@ -14,8 +14,13 @@ export async function sendVerificationEmail(
   code: string
 ): Promise<boolean> {
   try {
-    console.log("Sending verification email to:", to);
-    await mailService.send({
+    console.log("Preparing to send verification email:", {
+      to,
+      from: FROM_EMAIL,
+      subject: 'Verify your ADHD Coach account'
+    });
+
+    const emailData = {
       to,
       from: FROM_EMAIL,
       subject: 'Verify your ADHD Coach account',
@@ -34,11 +39,22 @@ export async function sendVerificationEmail(
           </p>
         </div>
       `,
-    });
-    console.log("Verification email sent successfully");
+    };
+
+    console.log("Sending verification email with SendGrid...");
+    const response = await mailService.send(emailData);
+    console.log("SendGrid API Response:", response);
+    console.log("Verification email sent successfully to:", to);
     return true;
   } catch (error) {
     console.error("SendGrid email error:", error);
+    if (error.response) {
+      console.error("SendGrid API Error Response:", {
+        status: error.response.status,
+        body: error.response.body,
+        headers: error.response.headers
+      });
+    }
     return false;
   }
 }

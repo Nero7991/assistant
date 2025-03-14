@@ -58,12 +58,30 @@ export async function sendVerificationMessage(
 ) {
   const message = `Your ADHD Coach verification code is: ${code}. This code will expire in 10 minutes.`;
 
+  console.log("Sending verification message:", {
+    type,
+    contact,
+    code,
+  });
+
+  let result;
   switch (type) {
     case "whatsapp":
-      return sendWhatsAppMessage(contact, message);
+      result = await sendWhatsAppMessage(contact, message);
+      break;
     case "imessage":
-      return sendSMS(contact, message);
+      result = await sendSMS(contact, message);
+      break;
     case "email":
-      return sendVerificationEmail(contact, code);
+      result = await sendVerificationEmail(contact, code);
+      break;
   }
+
+  console.log("Verification message result:", {
+    type,
+    contact,
+    success: result
+  });
+
+  return result;
 }
