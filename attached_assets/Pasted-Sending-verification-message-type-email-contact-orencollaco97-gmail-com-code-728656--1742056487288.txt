@@ -1,0 +1,61 @@
+Sending verification message: { type: 'email', contact: 'orencollaco97@gmail.com', code: '728656' }
+Preparing to send verification email: {
+  to: 'orencollaco97@gmail.com',
+  from: 'kona@orencollaco.com',
+  subject: 'Verify your ADHD Coach account'
+}
+Sending verification email with SendGrid...
+SendGrid email error: ResponseError: Forbidden
+    at node_modules/@sendgrid/client/src/classes/client.js:167:29
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5) {
+  code: 403,
+  response: {
+    headers: Object [AxiosHeaders] {
+      server: 'nginx',
+      date: 'Sat, 15 Mar 2025 16:31:15 GMT',
+      'content-type': 'application/json',
+      'content-length': '281',
+      connection: 'keep-alive',
+      'access-control-allow-origin': 'https://sendgrid.api-docs.io',
+      'access-control-allow-methods': 'POST',
+      'access-control-allow-headers': 'Authorization, Content-Type, On-behalf-of, x-sg-elas-acl',
+      'access-control-max-age': '600',
+      'x-no-cors-reason': 'https://sendgrid.com/docs/Classroom/Basics/API/cors.html',
+      'strict-transport-security': 'max-age=31536000; includeSubDomains',
+      'content-security-policy': "frame-ancestors 'none'",
+      'cache-control': 'no-cache',
+      'x-content-type-options': 'no-sniff',
+      'referrer-policy': 'strict-origin-when-cross-origin'
+    },
+    body: { errors: [Array] }
+  }
+}
+SendGrid API Error Response: {
+  status: undefined,
+  body: { errors: [ [Object] ] },
+  headers: Object [AxiosHeaders] {
+    server: 'nginx',
+    date: 'Sat, 15 Mar 2025 16:31:15 GMT',
+    'content-type': 'application/json',
+    'content-length': '281',
+    connection: 'keep-alive',
+    'access-control-allow-origin': 'https://sendgrid.api-docs.io',
+    'access-control-allow-methods': 'POST',
+    'access-control-allow-headers': 'Authorization, Content-Type, On-behalf-of, x-sg-elas-acl',
+    'access-control-max-age': '600',
+    'x-no-cors-reason': 'https://sendgrid.com/docs/Classroom/Basics/API/cors.html',
+    'strict-transport-security': 'max-age=31536000; includeSubDomains',
+    'content-security-policy': "frame-ancestors 'none'",
+    'cache-control': 'no-cache',
+    'x-content-type-options': 'no-sniff',
+    'referrer-policy': 'strict-origin-when-cross-origin'
+  }
+}
+Verification message result: { type: 'email', contact: 'orencollaco97@gmail.com', success: false }
+Verification email sending result: { success: false, email: 'orencollaco97@gmail.com' }
+Serializing user: 1
+User logged in after registration: {
+  id: 1,
+  isAuthenticated: true,
+  session: 'IQ7T0GGIXZxtyoi4qoLs5hGdhUta06NF'
+}

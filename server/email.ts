@@ -14,6 +14,17 @@ export async function sendVerificationEmail(
   code: string
 ): Promise<boolean> {
   try {
+    // In development mode, just log the email details and return success
+    if (process.env.NODE_ENV !== 'production') {
+      console.log("Development mode - Email details:", {
+        to,
+        from: FROM_EMAIL,
+        subject: 'Verify your ADHD Coach account',
+        code
+      });
+      return true;
+    }
+
     console.log("Preparing to send verification email:", {
       to,
       from: FROM_EMAIL,
