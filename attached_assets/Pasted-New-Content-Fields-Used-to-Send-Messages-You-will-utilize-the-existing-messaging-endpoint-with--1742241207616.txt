@@ -1,0 +1,99 @@
+New Content Fields Used to Send Messages
+
+
+
+
+
+You will utilize the existing messaging endpoint with an additional field, ContentSid. You may also include the ContentVariables field to substitute any placeholder values in your templates.
+
+
+
+Copy code block
+POST https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/Messages
+New Field	Required	Description
+ContentSid	Yes	String field used to identify the preconfigured content. Required to send templates created using the Content Template Builder.
+ContentVariables	No	JSON string used to define the values of any placeholder variables found in the preconfigured content. Key-value pairs of placeholder variable names and substitution values. Content Templates support up to 100 key-value pairs per send request.
+
+(information)
+Info
+If you are sending a WhatsApp message outside the 24-hour free-form session, you need to use a template approved by WhatsApp. Learn more.
+Send Content Templates
+
+
+
+
+
+
+(warning)
+Warning
+Body and MediaUrl should be excluded. They are both not required. They are both superseded by the ContentSid
+Send Messages with a Content Template
+
+
+
+
+
+Report code block
+
+
+Copy code block
+// Download the helper library from https://www.twilio.com/docs/node/install
+const twilio = require("twilio"); // Or, for ESM: import twilio from "twilio";
+
+// Find your Account SID and Auth Token at twilio.com/console
+// and set the environment variables. See http://twil.io/secure
+const accountSid = process.env.TWILIO_ACCOUNT_SID;
+const authToken = process.env.TWILIO_AUTH_TOKEN;
+const client = twilio(accountSid, authToken);
+
+async function createMessage() {
+  const message = await client.messages.create({
+    contentSid: "HXXXXXXXXX",
+    contentVariables: JSON.stringify({ 1: "Name" }),
+    from: "whatsapp:+15551234567",
+    to: "whatsapp:+18551234567",
+  });
+
+  console.log(message.body);
+}
+
+createMessage();
+Output
+
+
+Copy output
+{
+  "account_sid": "ACXXXXXXXXX",
+  "api_version": "2010-04-01",
+  "body": "Hello! 👍",
+  "date_created": "Thu, 24 Aug 2023 05:01:45 +0000",
+  "date_sent": "Thu, 24 Aug 2023 05:01:45 +0000",
+  "date_updated": "Thu, 24 Aug 2023 05:01:45 +0000",
+  "direction": "outbound-api",
+  "error_code": null,
+  "error_message": null,
+  "from": "whatsapp:+15551234567",
+  "num_media": "0",
+  "num_segments": "1",
+  "price": null,
+  "price_unit": null,
+  "messaging_service_sid": "MGaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "sid": "SMaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "status": "queued",
+  "subresource_uris": {
+    "media": "/2010-04-01/Accounts/ACaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/Messages/SMaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/Media.json"
+  },
+  "tags": {
+    "campaign_name": "Spring Sale 2022",
+    "message_type": "cart_abandoned"
+  },
+  "to": "whatsapp:+18551234567",
+  "uri": "/2010-04-01/Accounts/ACaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/Messages/SMaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.json"
+}
+The primary method of sending a content template is to replace the body field with ContentSid and ContentVariables fields:
+
+Field	Required	Description
+From	Yes	The sender that is initiating the message. Use e.164 format for phone numbers, "whatsapp:e.164" for WhatsApp, and "messenger:{messenger_id}" for FB Messenger.
+To	Yes	The identifier of the recipient you are sending the message to. Use e.164 format for phone numbers, whatsapp:e.164 for WhatsApp, and messenger:messenger_id for FB Messenger.
+ContentSid	Yes	String field used to identify the preconfigured content. Required to send templates created using the Content Template Builder.
+ContentVariables	No	JSON string used to define the values of any placeholder variables found in the preconfigured content. Key-value pairs of placeholder variable names and substitution values.

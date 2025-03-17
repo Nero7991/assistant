@@ -1,6 +1,6 @@
-import twilio from "twilio";
 import { randomInt } from "crypto";
 import { sendVerificationEmail } from "./email";
+import twilio from "twilio";
 
 if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_PHONE_NUMBER) {
   throw new Error("Missing required Twilio credentials");
@@ -33,18 +33,15 @@ export async function sendWhatsAppMessage(to: string, message: string): Promise<
       contentSid: 'HX02fff4396367e72b923720ae12920172'
     });
 
-    const contentVars = {
-      1: "there",
-      2: "task verification"
-    };
-
-    console.log("Template variables:", contentVars);
-
+    // Following exact Twilio Content Template format
     const response = await client.messages.create({
+      contentSid: 'HX02fff4396367e72b923720ae12920172',
+      contentVariables: JSON.stringify({ 
+        1: "Name",
+        2: "Drone navigation project"
+      }),
       from: fromWhatsApp,
       to: toWhatsApp,
-      contentSid: 'HX02fff4396367e72b923720ae12920172',
-      contentVariables: JSON.stringify(contentVars)
     });
 
     console.log("WhatsApp message sent successfully:", {
