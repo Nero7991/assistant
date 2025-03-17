@@ -35,7 +35,7 @@ export async function sendWhatsAppMessage(to: string, message: string): Promise<
 
     const contentVars = {
       1: "there",
-      2: "your verification code is " + message
+      2: "task verification"
     };
 
     console.log("Template variables:", contentVars);
