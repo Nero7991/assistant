@@ -177,20 +177,31 @@ function RegisterForm() {
 
   const handleEmailVerificationSuccess = () => {
     setShowEmailVerification(false);
-    // If phone number was provided, show phone verification
-    if (form.getValues("phoneNumber")) {
+    console.log("Email verification complete, phone number:", form.getValues("phoneNumber"));
+    console.log("Contact preference:", form.getValues("contactPreference"));
+
+    // If WhatsApp or iMessage was selected and phone number was provided, show phone verification
+    if (
+      (form.getValues("contactPreference") === "whatsapp" || 
+       form.getValues("contactPreference") === "imessage") && 
+      form.getValues("phoneNumber")
+    ) {
+      console.log("Showing phone verification dialog");
       setShowPhoneVerification(true);
     } else {
+      console.log("Skipping phone verification - no phone number or email-only preference");
       setVerificationComplete(true);
     }
   };
 
   const handlePhoneVerificationSuccess = () => {
+    console.log("Phone verification completed successfully");
     setShowPhoneVerification(false);
     setVerificationComplete(true);
   };
 
   const handleSkipPhoneVerification = () => {
+    console.log("Phone verification skipped");
     setVerificationComplete(true);
   };
 
