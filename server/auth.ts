@@ -241,6 +241,30 @@ export function setupAuth(app: Express) {
       expiresAt,
     });
 
+    // Send verification message based on type
+    const messageType = req.body.type === 'phone' ?
+      (req.user.contactPreference === 'whatsapp' ? 'whatsapp' : 'imessage') :
+      'email';
+
+    const contact = req.body.type === 'phone' ? req.user.phoneNumber : req.user.email;
+
+    console.log("Sending verification message:", {
+      type: messageType,
+      contact,
+      userId: req.user.id
+    });
+
+    const messageSent = await sendVerificationMessage(
+      messageType,
+      contact,
+      verificationCode
+    );
+
+    if (!messageSent) {
+      console.error("Failed to send verification message");
+      return res.status(500).json({ message: "Failed to send verification code" });
+    }
+
     // In development, log the verification code
     if (process.env.NODE_ENV !== 'production') {
       console.log("Resent verification code:", verificationCode);

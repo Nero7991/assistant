@@ -8,20 +8,34 @@ const twilioPhone = process.env.TWILIO_PHONE_NUMBER;
 export async function sendWhatsAppMessage(to: string, message: string) {
   try {
     console.log("Attempting to send WhatsApp message to:", to);
+    // Ensure the phone number has the correct format for WhatsApp
+    const formattedNumber = to.startsWith('+') ? to : `+${to}`;
+
     const response = await client.messages.create({
       body: message,
       from: `whatsapp:${twilioPhone}`,
-      to: `whatsapp:${to}`,
+      to: `whatsapp:${formattedNumber}`,
     });
+
     console.log("WhatsApp message sent successfully:", {
       sid: response.sid,
       status: response.status,
       errorCode: response.errorCode,
       errorMessage: response.errorMessage,
+      to: formattedNumber,
+      from: `whatsapp:${twilioPhone}`
     });
     return true;
   } catch (error) {
     console.error("WhatsApp message error:", error);
+    if (error.code) {
+      console.error("Twilio error details:", {
+        code: error.code,
+        message: error.message,
+        status: error.status,
+        moreInfo: error.moreInfo
+      });
+    }
     return false;
   }
 }
@@ -29,20 +43,32 @@ export async function sendWhatsAppMessage(to: string, message: string) {
 export async function sendSMS(to: string, message: string) {
   try {
     console.log("Attempting to send SMS to:", to);
+    const formattedNumber = to.startsWith('+') ? to : `+${to}`;
+
     const response = await client.messages.create({
       body: message,
       from: twilioPhone,
-      to: to,
+      to: formattedNumber,
     });
+
     console.log("SMS sent successfully:", {
       sid: response.sid,
       status: response.status,
       errorCode: response.errorCode,
       errorMessage: response.errorMessage,
+      to: formattedNumber
     });
     return true;
   } catch (error) {
     console.error("SMS message error:", error);
+    if (error.code) {
+      console.error("Twilio error details:", {
+        code: error.code,
+        message: error.message,
+        status: error.status,
+        moreInfo: error.moreInfo
+      });
+    }
     return false;
   }
 }
