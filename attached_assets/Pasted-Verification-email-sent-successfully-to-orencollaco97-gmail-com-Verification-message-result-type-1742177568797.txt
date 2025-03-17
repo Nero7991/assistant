@@ -1,0 +1,60 @@
+Verification email sent successfully to: orencollaco97@gmail.com
+Verification message result: { type: 'email', contact: 'orencollaco97@gmail.com', success: true }
+Verification email sending result: { success: true, email: 'orencollaco97@gmail.com' }
+Serializing user: 1
+User logged in after registration: {
+  id: 1,
+  isAuthenticated: true,
+  session: 'P1QHwsKNxoF15C8Yz71Lf83VEfLLI5K9'
+}
+2:10:10 AM [express] POST /api/register 201 in 259ms :: {"username":"oren","password":"823e7f4fab3c0…
+Deserializing user: 1
+Debug session: {
+  sessionID: 'P1QHwsKNxoF15C8Yz71Lf83VEfLLI5K9',
+  isAuthenticated: true,
+  user: 1,
+  cookies: 'connect.sid=s%3AP1QHwsKNxoF15C8Yz71Lf83VEfLLI5K9.wWKvP%2BDhx0P5TYx97dCKy80So45fLhJ0ZrbtaGIbPME',
+  session: Session {
+    cookie: {
+      path: '/',
+      _expires: 2025-03-18T02:10:10.849Z,
+      originalMaxAge: 86400000,
+      httpOnly: true,
+      secure: false,
+      sameSite: 'lax'
+    },
+    passport: { user: 1 }
+  }
+}
+2:10:18 AM [express] GET /api/debug-session 200 in 3ms :: {"sessionID":"P1QHwsKNxoF15C8Yz71Lf83VEfLL…
+Deserializing user: 1
+Verification attempt: {
+  isAuthenticated: true,
+  user: 1,
+  sessionID: 'P1QHwsKNxoF15C8Yz71Lf83VEfLLI5K9',
+  body: { code: '972085', type: 'email' },
+  cookies: 'connect.sid=s%3AP1QHwsKNxoF15C8Yz71Lf83VEfLLI5K9.wWKvP%2BDhx0P5TYx97dCKy80So45fLhJ0ZrbtaGIbPME'
+}
+Found verification: {
+  userId: 1,
+  type: 'email',
+  code: '972085',
+  expiresAt: 2025-03-17T02:20:10.630Z,
+  createdAt: 2025-03-17T02:10:10.630Z
+}
+Serializing user: 1
+Verification successful: {
+  userId: 1,
+  type: 'email',
+  isAuthenticated: true,
+  session: 'hQhzlX9PnscuH8YPKZPt--InPfQpfAgn'
+}
+2:10:18 AM [express] POST /api/verify-contact 200 in 2ms :: {"message":"Contact verified successfull…
+Deserializing user: 1
+Get user request: {
+  isAuthenticated: true,
+  sessionID: 'hQhzlX9PnscuH8YPKZPt--InPfQpfAgn',
+  user: 1,
+  cookies: 'connect.sid=s%3AhQhzlX9PnscuH8YPKZPt--InPfQpfAgn.YGuH52k5GFeI0mn%2FooPETKgMWxx9iJLFHM7%2BMkpohqk'
+}
+2:10:18 AM [express] GET /api/user 200 in 1ms :: {"username":"oren","password":"823e7f4fab3c08dc40c1…
