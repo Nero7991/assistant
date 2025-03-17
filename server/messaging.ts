@@ -23,10 +23,7 @@ const client = twilio(
 );
 const twilioPhone = "+18557270654"; // Production WhatsApp business number
 
-export async function sendWhatsAppMessage(
-  to: string,
-  message: string,
-): Promise<boolean> {
+export async function sendWhatsAppMessage(to: string, message: string): Promise<boolean> {
   try {
     console.log("Attempting to send WhatsApp message to:", to);
     // Ensure the phone number has the correct format for WhatsApp
@@ -59,7 +56,7 @@ export async function sendWhatsAppMessage(
       status: response.status,
       errorCode: response.errorCode,
       errorMessage: response.errorMessage,
-      to: formattedNumber,
+      to: formattedNumber
     });
     return true;
   } catch (error: any) {
