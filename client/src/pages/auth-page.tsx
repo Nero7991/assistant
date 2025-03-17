@@ -37,7 +37,8 @@ export default function AuthPage() {
   const [, setLocation] = useLocation();
 
   // Only redirect if user is logged in AND email is verified
-  if (user?.isEmailVerified) {
+  if (user?.isEmailVerified && 
+      (user.contactPreference !== "whatsapp" || user.isPhoneVerified)) {
     setLocation("/");
     return null;
   }

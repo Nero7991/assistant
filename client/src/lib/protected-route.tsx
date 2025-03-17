@@ -21,16 +21,9 @@ export function ProtectedRoute({
     );
   }
 
-  if (!user) {
-    return (
-      <Route path={path}>
-        <Redirect to="/auth" />
-      </Route>
-    );
-  }
-
-  // Redirect to auth page if email is not verified
-  if (!user.isEmailVerified) {
+  // Redirect to auth page if not authenticated or required verifications are not complete
+  if (!user || !user.isEmailVerified || 
+      (user.contactPreference === "whatsapp" && !user.isPhoneVerified)) {
     return (
       <Route path={path}>
         <Redirect to="/auth" />
