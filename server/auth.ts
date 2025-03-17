@@ -77,7 +77,7 @@ export function setupAuth(app: Express) {
     }
   });
 
-  // Add detailed logging for registration verification email
+  // Update the registration endpoint to handle WhatsApp verification
   app.post("/api/register", async (req, res, next) => {
     try {
       console.log("Registration request received:", {
@@ -95,7 +95,11 @@ export function setupAuth(app: Express) {
         password: await hashPassword(req.body.password),
       });
 
-      console.log("User created:", { id: user.id, username: user.username });
+      console.log("User created:", {
+        id: user.id,
+        username: user.username,
+        contactPreference: user.contactPreference
+      });
 
       // Generate and store verification code
       const verificationCode = generateVerificationCode();
@@ -226,6 +230,7 @@ export function setupAuth(app: Express) {
     }
   });
 
+  // Update the resend verification endpoint to properly handle WhatsApp messages
   app.post("/api/resend-verification", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ message: "Not authenticated" });
@@ -251,7 +256,7 @@ export function setupAuth(app: Express) {
     console.log("Sending verification message:", {
       type: messageType,
       contact,
-      userId: req.user.id
+      code: verificationCode
     });
 
     const messageSent = await sendVerificationMessage(
@@ -260,14 +265,15 @@ export function setupAuth(app: Express) {
       verificationCode
     );
 
+    console.log("Verification message result:", {
+      type: messageType,
+      contact,
+      success: messageSent
+    });
+
     if (!messageSent) {
       console.error("Failed to send verification message");
       return res.status(500).json({ message: "Failed to send verification code" });
-    }
-
-    // In development, log the verification code
-    if (process.env.NODE_ENV !== 'production') {
-      console.log("Resent verification code:", verificationCode);
     }
 
     res.json({ message: "Verification code resent" });
