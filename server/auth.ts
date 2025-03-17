@@ -120,11 +120,6 @@ export function setupAuth(app: Express) {
         email: user.email
       });
 
-      // In development, always log the verification code
-      if (process.env.NODE_ENV !== 'production') {
-        console.log("Development mode - Verification code:", verificationCode);
-      }
-
       // Generate new session
       req.session.regenerate((err) => {
         if (err) {
