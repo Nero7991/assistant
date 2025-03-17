@@ -26,24 +26,20 @@ export async function sendWhatsAppMessage(to: string, message: string): Promise<
     const fromWhatsApp = `whatsapp:${twilioPhone}`;
     const toWhatsApp = `whatsapp:${formattedNumber}`;
 
-    // Using template format for verification message
-    const templateMessage = `ADHD Coach: Your verification code is ${message}. This code will expire in 10 minutes.`;
-
     console.log("WhatsApp request details:", {
       to: toWhatsApp,
       from: fromWhatsApp,
       template: true,
-      body: templateMessage.substring(0, 20) + "..."
+      contentSid: 'HX02fff4396367e72b923720ae12920172'
     });
 
     const response = await client.messages.create({
-      body: templateMessage,
       from: fromWhatsApp,
       to: toWhatsApp,
-      contentType: 'template',
-      contentSid: 'HXa3ab4a5d2ab84d18af6a82c4a8c6f6c9', // Template SID for verification
+      contentSid: 'HX02fff4396367e72b923720ae12920172',
       contentVariables: JSON.stringify({
-        1: message // Verification code
+        1: "there",
+        2: "your verification code " + message
       })
     });
 
