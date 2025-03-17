@@ -158,6 +158,7 @@ export function setupAuth(app: Express) {
     }
   });
 
+  // Update the verification endpoint to properly handle WhatsApp verification
   app.post("/api/verify-contact", async (req, res) => {
     try {
       console.log("Verification attempt:", {
@@ -190,7 +191,40 @@ export function setupAuth(app: Express) {
         return res.status(400).json({ message: "Verification code expired" });
       }
 
-      await storage.markContactVerified(req.user.id, type || 'email');
+      await storage.markContactVerified(req.user.id, type);
+
+      // After email verification, if user chose WhatsApp, send WhatsApp verification
+      if (type === 'email' && req.user.contactPreference === 'whatsapp' && !req.user.isPhoneVerified && req.user.phoneNumber) {
+        console.log("Email verified, initiating WhatsApp verification for user:", req.user.id);
+
+        const whatsAppVerificationCode = generateVerificationCode();
+        const whatsAppExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+        await storage.createContactVerification({
+          userId: req.user.id,
+          type: 'phone',
+          code: whatsAppVerificationCode,
+          expiresAt: whatsAppExpiresAt,
+        });
+
+        console.log("Attempting WhatsApp verification for:", {
+          userId: req.user.id,
+          phoneNumber: req.user.phoneNumber,
+          code: whatsAppVerificationCode
+        });
+
+        const whatsAppMessageSent = await sendVerificationMessage(
+          'whatsapp',
+          req.user.phoneNumber,
+          whatsAppVerificationCode
+        );
+
+        console.log("WhatsApp verification message result:", {
+          userId: req.user.id,
+          phoneNumber: req.user.phoneNumber,
+          success: whatsAppMessageSent
+        });
+      }
 
       // Get updated user and refresh session
       const updatedUser = await storage.getUser(req.user.id);
@@ -198,7 +232,6 @@ export function setupAuth(app: Express) {
         return res.status(404).json({ message: "User not found" });
       }
 
-      // Save the updated user to the session
       req.session.regenerate((err) => {
         if (err) {
           console.error("Session regenerate error:", err);
