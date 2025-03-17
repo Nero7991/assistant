@@ -8,20 +8,20 @@ const twilioPhone = process.env.TWILIO_PHONE_NUMBER;
 export async function sendWhatsAppMessage(to: string, message: string) {
   try {
     console.log("Attempting to send WhatsApp message to:", to);
-    await client.messages.create({
+    const response = await client.messages.create({
       body: message,
       from: `whatsapp:${twilioPhone}`,
       to: `whatsapp:${to}`,
     });
-    console.log("WhatsApp message sent successfully");
+    console.log("WhatsApp message sent successfully:", {
+      sid: response.sid,
+      status: response.status,
+      errorCode: response.errorCode,
+      errorMessage: response.errorMessage,
+    });
     return true;
   } catch (error) {
     console.error("WhatsApp message error:", error);
-    // Since we're using test credentials, we'll simulate success
-    if (process.env.NODE_ENV !== 'production') {
-      console.log("Using test credentials - simulating successful message delivery");
-      return true;
-    }
     return false;
   }
 }
@@ -29,20 +29,20 @@ export async function sendWhatsAppMessage(to: string, message: string) {
 export async function sendSMS(to: string, message: string) {
   try {
     console.log("Attempting to send SMS to:", to);
-    await client.messages.create({
+    const response = await client.messages.create({
       body: message,
       from: twilioPhone,
       to: to,
     });
-    console.log("SMS sent successfully");
+    console.log("SMS sent successfully:", {
+      sid: response.sid,
+      status: response.status,
+      errorCode: response.errorCode,
+      errorMessage: response.errorMessage,
+    });
     return true;
   } catch (error) {
     console.error("SMS message error:", error);
-    // Since we're using test credentials, we'll simulate success
-    if (process.env.NODE_ENV !== 'production') {
-      console.log("Using test credentials - simulating successful message delivery");
-      return true;
-    }
     return false;
   }
 }
