@@ -39,7 +39,7 @@ export async function sendWhatsAppMessage(to: string, message: string): Promise<
       contentSid: 'HX02fff4396367e72b923720ae12920172',
       contentVariables: JSON.stringify({
         1: "there",
-        2: "your verification code " + message
+        2: "your verification code is " + message
       })
     });
 
@@ -48,8 +48,7 @@ export async function sendWhatsAppMessage(to: string, message: string): Promise<
       status: response.status,
       errorCode: response.errorCode,
       errorMessage: response.errorMessage,
-      to: formattedNumber,
-      from: fromWhatsApp
+      to: formattedNumber
     });
     return true;
   } catch (error: any) {
@@ -61,14 +60,6 @@ export async function sendWhatsAppMessage(to: string, message: string): Promise<
         status: error.status,
         moreInfo: error.moreInfo
       });
-
-      // Add template-specific error guidance
-      if (error.code === 63007) {
-        console.error("IMPORTANT: Template-related error. Please verify:");
-        console.error("1. Your message template is approved in Twilio Console");
-        console.error("2. The template SID is correct");
-        console.error("3. The message format matches the approved template");
-      }
     }
     return false;
   }
