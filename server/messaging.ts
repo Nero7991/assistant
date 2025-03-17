@@ -14,7 +14,7 @@ console.log("Initializing Twilio client with:", {
 });
 
 const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-const twilioPhone = process.env.TWILIO_PHONE_NUMBER;
+const twilioPhone = "+18557270654"; // Updated to the correct WhatsApp-enabled number
 
 export async function sendWhatsAppMessage(to: string, message: string): Promise<boolean> {
   try {
@@ -22,16 +22,20 @@ export async function sendWhatsAppMessage(to: string, message: string): Promise<
     // Ensure the phone number has the correct format for WhatsApp
     const formattedNumber = to.startsWith('+') ? to : `+${to}`;
 
+    // Format numbers for WhatsApp
+    const fromWhatsApp = `whatsapp:${twilioPhone}`;
+    const toWhatsApp = `whatsapp:${formattedNumber}`;
+
     console.log("WhatsApp request details:", {
-      to: `whatsapp:${formattedNumber}`,
-      from: `whatsapp:${twilioPhone}`,
+      to: toWhatsApp,
+      from: fromWhatsApp,
       body: message.substring(0, 20) + "..." // Log first 20 chars of message
     });
 
     const response = await client.messages.create({
       body: message,
-      from: `whatsapp:${twilioPhone}`,
-      to: `whatsapp:${formattedNumber}`,
+      from: fromWhatsApp,
+      to: toWhatsApp,
     });
 
     console.log("WhatsApp message sent successfully:", {
@@ -40,7 +44,7 @@ export async function sendWhatsAppMessage(to: string, message: string): Promise<
       errorCode: response.errorCode,
       errorMessage: response.errorMessage,
       to: formattedNumber,
-      from: `whatsapp:${twilioPhone}`
+      from: fromWhatsApp
     });
     return true;
   } catch (error: any) {
