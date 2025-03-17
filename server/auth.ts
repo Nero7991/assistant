@@ -77,6 +77,7 @@ export function setupAuth(app: Express) {
     }
   });
 
+  // Add detailed logging for registration verification email
   app.post("/api/register", async (req, res, next) => {
     try {
       console.log("Registration request received:", {
