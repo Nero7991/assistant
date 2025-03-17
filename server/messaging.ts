@@ -26,16 +26,25 @@ export async function sendWhatsAppMessage(to: string, message: string): Promise<
     const fromWhatsApp = `whatsapp:${twilioPhone}`;
     const toWhatsApp = `whatsapp:${formattedNumber}`;
 
+    // Using template format for verification message
+    const templateMessage = `ADHD Coach: Your verification code is ${message}. This code will expire in 10 minutes.`;
+
     console.log("WhatsApp request details:", {
       to: toWhatsApp,
       from: fromWhatsApp,
-      body: message.substring(0, 20) + "..." // Log first 20 chars of message
+      template: true,
+      body: templateMessage.substring(0, 20) + "..."
     });
 
     const response = await client.messages.create({
-      body: message,
+      body: templateMessage,
       from: fromWhatsApp,
       to: toWhatsApp,
+      contentType: 'template',
+      contentSid: 'HXa3ab4a5d2ab84d18af6a82c4a8c6f6c9', // Template SID for verification
+      contentVariables: JSON.stringify({
+        1: message // Verification code
+      })
     });
 
     console.log("WhatsApp message sent successfully:", {
@@ -56,6 +65,14 @@ export async function sendWhatsAppMessage(to: string, message: string): Promise<
         status: error.status,
         moreInfo: error.moreInfo
       });
+
+      // Add template-specific error guidance
+      if (error.code === 63007) {
+        console.error("IMPORTANT: Template-related error. Please verify:");
+        console.error("1. Your message template is approved in Twilio Console");
+        console.error("2. The template SID is correct");
+        console.error("3. The message format matches the approved template");
+      }
     }
     return false;
   }
@@ -69,7 +86,7 @@ export async function sendSMS(to: string, message: string): Promise<boolean> {
     console.log("SMS request details:", {
       to: formattedNumber,
       from: twilioPhone,
-      body: message.substring(0, 20) + "..." // Log first 20 chars of message
+      body: message.substring(0, 20) + "..."
     });
 
     const response = await client.messages.create({
@@ -114,13 +131,13 @@ export async function sendVerificationMessage(
   console.log("Sending verification message:", {
     type,
     contact,
-    code,
+    code
   });
 
   let result;
   switch (type) {
     case "whatsapp":
-      result = await sendWhatsAppMessage(contact, message);
+      result = await sendWhatsAppMessage(contact, code);
       break;
     case "imessage":
       result = await sendSMS(contact, message);
