@@ -14,7 +14,7 @@ console.log("Initializing Twilio client with:", {
 });
 
 const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-const twilioPhone = "+18557270654"; // WhatsApp business number
+const twilioPhone = "+18557270654"; // Production WhatsApp business number
 
 export async function sendWhatsAppMessage(to: string, message: string): Promise<boolean> {
   try {
