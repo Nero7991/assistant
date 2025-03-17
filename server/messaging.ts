@@ -2,7 +2,11 @@ import { randomInt } from "crypto";
 import { sendVerificationEmail } from "./email";
 import twilio from "twilio";
 
-if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_PHONE_NUMBER) {
+if (
+  !process.env.TWILIO_ACCOUNT_SID ||
+  !process.env.TWILIO_AUTH_TOKEN ||
+  !process.env.TWILIO_PHONE_NUMBER
+) {
   throw new Error("Missing required Twilio credentials");
 }
 
@@ -10,17 +14,23 @@ if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !proces
 console.log("Initializing Twilio client with:", {
   accountSid: process.env.TWILIO_ACCOUNT_SID?.substring(0, 8) + "...",
   phoneNumber: process.env.TWILIO_PHONE_NUMBER,
-  hasAuthToken: !!process.env.TWILIO_AUTH_TOKEN
+  hasAuthToken: !!process.env.TWILIO_AUTH_TOKEN,
 });
 
-const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+const client = twilio(
+  process.env.TWILIO_ACCOUNT_SID,
+  process.env.TWILIO_AUTH_TOKEN,
+);
 const twilioPhone = "+18557270654"; // Production WhatsApp business number
 
-export async function sendWhatsAppMessage(to: string, message: string): Promise<boolean> {
+export async function sendWhatsAppMessage(
+  to: string,
+  message: string,
+): Promise<boolean> {
   try {
     console.log("Attempting to send WhatsApp message to:", to);
     // Ensure the phone number has the correct format for WhatsApp
-    const formattedNumber = to.startsWith('+') ? to : `+${to}`;
+    const formattedNumber = to.startsWith("+") ? to : `+${to}`;
 
     // Format numbers for WhatsApp
     const fromWhatsApp = `whatsapp:${twilioPhone}`;
@@ -30,15 +40,15 @@ export async function sendWhatsAppMessage(to: string, message: string): Promise<
       to: toWhatsApp,
       from: fromWhatsApp,
       template: true,
-      contentSid: 'HX02fff4396367e72b923720ae12920172'
+      contentSid: "HX02fff4396367e72b923720ae12920172",
     });
 
     // Following exact Twilio Content Template format
     const response = await client.messages.create({
-      contentSid: 'HX02fff4396367e72b923720ae12920172',
-      contentVariables: JSON.stringify({ 
-        1: "Name",
-        2: "Drone navigation project"
+      contentSid: "HX02fff4396367e72b923720ae12920172",
+      contentVariables: JSON.stringify({
+        1: "Karen",
+        2: "Drone navigation project",
       }),
       from: fromWhatsApp,
       to: toWhatsApp,
@@ -49,7 +59,7 @@ export async function sendWhatsAppMessage(to: string, message: string): Promise<
       status: response.status,
       errorCode: response.errorCode,
       errorMessage: response.errorMessage,
-      to: formattedNumber
+      to: formattedNumber,
     });
     return true;
   } catch (error: any) {
@@ -59,7 +69,7 @@ export async function sendWhatsAppMessage(to: string, message: string): Promise<
         code: error.code,
         message: error.message,
         status: error.status,
-        moreInfo: error.moreInfo
+        moreInfo: error.moreInfo,
       });
     }
     return false;
@@ -69,12 +79,12 @@ export async function sendWhatsAppMessage(to: string, message: string): Promise<
 export async function sendSMS(to: string, message: string): Promise<boolean> {
   try {
     console.log("Attempting to send SMS to:", to);
-    const formattedNumber = to.startsWith('+') ? to : `+${to}`;
+    const formattedNumber = to.startsWith("+") ? to : `+${to}`;
 
     console.log("SMS request details:", {
       to: formattedNumber,
       from: twilioPhone,
-      body: message.substring(0, 20) + "..."
+      body: message.substring(0, 20) + "...",
     });
 
     const response = await client.messages.create({
@@ -88,7 +98,7 @@ export async function sendSMS(to: string, message: string): Promise<boolean> {
       status: response.status,
       errorCode: response.errorCode,
       errorMessage: response.errorMessage,
-      to: formattedNumber
+      to: formattedNumber,
     });
     return true;
   } catch (error: any) {
@@ -98,7 +108,7 @@ export async function sendSMS(to: string, message: string): Promise<boolean> {
         code: error.code,
         message: error.message,
         status: error.status,
-        moreInfo: error.moreInfo
+        moreInfo: error.moreInfo,
       });
     }
     return false;
@@ -112,14 +122,14 @@ export function generateVerificationCode(): string {
 export async function sendVerificationMessage(
   type: "whatsapp" | "imessage" | "email",
   contact: string,
-  code: string
+  code: string,
 ): Promise<boolean> {
   const message = `Your ADHD Coach verification code is: ${code}. This code will expire in 10 minutes.`;
 
   console.log("Sending verification message:", {
     type,
     contact,
-    code
+    code,
   });
 
   let result;
@@ -138,7 +148,7 @@ export async function sendVerificationMessage(
   console.log("Verification message result:", {
     type,
     contact,
-    success: result
+    success: result,
   });
 
   return result;
