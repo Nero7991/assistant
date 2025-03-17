@@ -33,14 +33,18 @@ export async function sendWhatsAppMessage(to: string, message: string): Promise<
       contentSid: 'HX02fff4396367e72b923720ae12920172'
     });
 
+    const contentVars = {
+      1: "there",
+      2: "your verification code is " + message
+    };
+
+    console.log("Template variables:", contentVars);
+
     const response = await client.messages.create({
       from: fromWhatsApp,
       to: toWhatsApp,
       contentSid: 'HX02fff4396367e72b923720ae12920172',
-      contentVariables: JSON.stringify({
-        1: "there",
-        2: "your verification code is " + message
-      })
+      contentVariables: JSON.stringify(contentVars)
     });
 
     console.log("WhatsApp message sent successfully:", {
