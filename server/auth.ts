@@ -149,7 +149,8 @@ export function setupAuth(app: Express) {
       console.log("Updated user state:", {
         id: updatedUser.id,
         isEmailVerified: updatedUser.isEmailVerified,
-        isPhoneVerified: updatedUser.isPhoneVerified
+        isPhoneVerified: updatedUser.isPhoneVerified,
+        user: updatedUser
       });
 
       // Generate new session and log in

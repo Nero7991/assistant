@@ -268,45 +268,51 @@ const RegisterForm = () => {
       return;
     }
 
-    if (emailVerified && (phoneVerified || form.getValues("contactPreference") !== "whatsapp")) {
-      try {
-        console.log("Starting registration completion with state:", {
-          emailVerified,
-          phoneVerified,
-          contactPreference: form.getValues("contactPreference")
-        });
+    try {
+      console.log("Starting registration completion with state:", {
+        emailVerified,
+        phoneVerified,
+        contactPreference: form.getValues("contactPreference")
+      });
 
-        setRegistrationCompleted(true);
+      setRegistrationCompleted(true);
 
-        // Register the user
-        const registeredUser = await registerMutation.mutateAsync(pendingRegistrationData);
-        console.log("User registered:", registeredUser);
+      // Register the user with verification flags
+      const registrationData = {
+        ...pendingRegistrationData,
+        isEmailVerified: emailVerified,
+        isPhoneVerified: phoneVerified
+      };
 
-        // Force a fresh fetch of user data to ensure we have the latest verification state
-        await queryClient.invalidateQueries({ queryKey: ["/api/user"] });
-        const updatedUser = await queryClient.fetchQuery({ queryKey: ["/api/user"] });
+      // Register and get the response
+      const registeredUser = await registerMutation.mutateAsync(registrationData);
+      console.log("User registered:", registeredUser);
 
-        if (!updatedUser) {
-          throw new Error("Failed to authenticate user after registration");
-        }
+      // Force a fresh fetch of user data to ensure we have the latest verification state
+      await queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+      await queryClient.fetchQuery({ queryKey: ["/api/user"] });
 
-        console.log("Registration completed, user state:", {
-          registeredUser,
-          updatedUser,
-          isAuthenticated: !!updatedUser,
-          isEmailVerified: updatedUser.isEmailVerified,
-          isPhoneVerified: updatedUser.isPhoneVerified
-        });
+      const updatedUser = queryClient.getQueryData(["/api/user"]);
 
-      } catch (error) {
-        console.error("Final registration failed:", error);
-        setRegistrationCompleted(false);
-        toast({
-          title: "Registration failed",
-          description: error instanceof Error ? error.message : "An error occurred",
-          variant: "destructive",
-        });
+      console.log("Registration completed, user state:", {
+        registeredUser,
+        updatedUser,
+        isAuthenticated: !!updatedUser,
+        isEmailVerified: updatedUser?.isEmailVerified,
+        isPhoneVerified: updatedUser?.isPhoneVerified
+      });
+
+      if (!updatedUser) {
+        throw new Error("Failed to authenticate user after registration");
       }
+    } catch (error) {
+      console.error("Final registration failed:", error);
+      setRegistrationCompleted(false);
+      toast({
+        title: "Registration failed",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
+      });
     }
   };
 
@@ -349,18 +355,22 @@ const RegisterForm = () => {
     setPhoneVerified(true);
     setShowPhoneVerification(false);
 
-    // Complete registration and check results
-    await completeRegistration();
-    const user = await queryClient.getQueryData(["/api/user"]);
-    console.log("Post-registration state:", {
-      emailVerified,
-      phoneVerified,
-      registrationCompleted,
-      user,
-      isAuthenticated: !!user,
-      isEmailVerified: user?.isEmailVerified,
-      isPhoneVerified: user?.isPhoneVerified
-    });
+    // Only complete registration if email is also verified
+    if (emailVerified) {
+      await completeRegistration();
+
+      // Log final state for debugging
+      const user = queryClient.getQueryData(["/api/user"]);
+      console.log("Post-registration state:", {
+        emailVerified,
+        phoneVerified,
+        registrationCompleted,
+        user,
+        isAuthenticated: !!user,
+        isEmailVerified: user?.isEmailVerified,
+        isPhoneVerified: user?.isPhoneVerified
+      });
+    }
   };
 
   const handleSkipPhoneVerification = async () => {

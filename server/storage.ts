@@ -84,6 +84,11 @@ export class MemStorage implements IStorage {
       allowPhoneNotifications: false
     };
     this.users.set(id, user);
+    console.log("Created user:", {
+      id: user.id,
+      isEmailVerified: user.isEmailVerified,
+      isPhoneVerified: user.isPhoneVerified
+    });
     return user;
   }
 
