@@ -23,21 +23,26 @@ export async function sendWhatsAppMessage(to: string, message: string): Promise<
     const fromWhatsApp = `whatsapp:${twilioPhone}`;
     const toWhatsApp = `whatsapp:${formattedNumber}`;
 
-    // Using exact format from successful curl request
-    const messageRequest = {
-      From: fromWhatsApp,
-      To: toWhatsApp,
-      ContentSid: "HX02fff4396367e72b923720ae12920172",
-      ContentVariables: JSON.stringify({
+    // Using exact format that works with Twilio client library
+    console.log("Twilio WhatsApp request parameters:", {
+      to: toWhatsApp,
+      from: fromWhatsApp,
+      contentSid: "HX02fff4396367e72b923720ae12920172",
+      contentVariables: JSON.stringify({
         "1": "Karen",
         "2": "Drone navigation project"
       })
-    };
+    });
 
-    console.log("Twilio WhatsApp request parameters:", messageRequest);
-
-    // Create message using the exact format that worked in curl
-    const response = await client.messages.create(messageRequest);
+    const response = await client.messages.create({
+      to: toWhatsApp,
+      from: fromWhatsApp,
+      contentSid: "HX02fff4396367e72b923720ae12920172",
+      contentVariables: JSON.stringify({
+        "1": "Karen",
+        "2": "Drone navigation project"
+      })
+    });
 
     console.log("WhatsApp message sent successfully:", {
       sid: response.sid,
