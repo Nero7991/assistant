@@ -278,15 +278,24 @@ const RegisterForm = () => {
 
         setRegistrationCompleted(true);
 
-        // Register the user
+        // Register the user and get the response
         const registeredUser = await registerMutation.mutateAsync(pendingRegistrationData);
         console.log("User registered:", registeredUser);
 
-        // Force a fresh fetch of user data
+        // Force a fresh fetch of user data to ensure we have the latest verification state
         await queryClient.invalidateQueries({ queryKey: ["/api/user"] });
         const updatedUser = await queryClient.fetchQuery({ queryKey: ["/api/user"] });
 
-        console.log("Registration completed, verified user state:", updatedUser);
+        console.log("Registration completed, user state:", {
+          registeredUser,
+          updatedUser,
+          isAuthenticated: !!updatedUser
+        });
+
+        // Double check our verification state
+        if (!updatedUser) {
+          throw new Error("Failed to authenticate user after registration");
+        }
       } catch (error) {
         console.error("Final registration failed:", error);
         setRegistrationCompleted(false);

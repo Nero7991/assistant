@@ -118,7 +118,7 @@ export function setupAuth(app: Express) {
     }
   });
 
-  // Update the registration endpoint to handle the staged registration.  Keeping original verification logic.
+  // Update the registration endpoint to properly handle verification state
   app.post("/api/register", async (req, res, next) => {
     try {
       console.log("Registration request received:", {
@@ -131,6 +131,7 @@ export function setupAuth(app: Express) {
         return res.status(400).json({ message: "Username already exists" });
       }
 
+      // Create the user
       const user = await storage.createUser({
         ...req.body,
         password: await hashPassword(req.body.password),
@@ -142,28 +143,16 @@ export function setupAuth(app: Express) {
         contactPreference: user.contactPreference
       });
 
-      // Generate and store verification code
-      const verificationCode = generateVerificationCode();
-      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+      // If there are any pending verifications with the temporary ID, transfer them
+      if (req.session.tempUserId) {
+        console.log("Transferring verifications from temp user:", req.session.tempUserId);
+        const verification = await storage.getLatestContactVerification(req.session.tempUserId);
 
-      await storage.createContactVerification({
-        userId: user.id,
-        type: 'email',
-        code: verificationCode,
-        expiresAt,
-      });
-
-      // Send verification email
-      const emailSent = await sendVerificationMessage(
-        'email',
-        user.email,
-        verificationCode
-      );
-
-      console.log("Verification email sending result:", {
-        success: emailSent,
-        email: user.email
-      });
+        if (verification?.verified) {
+          console.log("Found verified contact, updating user verification status");
+          await storage.markContactVerified(user.id, verification.type);
+        }
+      }
 
       // Generate new session
       req.session.regenerate((err) => {
@@ -199,7 +188,7 @@ export function setupAuth(app: Express) {
     }
   });
 
-  // Update the verification endpoint to handle both temp and authenticated users
+  // Update the verification endpoint to handle authentication
   app.post("/api/verify-contact", async (req, res) => {
     try {
       console.log("Verification attempt:", {
@@ -220,8 +209,17 @@ export function setupAuth(app: Express) {
       }
 
       try {
-        await verifyContactAndUpdateUser(userId, type, code);
-        res.json({ message: "Verification successful" });
+        const updatedUser = await verifyContactAndUpdateUser(userId, type, code);
+
+        // If using a temporary ID, store the verification result for later
+        if (!req.isAuthenticated() && req.session.tempUserId) {
+          console.log("Storing verification result for temp user:", req.session.tempUserId);
+        }
+
+        res.json({ 
+          message: "Verification successful",
+          user: req.isAuthenticated() ? updatedUser : undefined
+        });
       } catch (error) {
         console.error("Verification failed:", error);
         res.status(400).json({ message: error.message });
