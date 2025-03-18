@@ -31,7 +31,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Brain, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { VerificationDialog } from "@/components/verification-dialog";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, useQueryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 export default function AuthPage() {
@@ -211,366 +211,342 @@ const LoginForm = () => {
 };
 
 const RegisterForm = () => {
-  const { registerMutation } = useAuth();
-  const { toast } = useToast();
-  const [showEmailVerification, setShowEmailVerification] = useState(false);
-  const [showPhoneVerification, setShowPhoneVerification] = useState(false);
-  const [pendingRegistrationData, setPendingRegistrationData] = useState<any>(null);
-  const [isCheckingUsername, setIsCheckingUsername] = useState(false);
-  const [emailVerified, setEmailVerified] = useState(false);
-  const [phoneVerified, setPhoneVerified] = useState(false);
-  const [registrationCompleted, setRegistrationCompleted] = useState(false);
+    const { registerMutation } = useAuth();
+    const { toast } = useToast();
+    const [showEmailVerification, setShowEmailVerification] = useState(false);
+    const [showPhoneVerification, setShowPhoneVerification] = useState(false);
+    const [pendingRegistrationData, setPendingRegistrationData] = useState<any>(null);
+    const [isCheckingUsername, setIsCheckingUsername] = useState(false);
+    const queryClient = useQueryClient();
+    const form = useForm({
+        resolver: zodResolver(insertUserSchema),
+        defaultValues: {
+            username: "",
+            password: "",
+            phoneNumber: "",
+            email: "",
+            contactPreference: "email",
+        },
+        mode: "onChange",
+    });
 
-  const form = useForm({
-    resolver: zodResolver(insertUserSchema),
-    defaultValues: {
-      username: "",
-      password: "",
-      phoneNumber: "",
-      email: "",
-      contactPreference: "email",
-    },
-    mode: "onChange",
-  });
+    useEffect(() => {
+        const username = form.watch("username");
+        const checkUsername = async () => {
+            if (username.length < 3) return;
 
-  useEffect(() => {
-    const username = form.watch("username");
-    const checkUsername = async () => {
-      if (username.length < 3) return;
+            try {
+                setIsCheckingUsername(true);
+                const res = await apiRequest("GET", `/api/check-username/${username}`);
+                if (!res.ok) {
+                    form.setError("username", {
+                        type: "manual",
+                        message: "Username already exists"
+                    });
+                } else {
+                    form.clearErrors("username");
+                }
+            } catch (error) {
+                console.error("Username check error:", error);
+            } finally {
+                setIsCheckingUsername(false);
+            }
+        };
 
-      try {
-        setIsCheckingUsername(true);
-        const res = await apiRequest("GET", `/api/check-username/${username}`);
-        if (!res.ok) {
-          form.setError("username", {
-            type: "manual",
-            message: "Username already exists"
-          });
-        } else {
-          form.clearErrors("username");
+        const timeoutId = setTimeout(checkUsername, 500);
+        return () => clearTimeout(timeoutId);
+    }, [form.watch("username")]);
+
+    const onSubmit = async (data: any) => {
+        try {
+            console.log("Form submitted, initiating verification process");
+
+            if (form.formState.errors.username) {
+                toast({
+                    title: "Registration error",
+                    description: "Please choose a different username",
+                    variant: "destructive",
+                });
+                return;
+            }
+
+            setPendingRegistrationData(data);
+
+            const res = await apiRequest("POST", "/api/initiate-verification", {
+                email: data.email,
+                type: "email"
+            });
+
+            if (!res.ok) {
+                const error = await res.json();
+                throw new Error(error.message || "Failed to send verification code");
+            }
+
+            console.log("Opening email verification dialog");
+            setShowEmailVerification(true);
+        } catch (error) {
+            console.error('Registration failed:', error);
+            toast({
+                title: "Registration failed",
+                description: error instanceof Error ? error.message : "An error occurred",
+                variant: "destructive",
+            });
         }
-      } catch (error) {
-        console.error("Username check error:", error);
-      } finally {
-        setIsCheckingUsername(false);
-      }
     };
 
-    const timeoutId = setTimeout(checkUsername, 500);
-    return () => clearTimeout(timeoutId);
-  }, [form.watch("username")]);
-
-  const onSubmit = async (data: any) => {
-    try {
-      console.log("Form submitted, initiating verification process");
-
-      if (form.formState.errors.username) {
-        toast({
-          title: "Registration error",
-          description: "Please choose a different username",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      setPendingRegistrationData(data);
-
-      const res = await apiRequest("POST", "/api/initiate-verification", {
-        email: data.email,
-        type: "email"
-      });
-
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.message || "Failed to send verification code");
-      }
-
-      console.log("Opening email verification dialog");
-      setShowEmailVerification(true);
-    } catch (error) {
-      console.error('Registration failed:', error);
-      toast({
-        title: "Registration failed",
-        description: error instanceof Error ? error.message : "An error occurred",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const completeRegistration = async () => {
-    if (!pendingRegistrationData || registrationCompleted) {
-      console.log("Cannot complete registration - no pending data or already completed", {
-        hasPendingData: !!pendingRegistrationData,
-        registrationCompleted
-      });
-      return;
-    }
-
-    try {
-      console.log("Starting registration completion with state:", {
-        emailVerified,
-        phoneVerified,
-        contactPreference: form.getValues("contactPreference")
-      });
-
-      setRegistrationCompleted(true);
-
-      // Register the user with verification flags
-      const registrationData = {
-        ...pendingRegistrationData,
-        isEmailVerified: emailVerified,
-        isPhoneVerified: phoneVerified
-      };
-
-      // Register and get the response
-      const registeredUser = await registerMutation.mutateAsync(registrationData);
-      console.log("User registered:", registeredUser);
-
-      // Force a fresh fetch of user data to ensure we have the latest verification state
-      await queryClient.invalidateQueries({ queryKey: ["/api/user"] });
-      const updatedUser = await queryClient.fetchQuery({ queryKey: ["/api/user"] });
-
-      console.log("Registration completed, user state:", {
-        registeredUser,
-        updatedUser,
-        isAuthenticated: !!updatedUser,
-        isEmailVerified: updatedUser?.isEmailVerified,
-        isPhoneVerified: updatedUser?.isPhoneVerified
-      });
-
-      if (!updatedUser) {
-        throw new Error("Failed to authenticate user after registration");
-      }
-    } catch (error) {
-      console.error("Final registration failed:", error);
-      setRegistrationCompleted(false);
-      toast({
-        title: "Registration failed",
-        description: error instanceof Error ? error.message : "An error occurred",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleEmailVerificationSuccess = async () => {
-    console.log("Email verification successful");
-    setEmailVerified(true);
-    setShowEmailVerification(false);
-
-    if (form.getValues("contactPreference") === "whatsapp" && form.getValues("phoneNumber")) {
-      try {
-        console.log("Initiating WhatsApp verification");
-        const res = await apiRequest("POST", "/api/initiate-verification", {
-          phone: form.getValues("phoneNumber"),
-          type: "whatsapp"
-        });
-
-        if (!res.ok) {
-          const error = await res.json();
-          throw new Error(error.message || "Failed to send phone verification code");
+    const completeRegistration = async () => {
+        if (!pendingRegistrationData) {
+            console.log("Cannot complete registration - no pending data");
+            return;
         }
 
-        console.log("Opening phone verification dialog");
-        setShowPhoneVerification(true);
-      } catch (error) {
-        console.error("Phone verification initiation failed:", error);
-        toast({
-          title: "Verification failed",
-          description: error instanceof Error ? error.message : "Failed to send phone verification code",
-          variant: "destructive",
+        try {
+            console.log("Starting registration with data:", {
+                ...pendingRegistrationData,
+                password: '[REDACTED]'
+            });
+
+            // Register the user
+            const registeredUser = await registerMutation.mutateAsync(pendingRegistrationData);
+            console.log("User registered:", registeredUser);
+
+            // Force a fresh fetch of user data
+            await queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+            const updatedUser = await queryClient.fetchQuery({ queryKey: ["/api/user"] });
+
+            console.log("Registration completed, user state:", {
+                registeredUser,
+                updatedUser,
+                isAuthenticated: !!updatedUser,
+                isEmailVerified: updatedUser?.isEmailVerified,
+                isPhoneVerified: updatedUser?.isPhoneVerified
+            });
+
+        } catch (error) {
+            console.error("Final registration failed:", error);
+            toast({
+                title: "Registration failed",
+                description: error instanceof Error ? error.message : "An error occurred",
+                variant: "destructive",
+            });
+        }
+    };
+
+    const handleEmailVerificationSuccess = async () => {
+        console.log("Email verification successful");
+        setShowEmailVerification(false);
+
+        // Check if user object has email verified
+        const userState = queryClient.getQueryData(["/api/user"]);
+        console.log("User state after email verification:", {
+            isEmailVerified: userState?.isEmailVerified,
+            isPhoneVerified: userState?.isPhoneVerified
         });
-      }
-    } else {
-      console.log("No phone verification needed, completing registration");
-      await completeRegistration();
-    }
-  };
 
-  const handlePhoneVerificationSuccess = async () => {
-    console.log("Phone verification successful");
-    setPhoneVerified(true);
-    setShowPhoneVerification(false);
+        if (form.getValues("contactPreference") === "whatsapp" && form.getValues("phoneNumber")) {
+            try {
+                console.log("Initiating WhatsApp verification");
+                const res = await apiRequest("POST", "/api/initiate-verification", {
+                    phone: form.getValues("phoneNumber"),
+                    type: "whatsapp"
+                });
 
-    // Only complete registration if email is also verified
-    if (emailVerified) {
-      await completeRegistration();
+                if (!res.ok) {
+                    const error = await res.json();
+                    throw new Error(error.message || "Failed to send phone verification code");
+                }
 
-      // Log final state for debugging
-      const user = queryClient.getQueryData(["/api/user"]);
-      console.log("Post-registration state:", {
-        emailVerified,
-        phoneVerified,
-        registrationCompleted,
-        user,
-        isAuthenticated: !!user,
-        isEmailVerified: user?.isEmailVerified,
-        isPhoneVerified: user?.isPhoneVerified
-      });
-    }
-  };
+                setShowPhoneVerification(true);
+            } catch (error) {
+                console.error("Phone verification initiation failed:", error);
+                toast({
+                    title: "Verification failed",
+                    description: error instanceof Error ? error.message : "Failed to send phone verification code",
+                    variant: "destructive",
+                });
+            }
+        } else {
+            // Complete registration if no phone verification needed
+            await completeRegistration();
+        }
+    };
 
-  const handleSkipPhoneVerification = async () => {
-    console.log("Phone verification skipped");
-    setShowPhoneVerification(false);
-    await completeRegistration();
-  };
+    const handlePhoneVerificationSuccess = async () => {
+        console.log("Phone verification successful");
+        setShowPhoneVerification(false);
 
-  const contactPreference = form.watch("contactPreference");
+        // Log verification state
+        const userState = queryClient.getQueryData(["/api/user"]);
+        console.log("User state after phone verification:", {
+            isEmailVerified: userState?.isEmailVerified,
+            isPhoneVerified: userState?.isPhoneVerified
+        });
 
-  return (
-    <>
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4" role="form" data-testid="register-form">
-          <FormField
-            control={form.control}
-            name="username"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel htmlFor="username">Username</FormLabel>
-                <FormControl>
-                  <div className="relative">
-                    <Input 
-                      id="username"
-                      {...field}
-                      autoComplete="username"
-                      aria-label="Username"
+        await completeRegistration();
+    };
+
+    const handleSkipPhoneVerification = async () => {
+        console.log("Phone verification skipped");
+        setShowPhoneVerification(false);
+        await completeRegistration();
+    };
+
+    const contactPreference = form.watch("contactPreference");
+
+    return (
+        <>
+            <Form {...form}>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4" role="form" data-testid="register-form">
+                    <FormField
+                        control={form.control}
+                        name="username"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel htmlFor="username">Username</FormLabel>
+                                <FormControl>
+                                    <div className="relative">
+                                        <Input
+                                            id="username"
+                                            {...field}
+                                            autoComplete="username"
+                                            aria-label="Username"
+                                        />
+                                        {isCheckingUsername && (
+                                            <Loader2 className="absolute right-3 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
+                                        )}
+                                    </div>
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
                     />
-                    {isCheckingUsername && (
-                      <Loader2 className="absolute right-3 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
+
+                    <FormField
+                        control={form.control}
+                        name="password"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel htmlFor="password">Password</FormLabel>
+                                <FormControl>
+                                    <Input
+                                        id="password"
+                                        type="password"
+                                        {...field}
+                                        autoComplete="new-password"
+                                        aria-label="Password"
+                                    />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+
+                    <FormField
+                        control={form.control}
+                        name="email"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel htmlFor="email">Email Address</FormLabel>
+                                <FormControl>
+                                    <Input
+                                        id="email"
+                                        type="email"
+                                        {...field}
+                                        placeholder="you@example.com"
+                                        autoComplete="email"
+                                        aria-label="Email Address"
+                                    />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+
+                    <FormField
+                        control={form.control}
+                        name="contactPreference"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Preferred Contact Method</FormLabel>
+                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                    <FormControl>
+                                        <SelectTrigger data-testid="contact-preference-select">
+                                            <SelectValue placeholder="Select contact method" />
+                                        </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                        <SelectItem value="whatsapp" data-testid="whatsapp-option">WhatsApp</SelectItem>
+                                        <SelectItem value="email" data-testid="email-option">Email Only</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+
+                    {contactPreference === "whatsapp" && (
+                        <FormField
+                            control={form.control}
+                            name="phoneNumber"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel htmlFor="phoneNumber">Phone Number</FormLabel>
+                                    <FormControl>
+                                        <Input
+                                            id="phoneNumber"
+                                            {...field}
+                                            placeholder="+1234567890"
+                                            type="tel"
+                                            autoComplete="tel"
+                                            aria-label="Phone Number"
+                                            data-testid="phone-number-input"
+                                        />
+                                    </FormControl>
+                                    <FormMessage />
+                                    <p className="text-xs text-muted-foreground">
+                                        Include country code, e.g. +1 for US/Canada
+                                    </p>
+                                </FormItem>
+                            )}
+                        />
                     )}
-                  </div>
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
 
-          <FormField
-            control={form.control}
-            name="password"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel htmlFor="password">Password</FormLabel>
-                <FormControl>
-                  <Input 
-                    id="password"
-                    type="password"
-                    {...field}
-                    autoComplete="new-password"
-                    aria-label="Password"
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+                    <Button
+                        type="submit"
+                        className="w-full"
+                        disabled={registerMutation.isPending || isCheckingUsername}
+                    >
+                        {registerMutation.isPending ? (
+                            <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Creating Account...
+                            </>
+                        ) : (
+                            "Create Account"
+                        )}
+                    </Button>
+                </form>
+            </Form>
 
-          <FormField
-            control={form.control}
-            name="email"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel htmlFor="email">Email Address</FormLabel>
-                <FormControl>
-                  <Input
-                    id="email"
-                    type="email"
-                    {...field}
-                    placeholder="you@example.com"
-                    autoComplete="email"
-                    aria-label="Email Address"
-                  />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="contactPreference"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Preferred Contact Method</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl>
-                    <SelectTrigger data-testid="contact-preference-select">
-                      <SelectValue placeholder="Select contact method" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="whatsapp" data-testid="whatsapp-option">WhatsApp</SelectItem>
-                    <SelectItem value="email" data-testid="email-option">Email Only</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          {contactPreference === "whatsapp" && (
-            <FormField
-              control={form.control}
-              name="phoneNumber"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel htmlFor="phoneNumber">Phone Number</FormLabel>
-                  <FormControl>
-                    <Input
-                      id="phoneNumber"
-                      {...field}
-                      placeholder="+1234567890"
-                      type="tel"
-                      autoComplete="tel"
-                      aria-label="Phone Number"
-                      data-testid="phone-number-input"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                  <p className="text-xs text-muted-foreground">
-                    Include country code, e.g. +1 for US/Canada
-                  </p>
-                </FormItem>
-              )}
+            <VerificationDialog
+                open={showEmailVerification}
+                onOpenChange={setShowEmailVerification}
+                onSuccess={handleEmailVerificationSuccess}
+                title="Verify Your Email"
+                description="Please check your email for a verification code"
+                type="email"
             />
-          )}
 
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={registerMutation.isPending || isCheckingUsername}
-          >
-            {registerMutation.isPending ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Creating Account...
-              </>
-            ) : (
-              "Create Account"
-            )}
-          </Button>
-        </form>
-      </Form>
-
-      <VerificationDialog
-        open={showEmailVerification}
-        onOpenChange={setShowEmailVerification}
-        onSuccess={handleEmailVerificationSuccess}
-        title="Verify Your Email"
-        description="Please check your email for a verification code"
-        type="email"
-      />
-
-      <VerificationDialog
-        open={showPhoneVerification}
-        onOpenChange={setShowPhoneVerification}
-        onSuccess={handlePhoneVerificationSuccess}
-        onSkip={handleSkipPhoneVerification}
-        title="Verify Your Phone Number"
-        description="Please check your WhatsApp for a verification code"
-        type="phone"
-        showSkip={true}
-      />
-    </>
-  );
+            <VerificationDialog
+                open={showPhoneVerification}
+                onOpenChange={setShowPhoneVerification}
+                onSuccess={handlePhoneVerificationSuccess}
+                onSkip={handleSkipPhoneVerification}
+                title="Verify Your Phone Number"
+                description="Please check your WhatsApp for a verification code"
+                type="phone"
+                showSkip={true}
+            />
+        </>
+    );
 };

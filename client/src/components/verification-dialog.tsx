@@ -53,8 +53,7 @@ export function VerificationDialog({
     },
   });
 
-  // Add debug logging for state changes
-  console.log(`VerificationDialog render - type: ${type}, open: ${open}, isVerifying: ${isVerifying}`);
+  console.log(`VerificationDialog render - type: ${type}, open: ${open}`);
 
   const onSubmit = async (data: { code: string }) => {
     try {
@@ -66,20 +65,20 @@ export function VerificationDialog({
         type
       });
 
-      const responseData = await res.json();
-
       if (!res.ok) {
-        throw new Error(responseData.message || "Failed to verify code");
+        const error = await res.json();
+        throw new Error(error.message || "Failed to verify code");
       }
 
+      const responseData = await res.json();
       console.log(`${type} verification response:`, responseData);
 
-      // Ensure user data is refreshed
+      // Force a fresh fetch of user data
       await queryClient.invalidateQueries({ queryKey: ["/api/user"] });
       const updatedUser = await queryClient.fetchQuery({ queryKey: ["/api/user"] });
 
-      // Log authentication and verification state after verification
-      console.log("=== Authentication Debug Info ===");
+      // Log verification state
+      console.log("=== Verification Debug Info ===");
       console.log("1. Updated User State:", updatedUser);
       console.log("2. Query Cache State:", {
         userQueryData: queryClient.getQueryData(["/api/user"]),

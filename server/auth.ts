@@ -198,31 +198,13 @@ export function setupAuth(app: Express) {
         code
       });
 
-      const verification = await storage.getLatestContactVerification(userId);
-      console.log("Found verification:", verification);
-
-      if (!verification) {
-        throw new Error("No verification pending");
+      const updatedUser = await verifyContactAndUpdateUser(userId, type, code);
+      if (!updatedUser) {
+        throw new Error("Failed to update user verification status");
       }
-
-      if (verification.code !== code) {
-        throw new Error("Invalid verification code");
-      }
-
-      if (new Date() > verification.expiresAt) {
-        throw new Error("Verification code expired");
-      }
-
-      await storage.markContactVerified(userId, type);
 
       if (req.isAuthenticated()) {
-        // Get fresh user object with updated verification status
-        const updatedUser = await storage.getUser(userId);
-        if (!updatedUser) {
-          throw new Error("Failed to retrieve updated user");
-        }
-
-        // Update session with new user data
+        // Update session with new verification state
         req.login(updatedUser, (err) => {
           if (err) {
             console.error("Error updating user session:", err);
@@ -240,8 +222,9 @@ export function setupAuth(app: Express) {
           res.json({ message: "Verification successful", user: updatedUser });
         });
       } else {
+        // For temporary users, store the verification result
         console.log("Storing verification result for temp user:", userId);
-        res.json({ message: "Verification successful" });
+        res.json({ message: "Verification successful", user: updatedUser });
       }
     } catch (error) {
       console.error("Verification error:", error);

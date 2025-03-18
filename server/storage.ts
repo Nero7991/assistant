@@ -86,6 +86,8 @@ export class MemStorage implements IStorage {
     this.users.set(id, user);
     console.log("Created user:", {
       id: user.id,
+      username: user.username,
+      contactPreference: user.contactPreference,
       isEmailVerified: user.isEmailVerified,
       isPhoneVerified: user.isPhoneVerified,
       user
