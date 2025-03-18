@@ -11,7 +11,14 @@ function createTestQueryClient() {
     defaultOptions: {
       queries: {
         retry: false,
+        gcTime: 0,
+        staleTime: 0,
       },
+    },
+    logger: {
+      log: console.log,
+      warn: console.warn,
+      error: () => {},
     },
   });
 }
