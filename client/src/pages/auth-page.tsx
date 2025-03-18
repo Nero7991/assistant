@@ -38,8 +38,13 @@ export default function AuthPage() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
 
+  useEffect(() => {
+    console.log('AuthPage mounted with user:', user);
+  }, [user]);
+
   // Only redirect if user is logged in AND email is verified
   if (user?.isEmailVerified && (user.contactPreference !== "whatsapp" || user.isPhoneVerified)) {
+    console.log('Redirecting to home, user state:', { isEmailVerified: user.isEmailVerified, contactPreference: user.contactPreference, isPhoneVerified: user.isPhoneVerified });
     setLocation("/");
     return null;
   }
@@ -58,7 +63,11 @@ export default function AuthPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Tabs defaultValue="login" className="space-y-4">
+            <Tabs
+              defaultValue="login"
+              className="space-y-4"
+              onValueChange={(value) => console.log('Tab changed to:', value)}
+            >
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="login">Login</TabsTrigger>
                 <TabsTrigger value="register">Register</TabsTrigger>
@@ -240,12 +249,7 @@ const RegisterForm = () => {
       try {
         setRegistrationCompleted(true);
         await registerMutation.mutateAsync(pendingRegistrationData);
-
-        // Force a query invalidation to refresh user state
         await queryClient.invalidateQueries({ queryKey: ["/api/user"] });
-
-        // After successful registration and verification, let the AuthPage
-        // component handle the redirection based on the updated user state
       } catch (error) {
         console.error("Final registration failed:", error);
         toast({

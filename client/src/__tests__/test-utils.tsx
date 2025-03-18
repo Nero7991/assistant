@@ -1,6 +1,7 @@
 import { render as rtlRender, RenderOptions } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '@/hooks/use-auth';
+import { Router } from 'wouter';
 import { vi } from 'vitest';
 import { ReactElement } from 'react';
 
@@ -15,10 +16,8 @@ function createTestQueryClient() {
   });
 }
 
-// Mock useLocation hook since we don't want actual navigation in tests
-vi.mock('wouter', () => ({
-  useLocation: () => ['/auth', vi.fn()],
-}));
+// Setup base URL for Wouter Router
+const mockBaseUrl = '/';
 
 function render(
   ui: ReactElement,
@@ -28,11 +27,13 @@ function render(
 
   function Wrapper({ children }: { children: React.ReactNode }) {
     return (
-      <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          {children}
-        </AuthProvider>
-      </QueryClientProvider>
+      <Router base={mockBaseUrl}>
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            {children}
+          </AuthProvider>
+        </QueryClientProvider>
+      </Router>
     );
   }
 
