@@ -158,6 +158,7 @@ function RegisterForm() {
   const [isCheckingUsername, setIsCheckingUsername] = useState(false);
   const [emailVerified, setEmailVerified] = useState(false);
   const [phoneVerified, setPhoneVerified] = useState(false);
+  const [registrationCompleted, setRegistrationCompleted] = useState(false);
 
   const form = useForm({
     resolver: zodResolver(insertUserSchema),
@@ -171,7 +172,6 @@ function RegisterForm() {
     mode: "onChange",
   });
 
-  // Check username availability as user types
   useEffect(() => {
     const username = form.watch("username");
     const checkUsername = async () => {
@@ -212,10 +212,8 @@ function RegisterForm() {
         return;
       }
 
-      // Store registration data for later
       setPendingRegistrationData(data);
 
-      // Initiate email verification
       const res = await apiRequest("POST", "/api/initiate-verification", {
         email: data.email,
         type: "email"
@@ -238,16 +236,14 @@ function RegisterForm() {
   };
 
   const completeRegistration = async () => {
-    if (!pendingRegistrationData) {
-      console.error("No pending registration data found");
+    if (!pendingRegistrationData || registrationCompleted) {
       return;
     }
 
     try {
-      // Only attempt registration if email is verified and (phone is verified or not required)
       if (emailVerified && (phoneVerified || form.getValues("contactPreference") !== "whatsapp")) {
+        setRegistrationCompleted(true);
         await registerMutation.mutateAsync(pendingRegistrationData);
-        // Registration success will trigger redirect via useAuth in AuthPage
       }
     } catch (error) {
       console.error("Final registration failed:", error);
@@ -263,7 +259,6 @@ function RegisterForm() {
     setEmailVerified(true);
     if (form.getValues("contactPreference") === "whatsapp" && form.getValues("phoneNumber")) {
       try {
-        // Initiate phone verification
         const res = await apiRequest("POST", "/api/initiate-verification", {
           phone: form.getValues("phoneNumber"),
           type: "whatsapp"
