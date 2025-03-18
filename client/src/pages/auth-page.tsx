@@ -240,8 +240,12 @@ function RegisterForm() {
       try {
         setRegistrationCompleted(true);
         await registerMutation.mutateAsync(pendingRegistrationData);
+
         // Force a query invalidation to refresh user state
-        queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+        await queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+
+        // After successful registration and verification, let the AuthPage
+        // component handle the redirection based on the updated user state
       } catch (error) {
         console.error("Final registration failed:", error);
         toast({
