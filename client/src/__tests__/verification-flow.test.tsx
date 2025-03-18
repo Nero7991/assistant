@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { setupServer } from 'msw/node';
-import { rest } from 'msw';
+import { http, HttpResponse } from 'msw';
 import AuthPage from '../pages/auth-page';
 import { AuthProvider } from '@/hooks/use-auth';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -24,47 +24,41 @@ vi.mock('wouter', () => ({
 // Mock the API endpoints
 const server = setupServer(
   // Mock initiate verification
-  rest.post('/api/initiate-verification', (req, res, ctx) => {
-    return res(
-      ctx.json({
-        message: "Verification code sent",
-        tempUserId: Date.now()
-      })
-    );
+  http.post('/api/initiate-verification', () => {
+    return HttpResponse.json({
+      message: "Verification code sent",
+      tempUserId: Date.now()
+    });
   }),
 
   // Mock verify contact
-  rest.post('/api/verify-contact', (req, res, ctx) => {
-    return res(
-      ctx.json({ message: "Verification successful" })
-    );
+  http.post('/api/verify-contact', () => {
+    return HttpResponse.json({ message: "Verification successful" });
   }),
 
   // Mock registration
-  rest.post('/api/register', (req, res, ctx) => {
-    return res(
-      ctx.status(201),
-      ctx.json({
+  http.post('/api/register', () => {
+    return new HttpResponse(
+      JSON.stringify({
         id: 1,
         username: 'testuser',
         isEmailVerified: true,
         isPhoneVerified: true,
         contactPreference: 'whatsapp'
-      })
+      }),
+      { status: 201 }
     );
   }),
 
   // Mock user endpoint
-  rest.get('/api/user', (req, res, ctx) => {
-    return res(
-      ctx.json({
-        id: 1,
-        username: 'testuser',
-        isEmailVerified: true,
-        isPhoneVerified: true,
-        contactPreference: 'whatsapp'
-      })
-    );
+  http.get('/api/user', () => {
+    return HttpResponse.json({
+      id: 1,
+      username: 'testuser',
+      isEmailVerified: true,
+      isPhoneVerified: true,
+      contactPreference: 'whatsapp'
+    });
   })
 );
 
@@ -90,34 +84,42 @@ describe('Verification Flow', () => {
   it('should redirect to dashboard after successful registration and verification', async () => {
     renderComponent();
 
+    // Switch to registration form
+    await userEvent.click(screen.getByRole('tab', { name: /register/i }));
+
+    // Wait for form to be visible
+    await waitFor(() => {
+      expect(screen.getByRole('form')).toBeInTheDocument();
+    });
+
     // Fill registration form with WhatsApp preference
-    await userEvent.type(screen.getByLabelText(/username/i), 'testuser');
+    await userEvent.type(screen.getByRole('textbox', { name: /username/i }), 'testuser');
     await userEvent.type(screen.getByLabelText(/password/i), 'testpass123');
-    await userEvent.type(screen.getByLabelText(/email/i), 'test@example.com');
+    await userEvent.type(screen.getByRole('textbox', { name: /email/i }), 'test@example.com');
 
     // Select WhatsApp preference
-    const select = screen.getByLabelText(/preferred contact method/i);
+    const select = screen.getByRole('combobox', { name: /preferred contact method/i });
     await userEvent.click(select);
-    await userEvent.click(screen.getByText(/whatsapp/i));
+    await userEvent.click(screen.getByRole('option', { name: /whatsapp/i }));
 
-    await userEvent.type(screen.getByLabelText(/phone number/i), '+1234567890');
+    await userEvent.type(screen.getByRole('textbox', { name: /phone number/i }), '+1234567890');
 
     // Submit form
-    await userEvent.click(screen.getByText(/create account/i));
+    await userEvent.click(screen.getByRole('button', { name: /create account/i }));
 
     // Complete email verification
     await waitFor(() => {
       expect(screen.getByText(/verify your email/i)).toBeInTheDocument();
     });
     await userEvent.type(screen.getByPlaceholderText(/enter 6-digit code/i), '123456');
-    await userEvent.click(screen.getByText(/verify/i));
+    await userEvent.click(screen.getByRole('button', { name: /verify/i }));
 
     // Complete WhatsApp verification
     await waitFor(() => {
       expect(screen.getByText(/verify your phone number/i)).toBeInTheDocument();
     });
     await userEvent.type(screen.getByPlaceholderText(/enter 6-digit code/i), '123456');
-    await userEvent.click(screen.getByText(/verify/i));
+    await userEvent.click(screen.getByRole('button', { name: /verify/i }));
 
     // Verify redirection to dashboard
     await waitFor(() => {
@@ -128,28 +130,38 @@ describe('Verification Flow', () => {
   it('should handle error states during verification', async () => {
     // Mock error response for verification
     server.use(
-      rest.post('/api/verify-contact', (req, res, ctx) => {
-        return res(
-          ctx.status(500),
-          ctx.json({ message: "Verification failed" })
+      http.post('/api/verify-contact', () => {
+        return new HttpResponse(
+          JSON.stringify({ message: "Verification failed" }),
+          { status: 500 }
         );
       })
     );
 
     renderComponent();
 
-    // Fill and submit form
-    await userEvent.type(screen.getByLabelText(/username/i), 'testuser');
+    // Switch to registration form
+    await userEvent.click(screen.getByRole('tab', { name: /register/i }));
+
+    // Wait for form to be visible
+    await waitFor(() => {
+      expect(screen.getByRole('form')).toBeInTheDocument();
+    });
+
+    // Fill registration form
+    await userEvent.type(screen.getByRole('textbox', { name: /username/i }), 'testuser');
     await userEvent.type(screen.getByLabelText(/password/i), 'testpass123');
-    await userEvent.type(screen.getByLabelText(/email/i), 'test@example.com');
-    await userEvent.click(screen.getByText(/create account/i));
+    await userEvent.type(screen.getByRole('textbox', { name: /email/i }), 'test@example.com');
+
+    // Submit form
+    await userEvent.click(screen.getByRole('button', { name: /create account/i }));
 
     // Attempt verification
     await waitFor(() => {
       expect(screen.getByText(/verify your email/i)).toBeInTheDocument();
     });
     await userEvent.type(screen.getByPlaceholderText(/enter 6-digit code/i), '123456');
-    await userEvent.click(screen.getByText(/verify/i));
+    await userEvent.click(screen.getByRole('button', { name: /verify/i }));
 
     // Check for error message
     await waitFor(() => {
@@ -160,22 +172,28 @@ describe('Verification Flow', () => {
   it('should complete email verification successfully', async () => {
     renderComponent();
 
+    // Switch to registration form
+    await userEvent.click(screen.getByRole('tab', { name: /register/i }));
+
+    // Wait for form to be visible
+    await waitFor(() => {
+      expect(screen.getByRole('form')).toBeInTheDocument();
+    });
+
     // Fill registration form
-    await userEvent.type(screen.getByLabelText(/username/i), 'testuser');
+    await userEvent.type(screen.getByRole('textbox', { name: /username/i }), 'testuser');
     await userEvent.type(screen.getByLabelText(/password/i), 'testpass123');
-    await userEvent.type(screen.getByLabelText(/email/i), 'test@example.com');
+    await userEvent.type(screen.getByRole('textbox', { name: /email/i }), 'test@example.com');
 
     // Submit form
-    await userEvent.click(screen.getByText(/create account/i));
+    await userEvent.click(screen.getByRole('button', { name: /create account/i }));
 
-    // Verify email verification dialog appears
+    // Complete verification
     await waitFor(() => {
       expect(screen.getByText(/verify your email/i)).toBeInTheDocument();
     });
-
-    // Enter verification code
     await userEvent.type(screen.getByPlaceholderText(/enter 6-digit code/i), '123456');
-    await userEvent.click(screen.getByText(/verify/i));
+    await userEvent.click(screen.getByRole('button', { name: /verify/i }));
 
     // Verify success
     await waitFor(() => {
@@ -186,27 +204,35 @@ describe('Verification Flow', () => {
   it('should handle WhatsApp verification after email verification', async () => {
     renderComponent();
 
+    // Switch to registration form
+    await userEvent.click(screen.getByRole('tab', { name: /register/i }));
+
+    // Wait for form to be visible
+    await waitFor(() => {
+      expect(screen.getByRole('form')).toBeInTheDocument();
+    });
+
     // Fill registration form with WhatsApp preference
-    await userEvent.type(screen.getByLabelText(/username/i), 'testuser');
+    await userEvent.type(screen.getByRole('textbox', { name: /username/i }), 'testuser');
     await userEvent.type(screen.getByLabelText(/password/i), 'testpass123');
-    await userEvent.type(screen.getByLabelText(/email/i), 'test@example.com');
+    await userEvent.type(screen.getByRole('textbox', { name: /email/i }), 'test@example.com');
 
     // Select WhatsApp preference
-    const select = screen.getByLabelText(/preferred contact method/i);
+    const select = screen.getByRole('combobox', { name: /preferred contact method/i });
     await userEvent.click(select);
-    await userEvent.click(screen.getByText(/whatsapp/i));
+    await userEvent.click(screen.getByRole('option', { name: /whatsapp/i }));
 
-    await userEvent.type(screen.getByLabelText(/phone number/i), '+1234567890');
+    await userEvent.type(screen.getByRole('textbox', { name: /phone number/i }), '+1234567890');
 
     // Submit form
-    await userEvent.click(screen.getByText(/create account/i));
+    await userEvent.click(screen.getByRole('button', { name: /create account/i }));
 
     // Complete email verification
     await waitFor(() => {
       expect(screen.getByText(/verify your email/i)).toBeInTheDocument();
     });
     await userEvent.type(screen.getByPlaceholderText(/enter 6-digit code/i), '123456');
-    await userEvent.click(screen.getByText(/verify/i));
+    await userEvent.click(screen.getByRole('button', { name: /verify/i }));
 
     // Verify WhatsApp verification appears
     await waitFor(() => {
@@ -215,7 +241,7 @@ describe('Verification Flow', () => {
 
     // Complete WhatsApp verification
     await userEvent.type(screen.getByPlaceholderText(/enter 6-digit code/i), '123456');
-    await userEvent.click(screen.getByText(/verify/i));
+    await userEvent.click(screen.getByRole('button', { name: /verify/i }));
 
     // Verify all dialogs are closed
     await waitFor(() => {
