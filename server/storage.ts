@@ -33,6 +33,12 @@ export interface IStorage {
     verified?: boolean;
   } | undefined>;
   markContactVerified(userId: number, type: string): Promise<void>;
+  getVerifications(userId: number): Promise<Array<{
+    type: string;
+    code: string;
+    expiresAt: Date;
+    verified: boolean;
+  }>>;
 }
 
 export class MemStorage implements IStorage {
@@ -229,6 +235,20 @@ export class MemStorage implements IStorage {
     const updatedCheckIn = { ...checkIn, response };
     this.checkIns.set(id, updatedCheckIn);
     return updatedCheckIn;
+  }
+  async getVerifications(userId: number): Promise<Array<{
+    type: string;
+    code: string;
+    expiresAt: Date;
+    verified: boolean;
+  }>> {
+    const verificationList = this.verifications.get(userId) || [];
+    return verificationList.map(v => ({
+      type: v.type,
+      code: v.code,
+      expiresAt: v.expiresAt,
+      verified: v.verified || false
+    }));
   }
 }
 

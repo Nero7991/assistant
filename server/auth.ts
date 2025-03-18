@@ -126,14 +126,17 @@ export function setupAuth(app: Express) {
 
       if (req.session.tempUserId) {
         console.log("Checking verifications from temp user:", req.session.tempUserId);
-        const verification = await storage.getLatestContactVerification(req.session.tempUserId);
+        const verifications = await storage.getVerifications(req.session.tempUserId);
 
-        if (verification?.verified) {
-          console.log("Found verified contact:", verification);
-          if (verification.type === 'email') {
-            isEmailVerified = true;
-          } else if (verification.type === 'phone' || verification.type === 'whatsapp') {
-            isPhoneVerified = true;
+        // Check both email and phone verifications
+        for (const verification of verifications) {
+          if (verification.verified) {
+            console.log("Found verified contact:", verification);
+            if (verification.type === 'email') {
+              isEmailVerified = true;
+            } else if (verification.type === 'phone' || verification.type === 'whatsapp') {
+              isPhoneVerified = true;
+            }
           }
         }
       }
