@@ -58,7 +58,7 @@ export function VerificationDialog({
 
   const onSubmit = async (data: { code: string }) => {
     try {
-      console.log(`Submitting verification code for ${type}`);
+      console.log(`Submitting verification code for ${type}:`, data.code);
       setIsVerifying(true);
 
       const res = await apiRequest("POST", "/api/verify-contact", {
@@ -66,18 +66,24 @@ export function VerificationDialog({
         type
       });
 
+      const responseData = await res.json();
+
       if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.message || "Failed to verify code");
+        throw new Error(responseData.message || "Failed to verify code");
       }
 
+      console.log(`${type} verification response:`, responseData);
+
+      // Ensure user data is refreshed
       await queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+      const updatedUser = await queryClient.fetchQuery({ queryKey: ["/api/user"] });
+      console.log("User state after verification:", updatedUser);
+
       toast({
         title: "Verification successful",
         description: `Your ${type} has been verified.`
       });
 
-      console.log(`${type} verification successful`);
       onSuccess();
     } catch (error) {
       console.error(`${type} verification failed:`, error);

@@ -29,6 +29,33 @@ async function comparePasswords(supplied: string, stored: string) {
   return timingSafeEqual(hashedBuf, suppliedBuf);
 }
 
+async function verifyContactAndUpdateUser(userId: number, type: string, code: string) {
+  const verification = await storage.getLatestContactVerification(userId);
+  console.log("Found verification:", verification);
+
+  if (!verification) {
+    throw new Error("No verification pending");
+  }
+
+  if (verification.code !== code) {
+    throw new Error("Invalid verification code");
+  }
+
+  if (new Date() > verification.expiresAt) {
+    throw new Error("Verification code expired");
+  }
+
+  await storage.markContactVerified(userId, type);
+  const updatedUser = await storage.getUser(userId);
+  console.log("User verification status updated:", {
+    userId,
+    type,
+    isEmailVerified: updatedUser?.isEmailVerified,
+    isPhoneVerified: updatedUser?.isPhoneVerified
+  });
+  return updatedUser;
+}
+
 export function setupAuth(app: Express) {
   const sessionSettings: session.SessionOptions = {
     secret: process.env.SESSION_SECRET!,
@@ -192,26 +219,13 @@ export function setupAuth(app: Express) {
         return res.status(401).json({ message: "No valid user session" });
       }
 
-      const verification = await storage.getLatestContactVerification(userId);
-
-      console.log("Found verification:", verification);
-
-      if (!verification) {
-        return res.status(400).json({ message: "No verification pending" });
+      try {
+        await verifyContactAndUpdateUser(userId, type, code);
+        res.json({ message: "Verification successful" });
+      } catch (error) {
+        console.error("Verification failed:", error);
+        res.status(400).json({ message: error.message });
       }
-
-      if (verification.code !== code) {
-        return res.status(400).json({ message: "Invalid verification code" });
-      }
-
-      if (new Date() > verification.expiresAt) {
-        return res.status(400).json({ message: "Verification code expired" });
-      }
-
-      // Mark verification as successful
-      await storage.markContactVerified(userId, type);
-
-      res.json({ message: "Verification successful" });
     } catch (error) {
       console.error("Verification error:", error);
       res.status(500).json({ message: "Verification failed" });

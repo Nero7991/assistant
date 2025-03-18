@@ -43,20 +43,19 @@ export default function AuthPage() {
   }, [user]);
 
   useEffect(() => {
-    if (user?.isEmailVerified && (user.contactPreference !== "whatsapp" || user.isPhoneVerified)) {
-      console.log('User verified, redirecting to home:', {
+    if (user) {
+      console.log("Checking redirection conditions:", {
         user,
         isEmailVerified: user.isEmailVerified,
         contactPreference: user.contactPreference,
-        isPhoneVerified: user.isPhoneVerified
+        isPhoneVerified: user.isPhoneVerified,
+        shouldRedirect: user.isEmailVerified && (user.contactPreference !== "whatsapp" || user.isPhoneVerified)
       });
-      setLocation("/");
-    } else if (user) {
-      console.log('User logged in but not fully verified:', {
-        isEmailVerified: user.isEmailVerified,
-        contactPreference: user.contactPreference,
-        isPhoneVerified: user.isPhoneVerified
-      });
+
+      if (user.isEmailVerified && (user.contactPreference !== "whatsapp" || user.isPhoneVerified)) {
+        console.log("Redirecting to dashboard");
+        setLocation("/");
+      }
     }
   }, [user, setLocation]);
 
@@ -262,7 +261,10 @@ const RegisterForm = () => {
 
   const completeRegistration = async () => {
     if (!pendingRegistrationData || registrationCompleted) {
-      console.log("Cannot complete registration - no pending data or already completed");
+      console.log("Cannot complete registration - no pending data or already completed", {
+        hasPendingData: !!pendingRegistrationData,
+        registrationCompleted
+      });
       return;
     }
 
@@ -271,20 +273,20 @@ const RegisterForm = () => {
         console.log("Starting registration completion with state:", {
           emailVerified,
           phoneVerified,
-          contactPreference: form.getValues("contactPreference"),
-          registrationCompleted
+          contactPreference: form.getValues("contactPreference")
         });
 
         setRegistrationCompleted(true);
 
         // Register the user
-        await registerMutation.mutateAsync(pendingRegistrationData);
+        const registeredUser = await registerMutation.mutateAsync(pendingRegistrationData);
+        console.log("User registered:", registeredUser);
 
-        // Force a fresh fetch of user data to ensure we have the latest state
+        // Force a fresh fetch of user data
         await queryClient.invalidateQueries({ queryKey: ["/api/user"] });
-        await queryClient.refetchQueries({ queryKey: ["/api/user"] });
+        const updatedUser = await queryClient.fetchQuery({ queryKey: ["/api/user"] });
 
-        console.log("Registration completed, user data refreshed");
+        console.log("Registration completed, verified user state:", updatedUser);
       } catch (error) {
         console.error("Final registration failed:", error);
         setRegistrationCompleted(false);
