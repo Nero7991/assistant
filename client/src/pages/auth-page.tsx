@@ -59,6 +59,43 @@ export default function AuthPage() {
     }
   }, [user, setLocation]);
 
+  // If user exists but verification is incomplete, show verification dialogs
+  if (user && (!user.isEmailVerified || (user.contactPreference === "whatsapp" && !user.isPhoneVerified))) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Card className="w-full max-w-md p-6">
+          <CardHeader>
+            <CardTitle>Verification Required</CardTitle>
+            <CardDescription>
+              Please complete the verification process to continue
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {!user.isEmailVerified && (
+                <Button 
+                  onClick={() => console.log("TODO: Implement email verification resend")}
+                  className="w-full"
+                >
+                  Verify Email
+                </Button>
+              )}
+              {user.contactPreference === "whatsapp" && !user.isPhoneVerified && (
+                <Button 
+                  onClick={() => console.log("TODO: Implement phone verification resend")}
+                  className="w-full"
+                >
+                  Verify Phone
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // If no user, show login/register form
   if (!user) {
     return (
       <div className="min-h-screen grid lg:grid-cols-2">
@@ -115,6 +152,7 @@ export default function AuthPage() {
       </div>
     );
   }
+
   return null;
 }
 
