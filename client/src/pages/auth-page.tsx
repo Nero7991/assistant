@@ -123,9 +123,9 @@ const LoginForm = () => {
           name="username"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Username</FormLabel>
+              <FormLabel htmlFor="username">Username</FormLabel>
               <FormControl>
-                <Input {...field} />
+                <Input {...field} id="username"/>
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -136,9 +136,9 @@ const LoginForm = () => {
           name="password"
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Password</FormLabel>
+              <FormLabel htmlFor="password">Password</FormLabel>
               <FormControl>
-                <Input type="password" {...field} />
+                <Input type="password" {...field} id="password"/>
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -318,10 +318,15 @@ const RegisterForm = () => {
             name="username"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Username</FormLabel>
+                <FormLabel htmlFor="username">Username</FormLabel>
                 <FormControl>
                   <div className="relative">
-                    <Input {...field} autoComplete="username" />
+                    <Input 
+                      id="username"
+                      {...field}
+                      autoComplete="username"
+                      aria-label="Username"
+                    />
                     {isCheckingUsername && (
                       <Loader2 className="absolute right-3 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
                     )}
@@ -337,9 +342,15 @@ const RegisterForm = () => {
             name="password"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Password</FormLabel>
+                <FormLabel htmlFor="password">Password</FormLabel>
                 <FormControl>
-                  <Input type="password" {...field} autoComplete="new-password" />
+                  <Input 
+                    id="password"
+                    type="password"
+                    {...field}
+                    autoComplete="new-password"
+                    aria-label="Password"
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -351,13 +362,15 @@ const RegisterForm = () => {
             name="email"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Email Address</FormLabel>
+                <FormLabel htmlFor="email">Email Address</FormLabel>
                 <FormControl>
                   <Input
-                    {...field}
+                    id="email"
                     type="email"
+                    {...field}
                     placeholder="you@example.com"
                     autoComplete="email"
+                    aria-label="Email Address"
                   />
                 </FormControl>
                 <FormMessage />
@@ -373,13 +386,13 @@ const RegisterForm = () => {
                 <FormLabel>Preferred Contact Method</FormLabel>
                 <Select onValueChange={field.onChange} defaultValue={field.value}>
                   <FormControl>
-                    <SelectTrigger>
+                    <SelectTrigger data-testid="contact-preference-select">
                       <SelectValue placeholder="Select contact method" />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                    <SelectItem value="email">Email Only</SelectItem>
+                    <SelectItem value="whatsapp" data-testid="whatsapp-option">WhatsApp</SelectItem>
+                    <SelectItem value="email" data-testid="email-option">Email Only</SelectItem>
                   </SelectContent>
                 </Select>
                 <FormMessage />
@@ -393,13 +406,16 @@ const RegisterForm = () => {
               name="phoneNumber"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Phone Number</FormLabel>
+                  <FormLabel htmlFor="phoneNumber">Phone Number</FormLabel>
                   <FormControl>
                     <Input
+                      id="phoneNumber"
                       {...field}
                       placeholder="+1234567890"
                       type="tel"
                       autoComplete="tel"
+                      aria-label="Phone Number"
+                      data-testid="phone-number-input"
                     />
                   </FormControl>
                   <FormMessage />
