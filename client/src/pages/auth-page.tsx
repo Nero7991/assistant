@@ -31,6 +31,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Brain, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { VerificationDialog } from "@/components/verification-dialog";
+import { apiRequest } from "@/lib/queryClient";  // Updated import path
+
 
 export default function AuthPage() {
   const { user } = useAuth();
@@ -153,6 +155,7 @@ function RegisterForm() {
   const [showEmailVerification, setShowEmailVerification] = useState(false);
   const [showPhoneVerification, setShowPhoneVerification] = useState(false);
   const [verificationComplete, setVerificationComplete] = useState(false);
+  const [pendingRegistrationData, setPendingRegistrationData] = useState<any>(null);
 
   const form = useForm({
     resolver: zodResolver(insertUserSchema),
@@ -165,18 +168,41 @@ function RegisterForm() {
     },
   });
 
-  const onSubmit = async (data: any) => {
+  const checkUsernameAvailability = async (username: string) => {
     try {
-      console.log('Starting registration process...', { ...data, password: '[REDACTED]' });
-      await registerMutation.mutateAsync(data);
-      setShowEmailVerification(true);
+      const res = await apiRequest("GET", `/api/check-username/${username}`);
+      if (!res.ok) {
+        throw new Error("Username already exists");
+      }
+      return true;
     } catch (error) {
-      console.error('Registration failed:', error);
-      // Error will be handled by the mutation's onError callback
+      return false;
     }
   };
 
-  const handleEmailVerificationSuccess = () => {
+  const onSubmit = async (data: any) => {
+    try {
+      console.log('Starting registration process...', { ...data, password: '[REDACTED]' });
+
+      // Check username availability first
+      const isAvailable = await checkUsernameAvailability(data.username);
+      if (!isAvailable) {
+        throw new Error("Username already exists");
+      }
+
+      // Store registration data for later
+      setPendingRegistrationData(data);
+      setShowEmailVerification(true);
+    } catch (error) {
+      console.error('Registration failed:', error);
+      form.setError("username", {
+        type: "manual",
+        message: error instanceof Error ? error.message : "Registration failed"
+      });
+    }
+  };
+
+  const handleEmailVerificationSuccess = async () => {
     setShowEmailVerification(false);
     console.log("Email verification complete, phone number:", form.getValues("phoneNumber"));
     console.log("Contact preference:", form.getValues("contactPreference"));
@@ -190,20 +216,36 @@ function RegisterForm() {
       console.log("Showing phone verification dialog");
       setShowPhoneVerification(true);
     } else {
-      console.log("Skipping phone verification - no phone number or email-only preference");
-      setVerificationComplete(true);
+      console.log("Proceeding with registration - no phone verification needed");
+      await completeRegistration();
     }
   };
 
-  const handlePhoneVerificationSuccess = () => {
+  const handlePhoneVerificationSuccess = async () => {
     console.log("Phone verification completed successfully");
     setShowPhoneVerification(false);
-    setVerificationComplete(true);
+    await completeRegistration();
   };
 
-  const handleSkipPhoneVerification = () => {
+  const handleSkipPhoneVerification = async () => {
     console.log("Phone verification skipped");
-    setVerificationComplete(true);
+    setShowPhoneVerification(false);
+    await completeRegistration();
+  };
+
+  const completeRegistration = async () => {
+    if (!pendingRegistrationData) {
+      console.error("No pending registration data found");
+      return;
+    }
+
+    try {
+      await registerMutation.mutateAsync(pendingRegistrationData);
+      setVerificationComplete(true);
+    } catch (error) {
+      console.error("Final registration failed:", error);
+      // Error will be handled by the mutation's onError callback
+    }
   };
 
   const contactPreference = form.watch("contactPreference");

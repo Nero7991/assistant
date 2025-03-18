@@ -75,7 +75,6 @@ export function VerificationDialog({
         description: `Your ${type} has been verified.`,
       });
       onSuccess();
-      onOpenChange(false);
     } catch (error) {
       console.error("Verification error:", error);
       toast({
@@ -113,7 +112,7 @@ export function VerificationDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange} modal={true}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
@@ -174,10 +173,7 @@ export function VerificationDialog({
                 <Button
                   type="button"
                   variant="ghost"
-                  onClick={() => {
-                    onSkip();
-                    onOpenChange(false);
-                  }}
+                  onClick={onSkip}
                 >
                   Skip for now
                 </Button>

@@ -77,7 +77,21 @@ export function setupAuth(app: Express) {
     }
   });
 
-  // Update the registration endpoint to handle WhatsApp verification
+  // Add the username check endpoint
+  app.get("/api/check-username/:username", async (req, res) => {
+    try {
+      const existingUser = await storage.getUserByUsername(req.params.username);
+      if (existingUser) {
+        return res.status(400).json({ message: "Username already exists" });
+      }
+      res.status(200).json({ message: "Username available" });
+    } catch (error) {
+      console.error("Username check error:", error);
+      res.status(500).json({ message: "Failed to check username availability" });
+    }
+  });
+
+  // Update the registration endpoint to handle the staged registration.  Keeping original verification logic.
   app.post("/api/register", async (req, res, next) => {
     try {
       console.log("Registration request received:", {
