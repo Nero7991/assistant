@@ -349,7 +349,7 @@ const RegisterForm = () => {
   };
 
   const handlePhoneVerificationSuccess = async () => {
-    console.log("Phone verification successful, updating state");
+    console.log("Phone verification successful");
     setPhoneVerified(true);
     setShowPhoneVerification(false);
 

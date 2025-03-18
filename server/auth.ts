@@ -51,7 +51,8 @@ async function verifyContactAndUpdateUser(userId: number, type: string, code: st
     userId,
     type,
     isEmailVerified: updatedUser?.isEmailVerified,
-    isPhoneVerified: updatedUser?.isPhoneVerified
+    isPhoneVerified: updatedUser?.isPhoneVerified,
+    user: updatedUser
   });
   return updatedUser;
 }
@@ -128,7 +129,7 @@ export function setupAuth(app: Express) {
         contactPreference: user.contactPreference
       });
 
-      // If there are any pending verifications with the temporary ID, transfer them
+      // Transfer verifications from temp user if any
       if (req.session.tempUserId) {
         console.log("Transferring verifications from temp user:", req.session.tempUserId);
         const verification = await storage.getLatestContactVerification(req.session.tempUserId);
@@ -203,15 +204,25 @@ export function setupAuth(app: Express) {
       try {
         const updatedUser = await verifyContactAndUpdateUser(userId, type, code);
 
-        // If using a temporary ID, store the verification result for later
-        if (!req.isAuthenticated() && req.session.tempUserId) {
+        if (req.isAuthenticated()) {
+          // If user is already authenticated, update their session
+          req.login(updatedUser, (err) => {
+            if (err) {
+              console.error("Error updating user session:", err);
+              return res.status(500).json({ message: "Failed to update session" });
+            }
+            console.log("Updated authenticated user session:", {
+              userId: updatedUser.id,
+              isAuthenticated: req.isAuthenticated(),
+              session: req.sessionID
+            });
+            res.json({ message: "Verification successful", user: updatedUser });
+          });
+        } else {
+          // Store verification result for later use during registration
           console.log("Storing verification result for temp user:", req.session.tempUserId);
+          res.json({ message: "Verification successful", user: updatedUser });
         }
-
-        res.json({ 
-          message: "Verification successful",
-          user: updatedUser
-        });
       } catch (error) {
         console.error("Verification failed:", error);
         res.status(400).json({ message: error instanceof Error ? error.message : "Verification failed" });

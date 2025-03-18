@@ -73,8 +73,8 @@ export class MemStorage implements IStorage {
 
   async createUser(insertUser: { username: string; password: string; phoneNumber?: string; email: string; contactPreference?: string }): Promise<User> {
     const id = this.currentId++;
-    const user = { 
-      ...insertUser, 
+    const user = {
+      ...insertUser,
       id,
       isPhoneVerified: false,
       isEmailVerified: false,
@@ -137,8 +137,10 @@ export class MemStorage implements IStorage {
       const updatedUser = { ...user };
       if (type === 'phone' || type === 'whatsapp') {
         updatedUser.isPhoneVerified = true;
+        console.log(`Setting isPhoneVerified to true for user ${userId}`);
       } else if (type === 'email') {
         updatedUser.isEmailVerified = true;
+        console.log(`Setting isEmailVerified to true for user ${userId}`);
       }
       this.users.set(userId, updatedUser);
 
@@ -146,8 +148,11 @@ export class MemStorage implements IStorage {
         userId,
         type,
         isEmailVerified: updatedUser.isEmailVerified,
-        isPhoneVerified: updatedUser.isPhoneVerified
+        isPhoneVerified: updatedUser.isPhoneVerified,
+        user: updatedUser
       });
+    } else {
+      console.warn(`No user found for ID ${userId} when marking contact verified`);
     }
 
     // Mark verification as verified
@@ -162,8 +167,11 @@ export class MemStorage implements IStorage {
       console.log("Marked verification as verified:", {
         userId,
         type: latestVerification.type,
-        verified: true
+        verified: true,
+        verification: latestVerification
       });
+    } else {
+      console.warn(`No verification found for user ${userId}`);
     }
   }
 
