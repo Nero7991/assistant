@@ -283,8 +283,18 @@ export function setupAuth(app: Express) {
       const verificationCode = generateVerificationCode();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-      // Create temporary session to store verification data
-      const tempUserId = Date.now(); // Use timestamp as temporary ID
+      // Use existing tempUserId from session or create new one
+      const tempUserId = req.session.tempUserId || Date.now();
+
+      // Store or update tempUserId in session
+      req.session.tempUserId = tempUserId;
+
+      console.log("Using temporary user ID for verification:", {
+        tempUserId,
+        type,
+        isNewId: !req.session.tempUserId
+      });
+
       await storage.createContactVerification({
         userId: tempUserId,
         type,
@@ -305,9 +315,6 @@ export function setupAuth(app: Express) {
         throw new Error(`Failed to send ${type} verification code`);
       }
 
-      // Store temp user ID in session for later use
-      req.session.tempUserId = tempUserId;
-
       res.json({
         message: "Verification code sent",
         tempUserId
@@ -320,56 +327,6 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/login", (req, res, next) => {
-    passport.authenticate("local", (err, user, info) => {
-      if (err) return next(err);
-      if (!user) return res.status(401).json({ message: "Invalid credentials" });
-
-      req.login(user, (err) => {
-        if (err) return next(err);
-        console.log("User logged in:", {
-          id: user.id,
-          isAuthenticated: req.isAuthenticated(),
-          session: req.sessionID
-        });
-        res.status(200).json(user);
-      });
-    })(req, res, next);
-  });
-
-  app.post("/api/logout", (req, res, next) => {
-    req.logout((err) => {
-      if (err) return next(err);
-      res.sendStatus(200);
-    });
-  });
-
-  app.get("/api/user", (req, res) => {
-    console.log("Get user request:", {
-      isAuthenticated: req.isAuthenticated(),
-      sessionID: req.sessionID,
-      user: req.user?.id,
-      cookies: req.headers.cookie
-    });
-    if (!req.isAuthenticated()) return res.sendStatus(401);
-    res.json(req.user);
-  });
-
-  // Add the username check endpoint
-  app.get("/api/check-username/:username", async (req, res) => {
-    try {
-      const existingUser = await storage.getUserByUsername(req.params.username);
-      if (existingUser) {
-        return res.status(400).json({ message: "Username already exists" });
-      }
-      res.status(200).json({ message: "Username available" });
-    } catch (error) {
-      console.error("Username check error:", error);
-      res.status(500).json({ message: "Failed to check username availability" });
-    }
-  });
-
-  // Update the resend verification endpoint to properly handle WhatsApp messages
   app.post("/api/resend-verification", async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ message: "Not authenticated" });
@@ -432,4 +389,53 @@ export function setupAuth(app: Express) {
       userId: req.user?.id
     });
   });
+  app.post("/api/login", (req, res, next) => {
+    passport.authenticate("local", (err, user, info) => {
+      if (err) return next(err);
+      if (!user) return res.status(401).json({ message: "Invalid credentials" });
+
+      req.login(user, (err) => {
+        if (err) return next(err);
+        console.log("User logged in:", {
+          id: user.id,
+          isAuthenticated: req.isAuthenticated(),
+          session: req.sessionID
+        });
+        res.status(200).json(user);
+      });
+    })(req, res, next);
+  });
+
+  app.post("/api/logout", (req, res, next) => {
+    req.logout((err) => {
+      if (err) return next(err);
+      res.sendStatus(200);
+    });
+  });
+
+  app.get("/api/user", (req, res) => {
+    console.log("Get user request:", {
+      isAuthenticated: req.isAuthenticated(),
+      sessionID: req.sessionID,
+      user: req.user?.id,
+      cookies: req.headers.cookie
+    });
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    res.json(req.user);
+  });
+
+  // Add the username check endpoint
+  app.get("/api/check-username/:username", async (req, res) => {
+    try {
+      const existingUser = await storage.getUserByUsername(req.params.username);
+      if (existingUser) {
+        return res.status(400).json({ message: "Username already exists" });
+      }
+      res.status(200).json({ message: "Username available" });
+    } catch (error) {
+      console.error("Username check error:", error);
+      res.status(500).json({ message: "Failed to check username availability" });
+    }
+  });
+
 }

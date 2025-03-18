@@ -1,0 +1,72 @@
+Verification completed for temporary user: {
+  userId: 1742335875235,
+  type: 'email',
+  isEmailVerified: true,
+  isPhoneVerified: false
+}
+Verification successful for temporary user: 1742335875235
+10:11:26 PM [express] POST /api/verify-contact 200 in 2ms :: {"message":"Verification successful"}
+Get user request: {
+  isAuthenticated: false,
+  sessionID: '6ua5BOosvN0YsYBl_57ueI3WzsMuSWel',
+  user: undefined,
+  cookies: 'connect.sid=s%3A6ua5BOosvN0YsYBl_57ueI3WzsMuSWel.WYt6tOeqeutwm1TZ5OUeiRecY3ZetukrWHjOYSU%2FbbI'
+}
+10:11:26 PM [express] GET /api/user 401 in 2ms
+Created verification: {
+  userId: 1742335886739,
+  type: 'whatsapp',
+  code: '629855',
+  expiresAt: 2025-03-18T22:21:26.739Z
+}
+Initiating whatsapp verification for: +17323187616
+Sending verification message: { type: 'whatsapp', contact: '+17323187616', code: '629855' }
+Attempting to send WhatsApp message to: +17323187616
+Using Twilio credentials: { accountSid: 'ACba38e0...', hasAuthToken: true }
+Twilio WhatsApp request parameters: {
+  to: 'whatsapp:+17323187616',
+  from: 'whatsapp:+18557270654',
+  contentSid: 'HX02fff4396367e72b923720ae12920172',
+  contentVariables: '{"1":"User","2":"verification code: 629855"}'
+}
+WhatsApp message sent successfully: {
+  sid: 'MM0424c418352708117f9e6d887ee23401',
+  status: 'queued',
+  errorCode: null,
+  errorMessage: null,
+  to: '+17323187616'
+}
+Verification message result: { type: 'whatsapp', contact: '+17323187616', success: true }
+10:11:27 PM [express] POST /api/initiate-verification 200 in 375ms :: {"message":"Verification code s…
+Processing verification: {
+  isAuthenticated: false,
+  userId: 1742335886739,
+  type: 'phone',
+  code: '629855'
+}
+Retrieved latest verification: {
+  userId: 1742335886739,
+  verification: {
+    userId: 1742335886739,
+    type: 'whatsapp',
+    code: '629855',
+    expiresAt: 2025-03-18T22:21:26.739Z,
+    createdAt: 2025-03-18T22:11:26.739Z,
+    verified: false
+  }
+}
+Found verification: {
+  userId: 1742335886739,
+  type: 'whatsapp',
+  code: '629855',
+  expiresAt: 2025-03-18T22:21:26.739Z,
+  createdAt: 2025-03-18T22:11:26.739Z,
+  verified: false
+}
+Marking contact as verified: { userId: 1742335886739, type: 'phone' }
+No user found for ID 1742335886739 - this is likely a temporary verification
+Marked verification as verified: {
+  userId: 1742335886739,
+  type: 'whatsapp',
+  verified: true,
+  verification: {
