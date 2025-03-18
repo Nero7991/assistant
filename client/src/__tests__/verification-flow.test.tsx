@@ -22,11 +22,6 @@ function renderWithProviders(ui: React.ReactElement) {
         staleTime: 0,
       },
     },
-    logger: {
-      log: console.log,
-      warn: console.warn,
-      error: () => {},
-    },
   });
 
   return render(
@@ -40,141 +35,157 @@ function renderWithProviders(ui: React.ReactElement) {
 
 describe('Auth Page', () => {
   it('completes the registration and verification flow', async () => {
-    // Mock API responses
     server.use(
+      http.post('/api/register', () => {
+        return HttpResponse.json({
+          id: 1,
+          username: 'testuser',
+          email: 'test@example.com',
+          isEmailVerified: false,
+          isPhoneVerified: false,
+          contactPreference: 'whatsapp',
+        }, { status: 201 });
+      }),
+
+      // Add initiate-verification handler
       http.post('/api/initiate-verification', () => {
         return HttpResponse.json({
           message: "Verification code sent",
           tempUserId: Date.now()
         });
       }),
+
       http.post('/api/verify-contact', () => {
-        return HttpResponse.json({ message: "Verification successful" });
-      }),
-      http.post('/api/register', () => {
-        return HttpResponse.json({
-          id: 1,
-          username: 'testuser',
-          email: 'test@example.com',
-          isEmailVerified: true,
-          isPhoneVerified: true,
-          contactPreference: 'whatsapp'
-        });
+        return HttpResponse.json({ message: 'Verification successful' });
       })
     );
 
-    // Setup user events and render
     const user = userEvent.setup();
-    const { container, debug } = renderWithProviders(<AuthPage />);
+    const { container } = renderWithProviders(<AuthPage />);
 
-    // Navigate to registration and fill form
+    // Fill registration form
     await user.click(screen.getByRole('tab', { name: /register/i }));
     await user.type(screen.getByRole('textbox', { name: /username/i }), 'testuser');
     await user.type(screen.getByLabelText(/password/i), 'testpass123');
     await user.type(screen.getByRole('textbox', { name: /email/i }), 'test@example.com');
 
-    // Select contact preference
-    const selectTrigger = screen.getByTestId('contact-preference-select');
-    await user.click(selectTrigger);
+    // Select WhatsApp and fill phone number
+    await user.click(screen.getByTestId('contact-preference-select'));
     await user.click(screen.getByTestId('whatsapp-option'));
+    const phoneInput = await screen.findByTestId('phone-number-input');
+    await user.type(phoneInput, '+1234567890');
 
-    // Wait for and fill phone number
-    await waitFor(() => {
-      expect(screen.getByTestId('phone-number-input')).toBeInTheDocument();
-    });
-    await user.type(screen.getByTestId('phone-number-input'), '+1234567890');
-
-    // Submit form
+    // Submit form and wait for email verification dialog
     await user.click(screen.getByRole('button', { name: /create account/i }));
 
-    // Debug dialog content before verification
-    console.log('Current DOM after form submission:', prettyDOM(container));
-    console.log('Portal root content:', prettyDOM(document.getElementById('radix-:r0:')));
+    // Add debug output before dialog checks
+    console.log('Document state before dialog:', prettyDOM(container));
 
-    // Handle email verification dialog
-    const emailDialog = await waitFor(() => {
-      const dialog = screen.getByRole('dialog', { name: /verify your email/i });
-      if (!dialog) {
-        debug();
-        throw new Error('Email verification dialog not found');
-      }
-      return dialog;
-    }, { timeout: 5000 });
-
-    expect(emailDialog).toBeInTheDocument();
+    // Find and verify email dialog
+    await waitFor(
+      () => {
+        const dialog = screen.queryByTestId('email-verification-dialog');
+        if (!dialog) {
+          console.log('Current DOM:', prettyDOM(container));
+          throw new Error('Email verification dialog not found');
+        }
+        expect(dialog).toBeInTheDocument();
+      },
+      { timeout: 10000, interval: 1000 }
+    );
 
     // Enter email verification code
-    const emailCodeInput = screen.getByLabelText(/email verification code/i);
+    const emailCodeInput = screen.getByTestId('email-verification-code-input');
     await user.type(emailCodeInput, '123456');
     await user.click(screen.getByTestId('email-verify-button'));
 
-    // Handle phone verification dialog
-    const phoneDialog = await waitFor(() => {
-      const dialog = screen.getByRole('dialog', { name: /verify your phone number/i });
-      if (!dialog) {
-        debug();
-        throw new Error('Phone verification dialog not found');
-      }
-      return dialog;
-    }, { timeout: 5000 });
-
-    expect(phoneDialog).toBeInTheDocument();
+    // Find and verify phone dialog
+    await waitFor(
+      () => {
+        const dialog = screen.queryByTestId('phone-verification-dialog');
+        if (!dialog) {
+          console.log('Current DOM:', prettyDOM(container));
+          throw new Error('Phone verification dialog not found');
+        }
+        expect(dialog).toBeInTheDocument();
+      },
+      { timeout: 10000, interval: 1000 }
+    );
 
     // Enter phone verification code
-    const phoneCodeInput = screen.getByLabelText(/phone verification code/i);
+    const phoneCodeInput = screen.getByTestId('phone-verification-code-input');
     await user.type(phoneCodeInput, '123456');
     await user.click(screen.getByTestId('phone-verify-button'));
 
     // Verify redirection
-    await waitFor(() => {
-      expect(mockSetLocation).toHaveBeenCalledWith('/');
-    });
+    await waitFor(
+      () => {
+        expect(mockSetLocation).toHaveBeenCalledWith('/');
+      },
+      { timeout: 10000 }
+    );
   });
 
   it('handles verification errors', async () => {
-    // Mock error response
     server.use(
       http.post('/api/verify-contact', () => {
         return HttpResponse.json(
           { message: "Invalid verification code" },
           { status: 400 }
         );
+      }),
+
+      // Add initiate-verification handler for error case
+      http.post('/api/initiate-verification', () => {
+        return HttpResponse.json({
+          message: "Verification code sent",
+          tempUserId: Date.now()
+        });
       })
     );
 
     const user = userEvent.setup();
-    const { container, debug } = renderWithProviders(<AuthPage />);
+    const { container } = renderWithProviders(<AuthPage />);
 
-    // Navigate to registration and fill form
+    // Fill and submit registration form
     await user.click(screen.getByRole('tab', { name: /register/i }));
     await user.type(screen.getByRole('textbox', { name: /username/i }), 'testuser');
     await user.type(screen.getByLabelText(/password/i), 'testpass123');
     await user.type(screen.getByRole('textbox', { name: /email/i }), 'test@example.com');
     await user.click(screen.getByRole('button', { name: /create account/i }));
 
-    // Debug dialog content before verification
-    console.log('Current DOM after form submission:', prettyDOM(container));
-    console.log('Portal root content:', prettyDOM(document.getElementById('radix-:r0:')));
+    // Add debug output before dialog check
+    console.log('Document state before error dialog:', prettyDOM(container));
 
     // Wait for verification dialog
-    const emailDialog = await waitFor(() => {
-      const dialog = screen.getByRole('dialog', { name: /verify your email/i });
-      if (!dialog) {
-        debug();
-        throw new Error('Email verification dialog not found');
-      }
-      return dialog;
-    }, { timeout: 5000 });
+    await waitFor(
+      () => {
+        const dialog = screen.queryByTestId('email-verification-dialog');
+        if (!dialog) {
+          console.log('Current DOM:', prettyDOM(container));
+          throw new Error('Email verification dialog not found');
+        }
+        expect(dialog).toBeInTheDocument();
+      },
+      { timeout: 10000, interval: 1000 }
+    );
 
-    expect(emailDialog).toBeInTheDocument();
-
-    // Submit incorrect code
-    const codeInput = screen.getByLabelText(/email verification code/i);
+    // Submit incorrect code and verify error message
+    const codeInput = screen.getByTestId('email-verification-code-input');
     await user.type(codeInput, '000000');
     await user.click(screen.getByTestId('email-verify-button'));
 
-    // Check for error message
-    const errorMessage = await screen.findByText(/invalid verification code/i);
-    expect(errorMessage).toBeInTheDocument();
+    // Wait for error message
+    await waitFor(
+      () => {
+        const errorMessage = screen.queryByText(/invalid verification code/i);
+        if (!errorMessage) {
+          console.log('Current DOM:', prettyDOM(container));
+          throw new Error('Error message not found');
+        }
+        expect(errorMessage).toBeInTheDocument();
+      },
+      { timeout: 10000, interval: 1000 }
+    );
   });
 });

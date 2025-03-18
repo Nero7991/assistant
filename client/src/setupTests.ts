@@ -10,23 +10,6 @@ expect.extend(matchers);
 
 // Establish API mocking before all tests
 beforeAll(() => {
-  // Create Radix UI portal root for dialogs
-  const portalRoot = document.createElement('div');
-  portalRoot.setAttribute('id', 'radix-:r0:');
-  document.body.appendChild(portalRoot);
-
-  // Create dialog overlay root
-  const overlayRoot = document.createElement('div');
-  overlayRoot.setAttribute('data-radix-portal-root', '');
-  document.body.appendChild(overlayRoot);
-
-  // Create dialog root
-  const dialogRoot = document.createElement('div');
-  dialogRoot.setAttribute('role', 'dialog');
-  dialogRoot.setAttribute('data-radix-dialog-content', '');
-  overlayRoot.appendChild(dialogRoot);
-
-  // Start MSW server
   server.listen({ onUnhandledRequest: 'error' });
 });
 

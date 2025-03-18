@@ -42,7 +42,6 @@ export default function AuthPage() {
     console.log('AuthPage mounted with user:', user);
   }, [user]);
 
-  // Only redirect if user is logged in AND email is verified
   if (user?.isEmailVerified && (user.contactPreference !== "whatsapp" || user.isPhoneVerified)) {
     console.log('Redirecting to home, user state:', { isEmailVerified: user.isEmailVerified, contactPreference: user.contactPreference, isPhoneVerified: user.isPhoneVerified });
     setLocation("/");
@@ -211,6 +210,8 @@ const RegisterForm = () => {
 
   const onSubmit = async (data: any) => {
     try {
+      console.log("Form submitted, initiating verification process");
+
       if (form.formState.errors.username) {
         toast({
           title: "Registration error",
@@ -232,6 +233,7 @@ const RegisterForm = () => {
         throw new Error(error.message || "Failed to send verification code");
       }
 
+      console.log("Opening email verification dialog");
       setShowEmailVerification(true);
     } catch (error) {
       console.error('Registration failed:', error);
@@ -248,9 +250,9 @@ const RegisterForm = () => {
       return;
     }
 
-    // Only proceed with registration if both required verifications are complete
     if (emailVerified && (phoneVerified || form.getValues("contactPreference") !== "whatsapp")) {
       try {
+        console.log("Completing registration with verified credentials");
         setRegistrationCompleted(true);
         await registerMutation.mutateAsync(pendingRegistrationData);
         await queryClient.invalidateQueries({ queryKey: ["/api/user"] });
@@ -267,11 +269,13 @@ const RegisterForm = () => {
   };
 
   const handleEmailVerificationSuccess = async () => {
+    console.log("Email verification successful");
     setEmailVerified(true);
     setShowEmailVerification(false);
 
     if (form.getValues("contactPreference") === "whatsapp" && form.getValues("phoneNumber")) {
       try {
+        console.log("Initiating WhatsApp verification");
         const res = await apiRequest("POST", "/api/initiate-verification", {
           phone: form.getValues("phoneNumber"),
           type: "whatsapp"
@@ -282,6 +286,7 @@ const RegisterForm = () => {
           throw new Error(error.message || "Failed to send phone verification code");
         }
 
+        console.log("Opening phone verification dialog");
         setShowPhoneVerification(true);
       } catch (error) {
         console.error("Phone verification initiation failed:", error);
@@ -297,12 +302,14 @@ const RegisterForm = () => {
   };
 
   const handlePhoneVerificationSuccess = async () => {
+    console.log("Phone verification successful");
     setPhoneVerified(true);
     setShowPhoneVerification(false);
     await completeRegistration();
   };
 
   const handleSkipPhoneVerification = async () => {
+    console.log("Phone verification skipped");
     setShowPhoneVerification(false);
     await completeRegistration();
   };

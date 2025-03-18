@@ -9,8 +9,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogPortal,
-  DialogOverlay,
 } from "@/components/ui/dialog";
 import {
   Form,
@@ -55,23 +53,34 @@ export function VerificationDialog({
     },
   });
 
-  async function onSubmit(data: { code: string }) {
+  // Add debug logging for state changes
+  console.log(`VerificationDialog render - type: ${type}, open: ${open}, isVerifying: ${isVerifying}`);
+
+  const onSubmit = async (data: { code: string }) => {
     try {
+      console.log(`Submitting verification code for ${type}`);
       setIsVerifying(true);
-      const res = await apiRequest("POST", "/api/verify-contact", { code: data.code, type });
-      const result = await res.json();
+
+      const res = await apiRequest("POST", "/api/verify-contact", {
+        code: data.code,
+        type
+      });
 
       if (!res.ok) {
-        throw new Error(result.message || "Failed to verify code");
+        const error = await res.json();
+        throw new Error(error.message || "Failed to verify code");
       }
 
-      queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+      await queryClient.invalidateQueries({ queryKey: ["/api/user"] });
       toast({
         title: "Verification successful",
-        description: `Your ${type} has been verified.`,
+        description: `Your ${type} has been verified.`
       });
+
+      console.log(`${type} verification successful`);
       onSuccess();
     } catch (error) {
+      console.error(`${type} verification failed:`, error);
       toast({
         title: "Verification failed",
         description: error instanceof Error ? error.message : "Failed to verify code",
@@ -80,23 +89,29 @@ export function VerificationDialog({
     } finally {
       setIsVerifying(false);
     }
-  }
+  };
 
-  async function handleResend() {
+  const handleResend = async () => {
     try {
+      console.log(`Resending verification code for ${type}`);
       setIsResending(true);
-      const res = await apiRequest("POST", "/api/resend-verification", { type });
-      const result = await res.json();
+
+      const res = await apiRequest("POST", "/api/resend-verification", {
+        type
+      });
 
       if (!res.ok) {
-        throw new Error(result.message || "Failed to resend code");
+        const error = await res.json();
+        throw new Error(error.message || "Failed to resend code");
       }
 
+      console.log(`Verification code resent for ${type}`);
       toast({
         title: "Code resent",
-        description: `A new verification code has been sent to your ${type}.`,
+        description: `A new verification code has been sent to your ${type}.`
       });
     } catch (error) {
+      console.error(`Failed to resend ${type} verification code:`, error);
       toast({
         title: "Failed to resend code",
         description: error instanceof Error ? error.message : "Please try again later",
@@ -105,99 +120,95 @@ export function VerificationDialog({
     } finally {
       setIsResending(false);
     }
+  };
+
+  if (!open) {
+    console.log(`${type} verification dialog is closed`);
+    return null;
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogPortal>
-        <DialogOverlay className="bg-black/80" />
-        <DialogContent
-          role="dialog"
-          aria-modal="true"
-          aria-label={title}
-          data-testid={`${type}-verification-dialog`}
-          className="fixed left-[50%] top-[50%] z-50 w-full max-w-md translate-x-[-50%] translate-y-[-50%] rounded-lg bg-background p-6 shadow-lg"
-        >
-          <DialogHeader>
-            <DialogTitle>{title}</DialogTitle>
-            {description && (
-              <p className="text-sm text-muted-foreground">{description}</p>
-            )}
-          </DialogHeader>
+      <DialogContent
+        data-testid={`${type}-verification-dialog`}
+        className="sm:max-w-[425px]"
+      >
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          {description && (
+            <p className="text-sm text-muted-foreground">{description}</p>
+          )}
+        </DialogHeader>
 
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="code"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        placeholder="Enter 6-digit code"
-                        type="text"
-                        maxLength={6}
-                        data-testid={`${type}-verification-code-input`}
-                        aria-label={`${type} verification code`}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <FormField
+              control={form.control}
+              name="code"
+              render={({ field }) => (
+                <FormItem>
+                  <FormControl>
+                    <Input
+                      {...field}
+                      placeholder="Enter verification code"
+                      type="text"
+                      maxLength={6}
+                      data-testid={`${type}-verification-code-input`}
+                      aria-label={`${type} verification code`}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <div className="flex flex-col gap-2">
+              <Button
+                type="submit"
+                disabled={isVerifying}
+                data-testid={`${type}-verify-button`}
+              >
+                {isVerifying ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Verifying...
+                  </>
+                ) : (
+                  "Verify"
                 )}
-              />
+              </Button>
 
-              <div className="flex flex-col gap-2">
-                <Button 
-                  type="submit" 
-                  disabled={isVerifying}
-                  data-testid={`${type}-verify-button`}
-                  aria-label={`Verify ${type}`}
-                >
-                  {isVerifying ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Verifying...
-                    </>
-                  ) : (
-                    "Verify"
-                  )}
-                </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleResend}
+                disabled={isResending}
+                data-testid={`${type}-resend-button`}
+              >
+                {isResending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Resending...
+                  </>
+                ) : (
+                  "Resend Code"
+                )}
+              </Button>
 
+              {showSkip && onSkip && (
                 <Button
                   type="button"
-                  variant="outline"
-                  onClick={handleResend}
-                  disabled={isResending}
-                  data-testid={`${type}-resend-button`}
-                  aria-label={`Resend ${type} verification code`}
+                  variant="ghost"
+                  onClick={onSkip}
+                  data-testid={`${type}-skip-button`}
                 >
-                  {isResending ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Resending...
-                    </>
-                  ) : (
-                    "Resend Code"
-                  )}
+                  Skip for now
                 </Button>
-
-                {showSkip && onSkip && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={onSkip}
-                    data-testid={`${type}-skip-button`}
-                    aria-label={`Skip ${type} verification`}
-                  >
-                    Skip for now
-                  </Button>
-                )}
-              </div>
-            </form>
-          </Form>
-        </DialogContent>
-      </DialogPortal>
+              )}
+            </div>
+          </form>
+        </Form>
+      </DialogContent>
     </Dialog>
   );
 }
