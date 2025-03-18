@@ -117,40 +117,38 @@ export function setupAuth(app: Express) {
         return res.status(400).json({ message: "Username already exists" });
       }
 
-      // Create the user
+      // Check for verified contact from temp user
+      let isEmailVerified = false;
+      let isPhoneVerified = false;
+
+      if (req.session.tempUserId) {
+        console.log("Checking verifications from temp user:", req.session.tempUserId);
+        const verification = await storage.getLatestContactVerification(req.session.tempUserId);
+
+        if (verification?.verified) {
+          console.log("Found verified contact:", verification);
+          if (verification.type === 'email') {
+            isEmailVerified = true;
+          } else if (verification.type === 'phone' || verification.type === 'whatsapp') {
+            isPhoneVerified = true;
+          }
+        }
+      }
+
+      // Create the user with verification flags
       const user = await storage.createUser({
         ...req.body,
         password: await hashPassword(req.body.password),
+        isEmailVerified,
+        isPhoneVerified
       });
 
       console.log("User created:", {
         id: user.id,
         username: user.username,
-        contactPreference: user.contactPreference
-      });
-
-      // Transfer verifications from temp user if any
-      if (req.session.tempUserId) {
-        console.log("Transferring verifications from temp user:", req.session.tempUserId);
-        const verification = await storage.getLatestContactVerification(req.session.tempUserId);
-
-        if (verification?.verified) {
-          console.log("Found verified contact, updating user verification status");
-          await storage.markContactVerified(user.id, verification.type);
-        }
-      }
-
-      // Get fresh user object with updated verification status
-      const updatedUser = await storage.getUser(user.id);
-      if (!updatedUser) {
-        throw new Error("Failed to retrieve updated user");
-      }
-
-      console.log("Updated user state:", {
-        id: updatedUser.id,
-        isEmailVerified: updatedUser.isEmailVerified,
-        isPhoneVerified: updatedUser.isPhoneVerified,
-        user: updatedUser
+        contactPreference: user.contactPreference,
+        isEmailVerified: user.isEmailVerified,
+        isPhoneVerified: user.isPhoneVerified
       });
 
       // Generate new session and log in
@@ -160,19 +158,21 @@ export function setupAuth(app: Express) {
           return next(err);
         }
 
-        req.login(updatedUser, (err) => {
+        req.login(user, (err) => {
           if (err) {
             console.error("Login error after registration:", err);
             return next(err);
           }
 
           console.log("User logged in after registration:", {
-            id: updatedUser.id,
+            id: user.id,
             isAuthenticated: req.isAuthenticated(),
+            isEmailVerified: user.isEmailVerified,
+            isPhoneVerified: user.isPhoneVerified,
             session: req.sessionID
           });
 
-          res.status(201).json(updatedUser);
+          res.status(201).json(user);
         });
       });
     } catch (error) {

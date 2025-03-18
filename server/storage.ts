@@ -8,7 +8,7 @@ export interface IStorage {
   sessionStore: session.Store;
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: { username: string; password: string; phoneNumber?: string; email: string; contactPreference?: string }): Promise<User>;
+  createUser(user: { username: string; password: string; phoneNumber?: string; email: string; contactPreference?: string; isEmailVerified?: boolean; isPhoneVerified?: boolean; }): Promise<User>;
 
   getGoals(userId: number): Promise<Goal[]>;
   createGoal(goal: Omit<Goal, "id">): Promise<Goal>;
@@ -71,13 +71,13 @@ export class MemStorage implements IStorage {
     );
   }
 
-  async createUser(insertUser: { username: string; password: string; phoneNumber?: string; email: string; contactPreference?: string }): Promise<User> {
+  async createUser(insertUser: { username: string; password: string; phoneNumber?: string; email: string; contactPreference?: string; isEmailVerified?: boolean; isPhoneVerified?: boolean; }): Promise<User> {
     const id = this.currentId++;
     const user = {
       ...insertUser,
       id,
-      isPhoneVerified: false,
-      isEmailVerified: false,
+      isPhoneVerified: insertUser.isPhoneVerified || false,
+      isEmailVerified: insertUser.isEmailVerified || false,
       contactPreference: insertUser.contactPreference || 'email',
       phoneNumber: insertUser.phoneNumber || null,
       allowEmailNotifications: true,
@@ -87,7 +87,8 @@ export class MemStorage implements IStorage {
     console.log("Created user:", {
       id: user.id,
       isEmailVerified: user.isEmailVerified,
-      isPhoneVerified: user.isPhoneVerified
+      isPhoneVerified: user.isPhoneVerified,
+      user
     });
     return user;
   }
