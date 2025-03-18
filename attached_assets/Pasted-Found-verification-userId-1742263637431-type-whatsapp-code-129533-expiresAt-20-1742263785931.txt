@@ -1,0 +1,62 @@
+Found verification: {
+  userId: 1742263637431,
+  type: 'whatsapp',
+  code: '129533',
+  expiresAt: 2025-03-18T02:17:17.431Z,
+  createdAt: 2025-03-18T02:07:17.431Z
+}
+2:07:47 AM [express] POST /api/verify-contact 200 in 2ms :: {"message":"Verification successful"}
+Get user request: {
+  isAuthenticated: false,
+  sessionID: 'hrkTwMcgBJim0HtOxJt-hA4kVuhyC7WE',
+  user: undefined,
+  cookies: 'connect.sid=s%3AhrkTwMcgBJim0HtOxJt-hA4kVuhyC7WE.fTif4VlR2OUx0ehhYQJGc%2F6A%2Bkg3E2Nm9ZITZWeDGW8'
+}
+2:07:47 AM [express] GET /api/user 401 in 3ms
+Registration request received: {
+  username: 'oren',
+  password: '[REDACTED]',
+  email: 'orencollaco97@gmail.com',
+  phoneNumber: '+17323187616',
+  contactPreference: 'whatsapp'
+}
+User created: { id: 1, username: 'oren', contactPreference: 'whatsapp' }
+Sending verification message: { type: 'email', contact: 'orencollaco97@gmail.com', code: '161508' }
+Preparing to send verification email: {
+  to: 'orencollaco97@gmail.com',
+  from: 'kona@orencollaco.com',
+  subject: 'Verify your ADHD Coach account'
+}
+Sending verification email with SendGrid...
+SendGrid API Response: [
+  Response {
+    statusCode: 202,
+    body: '',
+    headers: Object [AxiosHeaders] {
+      server: 'nginx',
+      date: 'Tue, 18 Mar 2025 02:07:47 GMT',
+      'content-length': '0',
+      connection: 'keep-alive',
+      'x-message-id': 'KJ_He3VCT46lGQHs73KRew',
+      'access-control-allow-origin': 'https://sendgrid.api-docs.io',
+      'access-control-allow-methods': 'POST',
+      'access-control-allow-headers': 'Authorization, Content-Type, On-behalf-of, x-sg-elas-acl',
+      'access-control-max-age': '600',
+      'x-no-cors-reason': 'https://sendgrid.com/docs/Classroom/Basics/API/cors.html',
+      'strict-transport-security': 'max-age=31536000; includeSubDomains',
+      'content-security-policy': "frame-ancestors 'none'",
+      'cache-control': 'no-cache',
+      'x-content-type-options': 'no-sniff',
+      'referrer-policy': 'strict-origin-when-cross-origin'
+    }
+  },
+  ''
+]
+Verification email sent successfully to: orencollaco97@gmail.com
+Verification message result: { type: 'email', contact: 'orencollaco97@gmail.com', success: true }
+Verification email sending result: { success: true, email: 'orencollaco97@gmail.com' }
+Serializing user: 1
+User logged in after registration: {
+  id: 1,
+  isAuthenticated: true,
+  session: '7aYMgkFaRNaIE4rNXJnb2ENsrr26SEie'

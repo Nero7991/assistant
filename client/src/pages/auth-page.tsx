@@ -156,6 +156,8 @@ function RegisterForm() {
   const [showPhoneVerification, setShowPhoneVerification] = useState(false);
   const [pendingRegistrationData, setPendingRegistrationData] = useState<any>(null);
   const [isCheckingUsername, setIsCheckingUsername] = useState(false);
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [phoneVerified, setPhoneVerified] = useState(false);
 
   const form = useForm({
     resolver: zodResolver(insertUserSchema),
@@ -236,13 +238,8 @@ function RegisterForm() {
   };
 
   const handleEmailVerificationSuccess = async () => {
-    console.log("Email verification complete, phone number:", form.getValues("phoneNumber"));
-    console.log("Contact preference:", form.getValues("contactPreference"));
-
-    if (
-      form.getValues("contactPreference") === "whatsapp" &&
-      form.getValues("phoneNumber")
-    ) {
+    setEmailVerified(true);
+    if (form.getValues("contactPreference") === "whatsapp" && form.getValues("phoneNumber")) {
       try {
         // Initiate phone verification
         const res = await apiRequest("POST", "/api/initiate-verification", {
@@ -255,7 +252,6 @@ function RegisterForm() {
           throw new Error(error.message || "Failed to send phone verification code");
         }
 
-        console.log("Showing phone verification dialog");
         setShowPhoneVerification(true);
       } catch (error) {
         console.error("Phone verification initiation failed:", error);
@@ -266,18 +262,16 @@ function RegisterForm() {
         });
       }
     } else {
-      console.log("Proceeding with registration - no phone verification needed");
       await completeRegistration();
     }
   };
 
   const handlePhoneVerificationSuccess = async () => {
-    console.log("Phone verification completed successfully");
+    setPhoneVerified(true);
     await completeRegistration();
   };
 
   const handleSkipPhoneVerification = async () => {
-    console.log("Phone verification skipped");
     await completeRegistration();
   };
 
@@ -436,7 +430,7 @@ function RegisterForm() {
         onSuccess={handlePhoneVerificationSuccess}
         onSkip={handleSkipPhoneVerification}
         title="Verify Your Phone Number"
-        description="Please check your phone for a verification code"
+        description="Please check your WhatsApp for a verification code"
         type="phone"
         showSkip={true}
       />
