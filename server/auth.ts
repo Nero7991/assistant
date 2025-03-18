@@ -45,17 +45,44 @@ async function verifyContactAndUpdateUser(userId: number, type: string, code: st
     throw new Error("Verification code expired");
   }
 
+  // Mark the verification as complete
   await storage.markContactVerified(userId, type);
 
-  // For temporary users, we don't need to return a user object
+  // Get the user and their verification status
   const user = await storage.getUser(userId);
-  console.log("Verification completed:", {
+
+  // Get all verifications for this user to check status
+  const verifications = await storage.getVerifications(userId);
+  const isEmailVerified = verifications.some(v => (v.type === 'email' && v.verified));
+  const isPhoneVerified = verifications.some(v => ((v.type === 'phone' || v.type === 'whatsapp') && v.verified));
+
+  console.log("Verification status check:", {
     userId,
     type,
-    isTemporaryUser: !user,
-    isEmailVerified: user?.isEmailVerified,
-    isPhoneVerified: user?.isPhoneVerified
+    isEmailVerified,
+    isPhoneVerified,
+    verifications
   });
+
+  if (user) {
+    // Update user verification flags if they exist
+    user.isEmailVerified = isEmailVerified;
+    user.isPhoneVerified = isPhoneVerified;
+    await storage.updateUser(user);
+
+    console.log("Updated user verification status:", {
+      userId: user.id,
+      isEmailVerified: user.isEmailVerified,
+      isPhoneVerified: user.isPhoneVerified
+    });
+  } else {
+    console.log("Verification completed for temporary user:", {
+      userId,
+      type,
+      isEmailVerified,
+      isPhoneVerified
+    });
+  }
 
   return user;
 }
@@ -235,6 +262,7 @@ export function setupAuth(app: Express) {
         // For temporary users, just confirm the verification was successful
         console.log("Verification successful for temporary user:", userId);
         res.json({ message: "Verification successful" });
+
       }
     } catch (error) {
       console.error("Verification error:", error);

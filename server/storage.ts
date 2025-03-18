@@ -39,6 +39,7 @@ export interface IStorage {
     expiresAt: Date;
     verified: boolean;
   }>>;
+  updateUser(user: User): Promise<User>;
 }
 
 export class MemStorage implements IStorage {
@@ -55,6 +56,7 @@ export class MemStorage implements IStorage {
   }>>;
   sessionStore: session.Store;
   private currentId: number;
+  private sessionTempUserId?: number; // Added to track temporary user ID from session
 
   constructor() {
     this.users = new Map();
@@ -79,25 +81,36 @@ export class MemStorage implements IStorage {
 
   async createUser(insertUser: { username: string; password: string; phoneNumber?: string; email: string; contactPreference?: string; isEmailVerified?: boolean; isPhoneVerified?: boolean; }): Promise<User> {
     const id = this.currentId++;
+
+    // Check temporary user verifications if they exist
+    let isEmailVerified = insertUser.isEmailVerified || false;
+    let isPhoneVerified = insertUser.isPhoneVerified || false;
+
+    if (this.sessionTempUserId) {
+      const verifications = await this.getVerifications(this.sessionTempUserId);
+      isEmailVerified = isEmailVerified || verifications.some(v => v.type === 'email' && v.verified);
+      isPhoneVerified = isPhoneVerified || verifications.some(v => (v.type === 'phone' || v.type === 'whatsapp') && v.verified);
+    }
+
     const user = {
       ...insertUser,
       id,
-      isPhoneVerified: insertUser.isPhoneVerified || false,
-      isEmailVerified: insertUser.isEmailVerified || false,
+      isPhoneVerified,
+      isEmailVerified,
       contactPreference: insertUser.contactPreference || 'email',
       phoneNumber: insertUser.phoneNumber || null,
       allowEmailNotifications: true,
       allowPhoneNotifications: false
     };
+
     this.users.set(id, user);
-    console.log("Created user:", {
+    console.log("Created user with verification status:", {
       id: user.id,
       username: user.username,
-      contactPreference: user.contactPreference,
       isEmailVerified: user.isEmailVerified,
-      isPhoneVerified: user.isPhoneVerified,
-      user
+      isPhoneVerified: user.isPhoneVerified
     });
+
     return user;
   }
 
@@ -250,6 +263,21 @@ export class MemStorage implements IStorage {
       expiresAt: v.expiresAt,
       verified: v.verified || false
     }));
+  }
+  async updateUser(user: User): Promise<User> {
+    // Ensure user exists
+    if (!this.users.has(user.id)) {
+      throw new Error(`User ${user.id} not found`);
+    }
+
+    // Update user with verification flags
+    this.users.set(user.id, {
+      ...user,
+      isEmailVerified: user.isEmailVerified || false,
+      isPhoneVerified: user.isPhoneVerified || false
+    });
+
+    return this.users.get(user.id)!;
   }
 }
 
