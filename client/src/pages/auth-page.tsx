@@ -201,8 +201,6 @@ function RegisterForm() {
 
   const onSubmit = async (data: any) => {
     try {
-      console.log('Starting registration process...', { ...data, password: '[REDACTED]' });
-
       if (form.formState.errors.username) {
         toast({
           title: "Registration error",
@@ -240,23 +238,26 @@ function RegisterForm() {
       return;
     }
 
-    try {
-      if (emailVerified && (phoneVerified || form.getValues("contactPreference") !== "whatsapp")) {
+    // Only proceed with registration if both required verifications are complete
+    if (emailVerified && (phoneVerified || form.getValues("contactPreference") !== "whatsapp")) {
+      try {
         setRegistrationCompleted(true);
         await registerMutation.mutateAsync(pendingRegistrationData);
+      } catch (error) {
+        console.error("Final registration failed:", error);
+        toast({
+          title: "Registration failed",
+          description: error instanceof Error ? error.message : "An error occurred",
+          variant: "destructive",
+        });
       }
-    } catch (error) {
-      console.error("Final registration failed:", error);
-      toast({
-        title: "Registration failed",
-        description: error instanceof Error ? error.message : "An error occurred",
-        variant: "destructive",
-      });
     }
   };
 
   const handleEmailVerificationSuccess = async () => {
     setEmailVerified(true);
+    setShowEmailVerification(false);
+
     if (form.getValues("contactPreference") === "whatsapp" && form.getValues("phoneNumber")) {
       try {
         const res = await apiRequest("POST", "/api/initiate-verification", {
@@ -285,10 +286,12 @@ function RegisterForm() {
 
   const handlePhoneVerificationSuccess = async () => {
     setPhoneVerified(true);
+    setShowPhoneVerification(false);
     await completeRegistration();
   };
 
   const handleSkipPhoneVerification = async () => {
+    setShowPhoneVerification(false);
     await completeRegistration();
   };
 
