@@ -77,7 +77,25 @@ export function VerificationDialog({
       // Ensure user data is refreshed
       await queryClient.invalidateQueries({ queryKey: ["/api/user"] });
       const updatedUser = await queryClient.fetchQuery({ queryKey: ["/api/user"] });
-      console.log("User state after verification:", updatedUser);
+
+      // Log authentication and verification state after phone verification
+      if (type === 'phone') {
+        console.log("=== Authentication Debug Info ===");
+        console.log("1. Updated User State:", updatedUser);
+        console.log("2. Query Cache State:", {
+          userQueryData: queryClient.getQueryData(["/api/user"]),
+          queryState: queryClient.getQueryState(["/api/user"])
+        });
+        console.log("3. Verification Status:", {
+          isEmailVerified: updatedUser?.isEmailVerified,
+          isPhoneVerified: updatedUser?.isPhoneVerified,
+        });
+        console.log("4. Session Info:", {
+          hasUser: !!updatedUser,
+          isAuthenticated: !!updatedUser,
+        });
+        console.log("=============================");
+      }
 
       toast({
         title: "Verification successful",
