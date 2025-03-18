@@ -208,73 +208,10 @@ export function setupAuth(app: Express) {
         return res.status(400).json({ message: "Verification code expired" });
       }
 
-      // If user is authenticated, mark the contact as verified
-      if (req.isAuthenticated()) {
-        await storage.markContactVerified(req.user.id, type);
+      // Mark verification as successful
+      await storage.markContactVerified(userId, type);
 
-        // After email verification, if user chose WhatsApp, send WhatsApp verification
-        if (type === 'email' && req.user.contactPreference === 'whatsapp' && !req.user.isPhoneVerified && req.user.phoneNumber) {
-          console.log("Email verified, initiating WhatsApp verification for user:", req.user.id);
-
-          const whatsAppVerificationCode = generateVerificationCode();
-          const whatsAppExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
-          await storage.createContactVerification({
-            userId: req.user.id,
-            type: 'phone',
-            code: whatsAppVerificationCode,
-            expiresAt: whatsAppExpiresAt,
-          });
-
-          const whatsAppMessageSent = await sendVerificationMessage(
-            'whatsapp',
-            req.user.phoneNumber,
-            whatsAppVerificationCode
-          );
-
-          console.log("WhatsApp verification message result:", {
-            userId: req.user.id,
-            phoneNumber: req.user.phoneNumber,
-            success: whatsAppMessageSent
-          });
-        }
-
-        // Get updated user and refresh session
-        const updatedUser = await storage.getUser(req.user.id);
-        if (!updatedUser) {
-          return res.status(404).json({ message: "User not found" });
-        }
-
-        // Regenerate session and update user
-        req.session.regenerate((err) => {
-          if (err) {
-            console.error("Session regenerate error:", err);
-            return res.status(500).json({ message: "Failed to update session" });
-          }
-          req.login(updatedUser, (err) => {
-            if (err) {
-              console.error("Session refresh error:", err);
-              return res.status(500).json({ message: "Failed to update session" });
-            }
-            req.session.save((err) => {
-              if (err) {
-                console.error("Session save error:", err);
-                return res.status(500).json({ message: "Failed to save session" });
-              }
-              console.log("Verification successful:", {
-                userId: updatedUser.id,
-                type,
-                isAuthenticated: req.isAuthenticated(),
-                session: req.sessionID
-              });
-              res.json({ message: "Contact verified successfully" });
-            });
-          });
-        });
-      } else {
-        // For temporary users, just confirm the verification was successful
-        res.json({ message: "Verification successful" });
-      }
+      res.json({ message: "Verification successful" });
     } catch (error) {
       console.error("Verification error:", error);
       res.status(500).json({ message: "Verification failed" });

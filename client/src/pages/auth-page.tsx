@@ -237,6 +237,28 @@ function RegisterForm() {
     }
   };
 
+  const completeRegistration = async () => {
+    if (!pendingRegistrationData) {
+      console.error("No pending registration data found");
+      return;
+    }
+
+    try {
+      // Only attempt registration if email is verified and (phone is verified or not required)
+      if (emailVerified && (phoneVerified || form.getValues("contactPreference") !== "whatsapp")) {
+        await registerMutation.mutateAsync(pendingRegistrationData);
+        // Registration success will trigger redirect via useAuth in AuthPage
+      }
+    } catch (error) {
+      console.error("Final registration failed:", error);
+      toast({
+        title: "Registration failed",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleEmailVerificationSuccess = async () => {
     setEmailVerified(true);
     if (form.getValues("contactPreference") === "whatsapp" && form.getValues("phoneNumber")) {
@@ -273,24 +295,6 @@ function RegisterForm() {
 
   const handleSkipPhoneVerification = async () => {
     await completeRegistration();
-  };
-
-  const completeRegistration = async () => {
-    if (!pendingRegistrationData) {
-      console.error("No pending registration data found");
-      return;
-    }
-
-    try {
-      await registerMutation.mutateAsync(pendingRegistrationData);
-    } catch (error) {
-      console.error("Final registration failed:", error);
-      toast({
-        title: "Registration failed",
-        description: error instanceof Error ? error.message : "An error occurred",
-        variant: "destructive",
-      });
-    }
   };
 
   const contactPreference = form.watch("contactPreference");
