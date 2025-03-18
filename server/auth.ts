@@ -377,4 +377,48 @@ export function setupAuth(app: Express) {
       userId: req.user?.id
     });
   });
+
+  // Add new endpoint for initiating verification
+  app.post("/api/initiate-verification", async (req, res) => {
+    try {
+      const { email, type } = req.body;
+
+      // Generate verification code
+      const verificationCode = generateVerificationCode();
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+      // Create temporary session to store verification data
+      const tempUserId = Date.now(); // Use timestamp as temporary ID
+      await storage.createContactVerification({
+        userId: tempUserId,
+        type,
+        code: verificationCode,
+        expiresAt,
+      });
+
+      // Send verification code
+      const messageSent = await sendVerificationMessage(
+        type,
+        email,
+        verificationCode
+      );
+
+      if (!messageSent) {
+        throw new Error("Failed to send verification code");
+      }
+
+      // Store temp user ID in session for later use
+      req.session.tempUserId = tempUserId;
+
+      res.json({ 
+        message: "Verification code sent",
+        tempUserId 
+      });
+    } catch (error) {
+      console.error("Verification initiation error:", error);
+      res.status(500).json({ 
+        message: error instanceof Error ? error.message : "Failed to send verification code" 
+      });
+    }
+  });
 }

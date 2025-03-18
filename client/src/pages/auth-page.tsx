@@ -211,7 +211,20 @@ function RegisterForm() {
         return;
       }
 
+      // Store registration data for later
       setPendingRegistrationData(data);
+
+      // Initiate email verification
+      const res = await apiRequest("POST", "/api/initiate-verification", {
+        email: data.email,
+        type: "email"
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.message || "Failed to send verification code");
+      }
+
       setShowEmailVerification(true);
     } catch (error) {
       console.error('Registration failed:', error);
@@ -231,8 +244,27 @@ function RegisterForm() {
       form.getValues("contactPreference") === "whatsapp" && 
       form.getValues("phoneNumber")
     ) {
-      console.log("Showing phone verification dialog");
-      setShowPhoneVerification(true);
+      try {
+        // Initiate phone verification
+        const res = await apiRequest("POST", "/api/initiate-verification", {
+          email: form.getValues("phoneNumber"),
+          type: "phone"
+        });
+
+        if (!res.ok) {
+          throw new Error("Failed to send phone verification code");
+        }
+
+        console.log("Showing phone verification dialog");
+        setShowPhoneVerification(true);
+      } catch (error) {
+        console.error("Phone verification initiation failed:", error);
+        toast({
+          title: "Verification failed",
+          description: "Failed to send phone verification code",
+          variant: "destructive",
+        });
+      }
     } else {
       console.log("Proceeding with registration - no phone verification needed");
       await completeRegistration();
