@@ -140,8 +140,12 @@ export function setupAuth(app: Express) {
         }
       }
 
-      // Ensure we have a fresh user object with updated verification status
+      // Get fresh user object with updated verification status
       const updatedUser = await storage.getUser(user.id);
+      if (!updatedUser) {
+        throw new Error("Failed to retrieve updated user");
+      }
+
       console.log("Updated user state:", {
         id: updatedUser.id,
         isEmailVerified: updatedUser.isEmailVerified,
@@ -167,13 +171,7 @@ export function setupAuth(app: Express) {
             session: req.sessionID
           });
 
-          req.session.save((err) => {
-            if (err) {
-              console.error("Session save error:", err);
-              return next(err);
-            }
-            res.status(201).json(updatedUser);
-          });
+          res.status(201).json(updatedUser);
         });
       });
     } catch (error) {
@@ -184,15 +182,6 @@ export function setupAuth(app: Express) {
 
   app.post("/api/verify-contact", async (req, res) => {
     try {
-      console.log("Verification attempt:", {
-        isAuthenticated: req.isAuthenticated(),
-        user: req.user?.id,
-        sessionID: req.sessionID,
-        body: req.body,
-        cookies: req.headers.cookie,
-        tempUserId: req.session.tempUserId
-      });
-
       const { code, type } = req.body;
       const userId = req.isAuthenticated() ? req.user.id : req.session.tempUserId;
 
@@ -201,35 +190,61 @@ export function setupAuth(app: Express) {
         return res.status(401).json({ message: "No valid user session" });
       }
 
-      try {
-        const updatedUser = await verifyContactAndUpdateUser(userId, type, code);
+      console.log("Processing verification:", {
+        isAuthenticated: req.isAuthenticated(),
+        userId,
+        type,
+        code
+      });
 
-        if (req.isAuthenticated()) {
-          // If user is already authenticated, update their session
-          req.login(updatedUser, (err) => {
-            if (err) {
-              console.error("Error updating user session:", err);
-              return res.status(500).json({ message: "Failed to update session" });
-            }
-            console.log("Updated authenticated user session:", {
-              userId: updatedUser.id,
-              isAuthenticated: req.isAuthenticated(),
-              session: req.sessionID
-            });
-            res.json({ message: "Verification successful", user: updatedUser });
-          });
-        } else {
-          // Store verification result for later use during registration
-          console.log("Storing verification result for temp user:", req.session.tempUserId);
-          res.json({ message: "Verification successful", user: updatedUser });
+      const verification = await storage.getLatestContactVerification(userId);
+      console.log("Found verification:", verification);
+
+      if (!verification) {
+        throw new Error("No verification pending");
+      }
+
+      if (verification.code !== code) {
+        throw new Error("Invalid verification code");
+      }
+
+      if (new Date() > verification.expiresAt) {
+        throw new Error("Verification code expired");
+      }
+
+      await storage.markContactVerified(userId, type);
+
+      if (req.isAuthenticated()) {
+        // Get fresh user object with updated verification status
+        const updatedUser = await storage.getUser(userId);
+        if (!updatedUser) {
+          throw new Error("Failed to retrieve updated user");
         }
-      } catch (error) {
-        console.error("Verification failed:", error);
-        res.status(400).json({ message: error instanceof Error ? error.message : "Verification failed" });
+
+        // Update session with new user data
+        req.login(updatedUser, (err) => {
+          if (err) {
+            console.error("Error updating user session:", err);
+            return res.status(500).json({ message: "Failed to update session" });
+          }
+
+          console.log("Updated authenticated user session:", {
+            userId: updatedUser.id,
+            isAuthenticated: req.isAuthenticated(),
+            isEmailVerified: updatedUser.isEmailVerified,
+            isPhoneVerified: updatedUser.isPhoneVerified,
+            session: req.sessionID
+          });
+
+          res.json({ message: "Verification successful", user: updatedUser });
+        });
+      } else {
+        console.log("Storing verification result for temp user:", userId);
+        res.json({ message: "Verification successful" });
       }
     } catch (error) {
       console.error("Verification error:", error);
-      res.status(500).json({ message: "Verification failed" });
+      res.status(400).json({ message: error instanceof Error ? error.message : "Verification failed" });
     }
   });
 

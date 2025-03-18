@@ -278,7 +278,7 @@ const RegisterForm = () => {
 
         setRegistrationCompleted(true);
 
-        // Register the user and get the response
+        // Register the user
         const registeredUser = await registerMutation.mutateAsync(pendingRegistrationData);
         console.log("User registered:", registeredUser);
 
@@ -286,16 +286,18 @@ const RegisterForm = () => {
         await queryClient.invalidateQueries({ queryKey: ["/api/user"] });
         const updatedUser = await queryClient.fetchQuery({ queryKey: ["/api/user"] });
 
-        console.log("Registration completed, user state:", {
-          registeredUser,
-          updatedUser,
-          isAuthenticated: !!updatedUser
-        });
-
-        // Double check our verification state
         if (!updatedUser) {
           throw new Error("Failed to authenticate user after registration");
         }
+
+        console.log("Registration completed, user state:", {
+          registeredUser,
+          updatedUser,
+          isAuthenticated: !!updatedUser,
+          isEmailVerified: updatedUser.isEmailVerified,
+          isPhoneVerified: updatedUser.isPhoneVerified
+        });
+
       } catch (error) {
         console.error("Final registration failed:", error);
         setRegistrationCompleted(false);
@@ -305,12 +307,6 @@ const RegisterForm = () => {
           variant: "destructive",
         });
       }
-    } else {
-      console.log("Cannot complete registration - verifications incomplete:", {
-        emailVerified,
-        phoneVerified,
-        contactPreference: form.getValues("contactPreference")
-      });
     }
   };
 
@@ -355,11 +351,15 @@ const RegisterForm = () => {
 
     // Complete registration and check results
     await completeRegistration();
+    const user = await queryClient.getQueryData(["/api/user"]);
     console.log("Post-registration state:", {
       emailVerified,
       phoneVerified,
       registrationCompleted,
-      user: await queryClient.getQueryData(["/api/user"])
+      user,
+      isAuthenticated: !!user,
+      isEmailVerified: user?.isEmailVerified,
+      isPhoneVerified: user?.isPhoneVerified
     });
   };
 

@@ -131,29 +131,30 @@ export class MemStorage implements IStorage {
   async markContactVerified(userId: number, type: string): Promise<void> {
     console.log("Marking contact as verified:", { userId, type });
 
-    // Update user verification status
     const user = this.users.get(userId);
-    if (user) {
-      const updatedUser = { ...user };
-      if (type === 'phone' || type === 'whatsapp') {
-        updatedUser.isPhoneVerified = true;
-        console.log(`Setting isPhoneVerified to true for user ${userId}`);
-      } else if (type === 'email') {
-        updatedUser.isEmailVerified = true;
-        console.log(`Setting isEmailVerified to true for user ${userId}`);
-      }
-      this.users.set(userId, updatedUser);
-
-      console.log("Updated user verification status:", {
-        userId,
-        type,
-        isEmailVerified: updatedUser.isEmailVerified,
-        isPhoneVerified: updatedUser.isPhoneVerified,
-        user: updatedUser
-      });
-    } else {
+    if (!user) {
       console.warn(`No user found for ID ${userId} when marking contact verified`);
+      return;
     }
+
+    // Update user verification status
+    if (type === 'phone' || type === 'whatsapp') {
+      user.isPhoneVerified = true;
+      console.log(`Set isPhoneVerified to true for user ${userId}`);
+    } else if (type === 'email') {
+      user.isEmailVerified = true;
+      console.log(`Set isEmailVerified to true for user ${userId}`);
+    }
+
+    // Save the updated user
+    this.users.set(userId, user);
+    console.log("Updated user verification status:", {
+      userId,
+      type,
+      isEmailVerified: user.isEmailVerified,
+      isPhoneVerified: user.isPhoneVerified,
+      user
+    });
 
     // Mark verification as verified
     const verificationList = this.verifications.get(userId) || [];
@@ -170,8 +171,6 @@ export class MemStorage implements IStorage {
         verified: true,
         verification: latestVerification
       });
-    } else {
-      console.warn(`No verification found for user ${userId}`);
     }
   }
 
