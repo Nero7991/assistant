@@ -30,6 +30,7 @@ export interface IStorage {
     type: string;
     code: string;
     expiresAt: Date;
+    verified?: boolean;
   } | undefined>;
   markContactVerified(userId: number, type: string): Promise<void>;
 }
@@ -86,6 +87,86 @@ export class MemStorage implements IStorage {
     return user;
   }
 
+  async createContactVerification(verification: {
+    userId: number;
+    type: string;
+    code: string;
+    expiresAt: Date;
+  }): Promise<void> {
+    const verificationList = this.verifications.get(verification.userId) || [];
+    verificationList.push({
+      ...verification,
+      createdAt: new Date(),
+      verified: false
+    });
+    this.verifications.set(verification.userId, verificationList);
+
+    console.log("Created verification:", {
+      userId: verification.userId,
+      type: verification.type,
+      code: verification.code,
+      expiresAt: verification.expiresAt
+    });
+  }
+
+  async getLatestContactVerification(userId: number): Promise<{
+    type: string;
+    code: string;
+    expiresAt: Date;
+    verified?: boolean;
+  } | undefined> {
+    const verificationList = this.verifications.get(userId) || [];
+    const latest = verificationList
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      [0];
+
+    console.log("Retrieved latest verification:", {
+      userId,
+      verification: latest
+    });
+
+    return latest;
+  }
+
+  async markContactVerified(userId: number, type: string): Promise<void> {
+    console.log("Marking contact as verified:", { userId, type });
+
+    // Update user verification status
+    const user = this.users.get(userId);
+    if (user) {
+      const updatedUser = { ...user };
+      if (type === 'phone' || type === 'whatsapp') {
+        updatedUser.isPhoneVerified = true;
+      } else if (type === 'email') {
+        updatedUser.isEmailVerified = true;
+      }
+      this.users.set(userId, updatedUser);
+
+      console.log("Updated user verification status:", {
+        userId,
+        type,
+        isEmailVerified: updatedUser.isEmailVerified,
+        isPhoneVerified: updatedUser.isPhoneVerified
+      });
+    }
+
+    // Mark verification as verified
+    const verificationList = this.verifications.get(userId) || [];
+    const latestVerification = verificationList
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      [0];
+
+    if (latestVerification) {
+      latestVerification.verified = true;
+      this.verifications.set(userId, verificationList);
+      console.log("Marked verification as verified:", {
+        userId,
+        type: latestVerification.type,
+        verified: true
+      });
+    }
+  }
+
   async getGoals(userId: number): Promise<Goal[]> {
     return Array.from(this.goals.values()).filter(
       (goal) => goal.userId === userId,
@@ -130,59 +211,6 @@ export class MemStorage implements IStorage {
     const updatedCheckIn = { ...checkIn, response };
     this.checkIns.set(id, updatedCheckIn);
     return updatedCheckIn;
-  }
-
-  async createContactVerification(verification: {
-    userId: number;
-    type: string;
-    code: string;
-    expiresAt: Date;
-  }): Promise<void> {
-    const verificationList = this.verifications.get(verification.userId) || [];
-    verificationList.push({
-      ...verification,
-      createdAt: new Date(),
-      verified: false
-    });
-    this.verifications.set(verification.userId, verificationList);
-  }
-
-  async getLatestContactVerification(userId: number): Promise<{
-    type: string;
-    code: string;
-    expiresAt: Date;
-    verified?: boolean;
-  } | undefined> {
-    const verificationList = this.verifications.get(userId) || [];
-    return verificationList
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-      [0];
-  }
-
-  async markContactVerified(userId: number, type: string): Promise<void> {
-    // Check if it's a regular user
-    const user = this.users.get(userId);
-    if (user) {
-      // Update regular user verification status
-      const updatedUser = { ...user };
-      if (type === 'phone' || type === 'whatsapp') {
-        updatedUser.isPhoneVerified = true;
-      } else if (type === 'email') {
-        updatedUser.isEmailVerified = true;
-      }
-      this.users.set(userId, updatedUser);
-    }
-
-    // Mark the verification as verified regardless of user existence
-    const verificationList = this.verifications.get(userId) || [];
-    const latestVerification = verificationList
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-      [0];
-
-    if (latestVerification) {
-      latestVerification.verified = true;
-      this.verifications.set(userId, verificationList);
-    }
   }
 }
 

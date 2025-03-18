@@ -104,21 +104,6 @@ export function setupAuth(app: Express) {
     }
   });
 
-  // Add the username check endpoint
-  app.get("/api/check-username/:username", async (req, res) => {
-    try {
-      const existingUser = await storage.getUserByUsername(req.params.username);
-      if (existingUser) {
-        return res.status(400).json({ message: "Username already exists" });
-      }
-      res.status(200).json({ message: "Username available" });
-    } catch (error) {
-      console.error("Username check error:", error);
-      res.status(500).json({ message: "Failed to check username availability" });
-    }
-  });
-
-  // Update the registration endpoint to properly handle verification state
   app.post("/api/register", async (req, res, next) => {
     try {
       console.log("Registration request received:", {
@@ -154,31 +139,39 @@ export function setupAuth(app: Express) {
         }
       }
 
-      // Generate new session
+      // Ensure we have a fresh user object with updated verification status
+      const updatedUser = await storage.getUser(user.id);
+      console.log("Updated user state:", {
+        id: updatedUser.id,
+        isEmailVerified: updatedUser.isEmailVerified,
+        isPhoneVerified: updatedUser.isPhoneVerified
+      });
+
+      // Generate new session and log in
       req.session.regenerate((err) => {
         if (err) {
           console.error("Session regenerate error:", err);
           return next(err);
         }
 
-        // Log in the user immediately after registration
-        req.login(user, (err) => {
+        req.login(updatedUser, (err) => {
           if (err) {
             console.error("Login error after registration:", err);
             return next(err);
           }
+
           console.log("User logged in after registration:", {
-            id: user.id,
+            id: updatedUser.id,
             isAuthenticated: req.isAuthenticated(),
             session: req.sessionID
           });
-          // Save the session before sending response
+
           req.session.save((err) => {
             if (err) {
               console.error("Session save error:", err);
               return next(err);
             }
-            res.status(201).json(user);
+            res.status(201).json(updatedUser);
           });
         });
       });
@@ -188,7 +181,6 @@ export function setupAuth(app: Express) {
     }
   });
 
-  // Update the verification endpoint to handle authentication
   app.post("/api/verify-contact", async (req, res) => {
     try {
       console.log("Verification attempt:", {
@@ -218,15 +210,114 @@ export function setupAuth(app: Express) {
 
         res.json({ 
           message: "Verification successful",
-          user: req.isAuthenticated() ? updatedUser : undefined
+          user: updatedUser
         });
       } catch (error) {
         console.error("Verification failed:", error);
-        res.status(400).json({ message: error.message });
+        res.status(400).json({ message: error instanceof Error ? error.message : "Verification failed" });
       }
     } catch (error) {
       console.error("Verification error:", error);
       res.status(500).json({ message: "Verification failed" });
+    }
+  });
+
+  app.post("/api/initiate-verification", async (req, res) => {
+    try {
+      const { email, phone, type } = req.body;
+      const contact = type === 'email' ? email : phone;
+
+      if (!contact) {
+        throw new Error(`${type === 'email' ? 'Email' : 'Phone number'} is required`);
+      }
+
+      // Generate verification code
+      const verificationCode = generateVerificationCode();
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+      // Create temporary session to store verification data
+      const tempUserId = Date.now(); // Use timestamp as temporary ID
+      await storage.createContactVerification({
+        userId: tempUserId,
+        type,
+        code: verificationCode,
+        expiresAt,
+      });
+
+      console.log(`Initiating ${type} verification for:`, contact);
+
+      // Send verification code
+      const messageSent = await sendVerificationMessage(
+        type,
+        contact,
+        verificationCode
+      );
+
+      if (!messageSent) {
+        throw new Error(`Failed to send ${type} verification code`);
+      }
+
+      // Store temp user ID in session for later use
+      req.session.tempUserId = tempUserId;
+
+      res.json({
+        message: "Verification code sent",
+        tempUserId
+      });
+    } catch (error) {
+      console.error("Verification initiation error:", error);
+      res.status(500).json({
+        message: error instanceof Error ? error.message : "Failed to send verification code"
+      });
+    }
+  });
+
+  app.post("/api/login", (req, res, next) => {
+    passport.authenticate("local", (err, user, info) => {
+      if (err) return next(err);
+      if (!user) return res.status(401).json({ message: "Invalid credentials" });
+
+      req.login(user, (err) => {
+        if (err) return next(err);
+        console.log("User logged in:", {
+          id: user.id,
+          isAuthenticated: req.isAuthenticated(),
+          session: req.sessionID
+        });
+        res.status(200).json(user);
+      });
+    })(req, res, next);
+  });
+
+  app.post("/api/logout", (req, res, next) => {
+    req.logout((err) => {
+      if (err) return next(err);
+      res.sendStatus(200);
+    });
+  });
+
+  app.get("/api/user", (req, res) => {
+    console.log("Get user request:", {
+      isAuthenticated: req.isAuthenticated(),
+      sessionID: req.sessionID,
+      user: req.user?.id,
+      cookies: req.headers.cookie
+    });
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    res.json(req.user);
+  });
+
+  // Add the username check endpoint
+  app.get("/api/check-username/:username", async (req, res) => {
+    try {
+      const existingUser = await storage.getUserByUsername(req.params.username);
+      if (existingUser) {
+        return res.status(400).json({ message: "Username already exists" });
+      }
+      res.status(200).json({ message: "Username available" });
+    } catch (error) {
+      console.error("Username check error:", error);
+      res.status(500).json({ message: "Failed to check username availability" });
     }
   });
 
@@ -278,42 +369,6 @@ export function setupAuth(app: Express) {
 
     res.json({ message: "Verification code resent" });
   });
-
-  app.post("/api/login", (req, res, next) => {
-    passport.authenticate("local", (err, user, info) => {
-      if (err) return next(err);
-      if (!user) return res.status(401).json({ message: "Invalid credentials" });
-
-      req.login(user, (err) => {
-        if (err) return next(err);
-        console.log("User logged in:", {
-          id: user.id,
-          isAuthenticated: req.isAuthenticated(),
-          session: req.sessionID
-        });
-        res.status(200).json(user);
-      });
-    })(req, res, next);
-  });
-
-  app.post("/api/logout", (req, res, next) => {
-    req.logout((err) => {
-      if (err) return next(err);
-      res.sendStatus(200);
-    });
-  });
-
-  app.get("/api/user", (req, res) => {
-    console.log("Get user request:", {
-      isAuthenticated: req.isAuthenticated(),
-      sessionID: req.sessionID,
-      user: req.user?.id,
-      cookies: req.headers.cookie
-    });
-    if (!req.isAuthenticated()) return res.sendStatus(401);
-    res.json(req.user);
-  });
-
   // Add debug endpoint
   app.get("/api/debug-session", (req, res) => {
     console.log("Debug session:", {
@@ -328,56 +383,5 @@ export function setupAuth(app: Express) {
       isAuthenticated: req.isAuthenticated(),
       userId: req.user?.id
     });
-  });
-
-  // Add new endpoint for initiating verification
-  app.post("/api/initiate-verification", async (req, res) => {
-    try {
-      const { email, phone, type } = req.body;
-      const contact = type === 'email' ? email : phone;
-
-      if (!contact) {
-        throw new Error(`${type === 'email' ? 'Email' : 'Phone number'} is required`);
-      }
-
-      // Generate verification code
-      const verificationCode = generateVerificationCode();
-      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-      // Create temporary session to store verification data
-      const tempUserId = Date.now(); // Use timestamp as temporary ID
-      await storage.createContactVerification({
-        userId: tempUserId,
-        type,
-        code: verificationCode,
-        expiresAt,
-      });
-
-      console.log(`Initiating ${type} verification for:`, contact);
-
-      // Send verification code
-      const messageSent = await sendVerificationMessage(
-        type,
-        contact,
-        verificationCode
-      );
-
-      if (!messageSent) {
-        throw new Error(`Failed to send ${type} verification code`);
-      }
-
-      // Store temp user ID in session for later use
-      req.session.tempUserId = tempUserId;
-
-      res.json({
-        message: "Verification code sent",
-        tempUserId
-      });
-    } catch (error) {
-      console.error("Verification initiation error:", error);
-      res.status(500).json({
-        message: error instanceof Error ? error.message : "Failed to send verification code"
-      });
-    }
   });
 }
