@@ -139,47 +139,50 @@ export class MemStorage implements IStorage {
   async markContactVerified(userId: number, type: string): Promise<void> {
     console.log("Marking contact as verified:", { userId, type });
 
-    const user = this.users.get(userId);
-    if (!user) {
-      console.warn(`No user found for ID ${userId} when marking contact verified`);
-      return;
-    }
-
-    // Update user verification status
-    if (type === 'phone' || type === 'whatsapp') {
-      user.isPhoneVerified = true;
-      console.log(`Set isPhoneVerified to true for user ${userId}`);
-    } else if (type === 'email') {
-      user.isEmailVerified = true;
-      console.log(`Set isEmailVerified to true for user ${userId}`);
-    }
-
-    // Save the updated user
-    this.users.set(userId, user);
-    console.log("Updated user verification status:", {
-      userId,
-      type,
-      isEmailVerified: user.isEmailVerified,
-      isPhoneVerified: user.isPhoneVerified,
-      user
-    });
-
-    // Mark verification as verified
+    // For temporary users, just mark the verification as verified without updating user
     const verificationList = this.verifications.get(userId) || [];
     const latestVerification = verificationList
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       [0];
 
-    if (latestVerification) {
-      latestVerification.verified = true;
-      this.verifications.set(userId, verificationList);
-      console.log("Marked verification as verified:", {
-        userId,
-        type: latestVerification.type,
-        verified: true,
-        verification: latestVerification
-      });
+    if (!latestVerification) {
+      console.warn(`No verification found for ID ${userId}`);
+      return;
     }
+
+    // If this is a real user (not a temporary one), update their verification status
+    const user = this.users.get(userId);
+    if (user) {
+      if (type === 'phone' || type === 'whatsapp') {
+        user.isPhoneVerified = true;
+        console.log(`Set isPhoneVerified to true for user ${userId}`);
+      } else if (type === 'email') {
+        user.isEmailVerified = true;
+        console.log(`Set isEmailVerified to true for user ${userId}`);
+      }
+
+      // Save the updated user
+      this.users.set(userId, user);
+      console.log("Updated user verification status:", {
+        userId,
+        type,
+        isEmailVerified: user.isEmailVerified,
+        isPhoneVerified: user.isPhoneVerified,
+        user
+      });
+    } else {
+      console.log(`No user found for ID ${userId} - this is likely a temporary verification`);
+    }
+
+    // Mark the verification as verified
+    latestVerification.verified = true;
+    this.verifications.set(userId, verificationList);
+    console.log("Marked verification as verified:", {
+      userId,
+      type: latestVerification.type,
+      verified: true,
+      verification: latestVerification
+    });
   }
 
   async getGoals(userId: number): Promise<Goal[]> {

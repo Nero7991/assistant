@@ -46,15 +46,18 @@ async function verifyContactAndUpdateUser(userId: number, type: string, code: st
   }
 
   await storage.markContactVerified(userId, type);
-  const updatedUser = await storage.getUser(userId);
-  console.log("User verification status updated:", {
+
+  // For temporary users, we don't need to return a user object
+  const user = await storage.getUser(userId);
+  console.log("Verification completed:", {
     userId,
     type,
-    isEmailVerified: updatedUser?.isEmailVerified,
-    isPhoneVerified: updatedUser?.isPhoneVerified,
-    user: updatedUser
+    isTemporaryUser: !user,
+    isEmailVerified: user?.isEmailVerified,
+    isPhoneVerified: user?.isPhoneVerified
   });
-  return updatedUser;
+
+  return user;
 }
 
 export function setupAuth(app: Express) {
@@ -198,12 +201,15 @@ export function setupAuth(app: Express) {
         code
       });
 
-      const updatedUser = await verifyContactAndUpdateUser(userId, type, code);
-      if (!updatedUser) {
-        throw new Error("Failed to update user verification status");
-      }
+      await verifyContactAndUpdateUser(userId, type, code);
 
       if (req.isAuthenticated()) {
+        // Get fresh user object with updated verification status
+        const updatedUser = await storage.getUser(userId);
+        if (!updatedUser) {
+          throw new Error("Failed to retrieve updated user");
+        }
+
         // Update session with new verification state
         req.login(updatedUser, (err) => {
           if (err) {
@@ -222,9 +228,9 @@ export function setupAuth(app: Express) {
           res.json({ message: "Verification successful", user: updatedUser });
         });
       } else {
-        // For temporary users, store the verification result
-        console.log("Storing verification result for temp user:", userId);
-        res.json({ message: "Verification successful", user: updatedUser });
+        // For temporary users, just confirm the verification was successful
+        console.log("Verification successful for temporary user:", userId);
+        res.json({ message: "Verification successful" });
       }
     } catch (error) {
       console.error("Verification error:", error);
