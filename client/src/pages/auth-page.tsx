@@ -63,10 +63,10 @@ export default function AuthPage() {
                 <TabsTrigger value="login">Login</TabsTrigger>
                 <TabsTrigger value="register">Register</TabsTrigger>
               </TabsList>
-              <TabsContent value="login">
+              <TabsContent value="login" data-testid="login-tab-content">
                 <LoginForm />
               </TabsContent>
-              <TabsContent value="register">
+              <TabsContent value="register" data-testid="register-tab-content">
                 <RegisterForm />
               </TabsContent>
             </Tabs>
@@ -92,7 +92,7 @@ export default function AuthPage() {
   );
 }
 
-function LoginForm() {
+const LoginForm = () => {
   const { loginMutation } = useAuth();
   const form = useForm({
     resolver: zodResolver(insertUserSchema.pick({ username: true, password: true })),
@@ -104,7 +104,7 @@ function LoginForm() {
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit((data) => loginMutation.mutate(data))} className="space-y-4">
+      <form onSubmit={form.handleSubmit((data) => loginMutation.mutate(data))} className="space-y-4" role="form" data-testid="login-form">
         <FormField
           control={form.control}
           name="username"
@@ -144,9 +144,9 @@ function LoginForm() {
       </form>
     </Form>
   );
-}
+};
 
-function RegisterForm() {
+const RegisterForm = () => {
   const { registerMutation } = useAuth();
   const { toast } = useToast();
   const [showEmailVerification, setShowEmailVerification] = useState(false);
@@ -304,7 +304,7 @@ function RegisterForm() {
   return (
     <>
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4" role="form" data-testid="register-form">
           <FormField
             control={form.control}
             name="username"
@@ -441,4 +441,4 @@ function RegisterForm() {
       />
     </>
   );
-}
+};
