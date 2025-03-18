@@ -2,11 +2,7 @@ import { randomInt } from "crypto";
 import { sendVerificationEmail } from "./email";
 import twilio from "twilio";
 
-if (
-  !process.env.TWILIO_ACCOUNT_SID ||
-  !process.env.TWILIO_AUTH_TOKEN ||
-  !process.env.TWILIO_PHONE_NUMBER
-) {
+if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_PHONE_NUMBER) {
   throw new Error("Missing required Twilio credentials");
 }
 
@@ -17,22 +13,17 @@ console.log("Initializing Twilio client with:", {
   hasAuthToken: !!process.env.TWILIO_AUTH_TOKEN,
 });
 
-const client = twilio(
-  process.env.TWILIO_ACCOUNT_SID,
-  process.env.TWILIO_AUTH_TOKEN,
-);
+const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 const twilioPhone = "+18557270654"; // Production WhatsApp business number
 
 export async function sendWhatsAppMessage(to: string, message: string): Promise<boolean> {
   try {
     console.log("Attempting to send WhatsApp message to:", to);
-    // Ensure the phone number has the correct format for WhatsApp
     const formattedNumber = to.startsWith("+") ? to : `+${to}`;
-
-    // Format numbers for WhatsApp
     const fromWhatsApp = `whatsapp:${twilioPhone}`;
     const toWhatsApp = `whatsapp:${formattedNumber}`;
 
+    // Log request details before sending
     console.log("WhatsApp request details:", {
       to: toWhatsApp,
       from: fromWhatsApp,
@@ -81,7 +72,7 @@ export async function sendSMS(to: string, message: string): Promise<boolean> {
     console.log("SMS request details:", {
       to: formattedNumber,
       from: twilioPhone,
-      body: message.substring(0, 20) + "...",
+      body: message.substring(0, 20) + "..."
     });
 
     const response = await client.messages.create({
@@ -126,7 +117,7 @@ export async function sendVerificationMessage(
   console.log("Sending verification message:", {
     type,
     contact,
-    code,
+    code
   });
 
   let result;
