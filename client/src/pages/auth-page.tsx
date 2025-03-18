@@ -72,11 +72,15 @@ export default function AuthPage() {
                 <TabsTrigger value="login">Login</TabsTrigger>
                 <TabsTrigger value="register">Register</TabsTrigger>
               </TabsList>
-              <TabsContent value="login" data-testid="login-tab-content">
-                <LoginForm />
+              <TabsContent value="login">
+                <div data-testid="login-tab-content">
+                  <LoginForm />
+                </div>
               </TabsContent>
-              <TabsContent value="register" data-testid="register-tab-content">
-                <RegisterForm />
+              <TabsContent value="register">
+                <div data-testid="register-tab-content">
+                  <RegisterForm />
+                </div>
               </TabsContent>
             </Tabs>
           </CardContent>
