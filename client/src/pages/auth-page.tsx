@@ -328,9 +328,7 @@ const RegisterForm = () => {
 
       // Force a fresh fetch of user data to ensure we have the latest verification state
       await queryClient.invalidateQueries({ queryKey: ["/api/user"] });
-      await queryClient.fetchQuery({ queryKey: ["/api/user"] });
-
-      const updatedUser = queryClient.getQueryData(["/api/user"]);
+      const updatedUser = await queryClient.fetchQuery({ queryKey: ["/api/user"] });
 
       console.log("Registration completed, user state:", {
         registeredUser,
