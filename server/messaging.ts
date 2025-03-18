@@ -23,23 +23,15 @@ export async function sendWhatsAppMessage(to: string, message: string): Promise<
     const fromWhatsApp = `whatsapp:${twilioPhone}`;
     const toWhatsApp = `whatsapp:${formattedNumber}`;
 
-    // Log request details before sending
-    console.log("WhatsApp request details:", {
-      to: toWhatsApp,
-      from: fromWhatsApp,
-      template: true,
-      contentSid: "HX02fff4396367e72b923720ae12920172",
-    });
-
     // Following exact Twilio Content Template format
     const response = await client.messages.create({
       contentSid: "HX02fff4396367e72b923720ae12920172",
       contentVariables: JSON.stringify({
         1: "Karen",
-        2: "Drone navigation project",
+        2: "Drone navigation project"
       }),
       from: fromWhatsApp,
-      to: toWhatsApp,
+      to: toWhatsApp
     });
 
     console.log("WhatsApp message sent successfully:", {
@@ -57,7 +49,7 @@ export async function sendWhatsAppMessage(to: string, message: string): Promise<
         code: error.code,
         message: error.message,
         status: error.status,
-        moreInfo: error.moreInfo,
+        moreInfo: error.moreInfo
       });
     }
     return false;
