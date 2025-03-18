@@ -42,66 +42,81 @@ export default function AuthPage() {
     console.log('AuthPage mounted with user:', user);
   }, [user]);
 
-  if (user?.isEmailVerified && (user.contactPreference !== "whatsapp" || user.isPhoneVerified)) {
-    console.log('Redirecting to home, user state:', { isEmailVerified: user.isEmailVerified, contactPreference: user.contactPreference, isPhoneVerified: user.isPhoneVerified });
-    setLocation("/");
-    return null;
-  }
+  useEffect(() => {
+    if (user?.isEmailVerified && (user.contactPreference !== "whatsapp" || user.isPhoneVerified)) {
+      console.log('User verified, redirecting to home:', {
+        user,
+        isEmailVerified: user.isEmailVerified,
+        contactPreference: user.contactPreference,
+        isPhoneVerified: user.isPhoneVerified
+      });
+      setLocation("/");
+    } else if (user) {
+      console.log('User logged in but not fully verified:', {
+        isEmailVerified: user.isEmailVerified,
+        contactPreference: user.contactPreference,
+        isPhoneVerified: user.isPhoneVerified
+      });
+    }
+  }, [user, setLocation]);
 
-  return (
-    <div className="min-h-screen grid lg:grid-cols-2">
-      <div className="flex items-center justify-center p-8">
-        <Card className="w-full max-w-md">
-          <CardHeader className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Brain className="h-6 w-6" />
-              <CardTitle className="text-2xl">ADHD Coach</CardTitle>
-            </div>
-            <CardDescription>
-              Get personalized coaching and stay accountable
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Tabs
-              defaultValue="login"
-              className="space-y-4"
-              onValueChange={(value) => console.log('Tab changed to:', value)}
-            >
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="login">Login</TabsTrigger>
-                <TabsTrigger value="register">Register</TabsTrigger>
-              </TabsList>
-              <TabsContent value="login">
-                <div data-testid="login-tab-content">
-                  <LoginForm />
-                </div>
-              </TabsContent>
-              <TabsContent value="register">
-                <div data-testid="register-tab-content">
-                  <RegisterForm />
-                </div>
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
-      </div>
-      <div className="hidden lg:flex flex-col justify-center p-8 bg-primary text-primary-foreground">
-        <div className="max-w-md mx-auto space-y-6">
-          <h1 className="text-4xl font-bold">Your Personal ADHD Coach</h1>
-          <p className="text-lg">
-            Get personalized support, accountability, and strategies to help you
-            achieve your goals while working with your ADHD, not against it.
-          </p>
-          <ul className="space-y-2">
-            <li>• Smart check-ins that adapt to your schedule</li>
-            <li>• Break down overwhelming tasks into manageable steps</li>
-            <li>• Track your progress and celebrate wins</li>
-            <li>• Get personalized strategies for your unique challenges</li>
-          </ul>
+  if (!user) {
+    return (
+      <div className="min-h-screen grid lg:grid-cols-2">
+        <div className="flex items-center justify-center p-8">
+          <Card className="w-full max-w-md">
+            <CardHeader className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Brain className="h-6 w-6" />
+                <CardTitle className="text-2xl">ADHD Coach</CardTitle>
+              </div>
+              <CardDescription>
+                Get personalized coaching and stay accountable
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Tabs
+                defaultValue="login"
+                className="space-y-4"
+                onValueChange={(value) => console.log('Tab changed to:', value)}
+              >
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="login">Login</TabsTrigger>
+                  <TabsTrigger value="register">Register</TabsTrigger>
+                </TabsList>
+                <TabsContent value="login">
+                  <div data-testid="login-tab-content">
+                    <LoginForm />
+                  </div>
+                </TabsContent>
+                <TabsContent value="register">
+                  <div data-testid="register-tab-content">
+                    <RegisterForm />
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+        </div>
+        <div className="hidden lg:flex flex-col justify-center p-8 bg-primary text-primary-foreground">
+          <div className="max-w-md mx-auto space-y-6">
+            <h1 className="text-4xl font-bold">Your Personal ADHD Coach</h1>
+            <p className="text-lg">
+              Get personalized support, accountability, and strategies to help you
+              achieve your goals while working with your ADHD, not against it.
+            </p>
+            <ul className="space-y-2">
+              <li>• Smart check-ins that adapt to your schedule</li>
+              <li>• Break down overwhelming tasks into manageable steps</li>
+              <li>• Track your progress and celebrate wins</li>
+              <li>• Get personalized strategies for your unique challenges</li>
+            </ul>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  }
+  return null;
 }
 
 const LoginForm = () => {
@@ -247,24 +262,44 @@ const RegisterForm = () => {
 
   const completeRegistration = async () => {
     if (!pendingRegistrationData || registrationCompleted) {
+      console.log("Cannot complete registration - no pending data or already completed");
       return;
     }
 
     if (emailVerified && (phoneVerified || form.getValues("contactPreference") !== "whatsapp")) {
       try {
-        console.log("Completing registration with verified credentials");
+        console.log("Starting registration completion with state:", {
+          emailVerified,
+          phoneVerified,
+          contactPreference: form.getValues("contactPreference"),
+          registrationCompleted
+        });
+
         setRegistrationCompleted(true);
+
+        // Register the user
         await registerMutation.mutateAsync(pendingRegistrationData);
+
+        // Force a fresh fetch of user data to ensure we have the latest state
         await queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+        await queryClient.refetchQueries({ queryKey: ["/api/user"] });
+
+        console.log("Registration completed, user data refreshed");
       } catch (error) {
         console.error("Final registration failed:", error);
+        setRegistrationCompleted(false);
         toast({
           title: "Registration failed",
           description: error instanceof Error ? error.message : "An error occurred",
           variant: "destructive",
         });
-        setRegistrationCompleted(false);
       }
+    } else {
+      console.log("Cannot complete registration - verifications incomplete:", {
+        emailVerified,
+        phoneVerified,
+        contactPreference: form.getValues("contactPreference")
+      });
     }
   };
 
@@ -297,15 +332,24 @@ const RegisterForm = () => {
         });
       }
     } else {
+      console.log("No phone verification needed, completing registration");
       await completeRegistration();
     }
   };
 
   const handlePhoneVerificationSuccess = async () => {
-    console.log("Phone verification successful");
+    console.log("Phone verification successful, updating state");
     setPhoneVerified(true);
     setShowPhoneVerification(false);
+
+    // Complete registration and check results
     await completeRegistration();
+    console.log("Post-registration state:", {
+      emailVerified,
+      phoneVerified,
+      registrationCompleted,
+      user: await queryClient.getQueryData(["/api/user"])
+    });
   };
 
   const handleSkipPhoneVerification = async () => {
