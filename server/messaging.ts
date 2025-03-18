@@ -2,16 +2,16 @@ import { randomInt } from "crypto";
 import { sendVerificationEmail } from "./email";
 import twilio from "twilio";
 
+// Log Twilio configuration at startup for debugging
+console.log("Initializing Twilio client with:", {
+  accountSid: process.env.TWILIO_ACCOUNT_SID?.substring(0, 8) + "...",
+  authToken: process.env.TWILIO_AUTH_TOKEN ? "[REDACTED]" : "missing",
+  phoneNumber: process.env.TWILIO_PHONE_NUMBER
+});
+
 if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_PHONE_NUMBER) {
   throw new Error("Missing required Twilio credentials");
 }
-
-// Log Twilio configuration
-console.log("Initializing Twilio client with:", {
-  accountSid: process.env.TWILIO_ACCOUNT_SID?.substring(0, 8) + "...",
-  phoneNumber: process.env.TWILIO_PHONE_NUMBER,
-  hasAuthToken: !!process.env.TWILIO_AUTH_TOKEN,
-});
 
 const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 const twilioPhone = "+18557270654"; // Production WhatsApp business number
@@ -23,7 +23,12 @@ export async function sendWhatsAppMessage(to: string, message: string): Promise<
     const fromWhatsApp = `whatsapp:${twilioPhone}`;
     const toWhatsApp = `whatsapp:${formattedNumber}`;
 
-    // Using exact format that works with Twilio client library
+    // Log full request details for debugging
+    console.log("Using Twilio credentials:", {
+      accountSid: process.env.TWILIO_ACCOUNT_SID?.substring(0, 8) + "...",
+      hasAuthToken: !!process.env.TWILIO_AUTH_TOKEN
+    });
+
     console.log("Twilio WhatsApp request parameters:", {
       to: toWhatsApp,
       from: fromWhatsApp,
