@@ -29,10 +29,10 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Brain, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { VerificationDialog } from "@/components/verification-dialog";
-import { apiRequest } from "@/lib/queryClient";  // Updated import path
-
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 export default function AuthPage() {
   const { user } = useAuth();
@@ -152,10 +152,11 @@ function LoginForm() {
 
 function RegisterForm() {
   const { registerMutation } = useAuth();
+  const { toast } = useToast();
   const [showEmailVerification, setShowEmailVerification] = useState(false);
   const [showPhoneVerification, setShowPhoneVerification] = useState(false);
-  const [verificationComplete, setVerificationComplete] = useState(false);
   const [pendingRegistrationData, setPendingRegistrationData] = useState<any>(null);
+  const [isCheckingUsername, setIsCheckingUsername] = useState(false);
 
   const form = useForm({
     resolver: zodResolver(insertUserSchema),
@@ -166,51 +167,68 @@ function RegisterForm() {
       email: "",
       contactPreference: "email",
     },
+    mode: "onChange",
   });
 
-  const checkUsernameAvailability = async (username: string) => {
-    try {
-      const res = await apiRequest("GET", `/api/check-username/${username}`);
-      if (!res.ok) {
-        throw new Error("Username already exists");
+  // Check username availability as user types
+  useEffect(() => {
+    const username = form.watch("username");
+    const checkUsername = async () => {
+      if (username.length < 3) return;
+
+      try {
+        setIsCheckingUsername(true);
+        const res = await apiRequest("GET", `/api/check-username/${username}`);
+        if (!res.ok) {
+          form.setError("username", {
+            type: "manual",
+            message: "Username already exists"
+          });
+        } else {
+          form.clearErrors("username");
+        }
+      } catch (error) {
+        console.error("Username check error:", error);
+      } finally {
+        setIsCheckingUsername(false);
       }
-      return true;
-    } catch (error) {
-      return false;
-    }
-  };
+    };
+
+    const timeoutId = setTimeout(checkUsername, 500);
+    return () => clearTimeout(timeoutId);
+  }, [form.watch("username")]);
 
   const onSubmit = async (data: any) => {
     try {
       console.log('Starting registration process...', { ...data, password: '[REDACTED]' });
 
-      // Check username availability first
-      const isAvailable = await checkUsernameAvailability(data.username);
-      if (!isAvailable) {
-        throw new Error("Username already exists");
+      if (form.formState.errors.username) {
+        toast({
+          title: "Registration error",
+          description: "Please choose a different username",
+          variant: "destructive",
+        });
+        return;
       }
 
-      // Store registration data for later
       setPendingRegistrationData(data);
       setShowEmailVerification(true);
     } catch (error) {
       console.error('Registration failed:', error);
-      form.setError("username", {
-        type: "manual",
-        message: error instanceof Error ? error.message : "Registration failed"
+      toast({
+        title: "Registration failed",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
       });
     }
   };
 
   const handleEmailVerificationSuccess = async () => {
-    setShowEmailVerification(false);
     console.log("Email verification complete, phone number:", form.getValues("phoneNumber"));
     console.log("Contact preference:", form.getValues("contactPreference"));
 
-    // If WhatsApp or iMessage was selected and phone number was provided, show phone verification
     if (
-      (form.getValues("contactPreference") === "whatsapp" || 
-       form.getValues("contactPreference") === "imessage") && 
+      form.getValues("contactPreference") === "whatsapp" && 
       form.getValues("phoneNumber")
     ) {
       console.log("Showing phone verification dialog");
@@ -223,13 +241,11 @@ function RegisterForm() {
 
   const handlePhoneVerificationSuccess = async () => {
     console.log("Phone verification completed successfully");
-    setShowPhoneVerification(false);
     await completeRegistration();
   };
 
   const handleSkipPhoneVerification = async () => {
     console.log("Phone verification skipped");
-    setShowPhoneVerification(false);
     await completeRegistration();
   };
 
@@ -241,10 +257,13 @@ function RegisterForm() {
 
     try {
       await registerMutation.mutateAsync(pendingRegistrationData);
-      setVerificationComplete(true);
     } catch (error) {
       console.error("Final registration failed:", error);
-      // Error will be handled by the mutation's onError callback
+      toast({
+        title: "Registration failed",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
+      });
     }
   };
 
@@ -261,7 +280,12 @@ function RegisterForm() {
               <FormItem>
                 <FormLabel>Username</FormLabel>
                 <FormControl>
-                  <Input {...field} autoComplete="username" />
+                  <div className="relative">
+                    <Input {...field} autoComplete="username" />
+                    {isCheckingUsername && (
+                      <Loader2 className="absolute right-3 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
+                    )}
+                  </div>
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -348,31 +372,20 @@ function RegisterForm() {
             />
           )}
 
-          <div className="space-y-4">
-            <Button 
-              type="submit" 
-              className="w-full"
-              disabled={registerMutation.isPending}
-              variant={registerMutation.isPending ? "outline" : "default"}
-            >
-              {registerMutation.isPending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Creating Account...
-                </>
-              ) : (
-                "Create Account"
-              )}
-            </Button>
-
-            {registerMutation.isError && (
-              <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">
-                {registerMutation.error instanceof Error 
-                  ? registerMutation.error.message 
-                  : "Failed to create account. Please try again."}
-              </div>
+          <Button 
+            type="submit" 
+            className="w-full"
+            disabled={registerMutation.isPending || isCheckingUsername}
+          >
+            {registerMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Creating Account...
+              </>
+            ) : (
+              "Create Account"
             )}
-          </div>
+          </Button>
         </form>
       </Form>
 
