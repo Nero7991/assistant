@@ -31,7 +31,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Brain, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { VerificationDialog } from "@/components/verification-dialog";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 
 export default function AuthPage() {
@@ -104,10 +104,7 @@ function LoginForm() {
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit((data) => {
-        console.log('Attempting login...', { ...data, password: '[REDACTED]' });
-        loginMutation.mutate(data)
-      })} className="space-y-4">
+      <form onSubmit={form.handleSubmit((data) => loginMutation.mutate(data))} className="space-y-4">
         <FormField
           control={form.control}
           name="username"
@@ -243,6 +240,8 @@ function RegisterForm() {
       try {
         setRegistrationCompleted(true);
         await registerMutation.mutateAsync(pendingRegistrationData);
+        // Force a query invalidation to refresh user state
+        queryClient.invalidateQueries({ queryKey: ["/api/user"] });
       } catch (error) {
         console.error("Final registration failed:", error);
         toast({
@@ -250,6 +249,7 @@ function RegisterForm() {
           description: error instanceof Error ? error.message : "An error occurred",
           variant: "destructive",
         });
+        setRegistrationCompleted(false);
       }
     }
   };
@@ -367,7 +367,6 @@ function RegisterForm() {
                   </FormControl>
                   <SelectContent>
                     <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                    <SelectItem value="imessage">iMessage</SelectItem>
                     <SelectItem value="email">Email Only</SelectItem>
                   </SelectContent>
                 </Select>
@@ -376,7 +375,7 @@ function RegisterForm() {
             )}
           />
 
-          {(contactPreference === "whatsapp" || contactPreference === "imessage") && (
+          {contactPreference === "whatsapp" && (
             <FormField
               control={form.control}
               name="phoneNumber"
