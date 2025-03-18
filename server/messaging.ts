@@ -16,7 +16,7 @@ if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !proces
 const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 const twilioPhone = "+18557270654"; // Production WhatsApp business number
 
-export async function sendWhatsAppMessage(to: string, message: string): Promise<boolean> {
+export async function sendWhatsAppMessage(to: string, code: string): Promise<boolean> {
   try {
     console.log("Attempting to send WhatsApp message to:", to);
     const formattedNumber = to.startsWith("+") ? to : `+${to}`;
@@ -34,8 +34,8 @@ export async function sendWhatsAppMessage(to: string, message: string): Promise<
       from: fromWhatsApp,
       contentSid: "HX02fff4396367e72b923720ae12920172",
       contentVariables: JSON.stringify({
-        "1": "Karen",
-        "2": "Drone navigation project"
+        "1": "User",
+        "2": `verification code: ${code}`
       })
     });
 
@@ -44,8 +44,8 @@ export async function sendWhatsAppMessage(to: string, message: string): Promise<
       from: fromWhatsApp,
       contentSid: "HX02fff4396367e72b923720ae12920172",
       contentVariables: JSON.stringify({
-        "1": "Karen",
-        "2": "Drone navigation project"
+        "1": "User",
+        "2": `verification code: ${code}`
       })
     });
 
