@@ -246,6 +246,7 @@ export function setupAuth(app: Express) {
         return res.status(404).json({ message: "User not found" });
       }
 
+      // Regenerate session and update user
       req.session.regenerate((err) => {
         if (err) {
           console.error("Session regenerate error:", err);

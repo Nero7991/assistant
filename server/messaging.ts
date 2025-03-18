@@ -29,7 +29,8 @@ export async function sendWhatsAppMessage(to: string, code: string): Promise<boo
       hasAuthToken: !!process.env.TWILIO_AUTH_TOKEN
     });
 
-    console.log("Twilio WhatsApp request parameters:", {
+    // Build message request parameters
+    const messageRequest = {
       to: toWhatsApp,
       from: fromWhatsApp,
       contentSid: "HX02fff4396367e72b923720ae12920172",
@@ -37,17 +38,11 @@ export async function sendWhatsAppMessage(to: string, code: string): Promise<boo
         "1": "User",
         "2": `verification code: ${code}`
       })
-    });
+    };
 
-    const response = await client.messages.create({
-      to: toWhatsApp,
-      from: fromWhatsApp,
-      contentSid: "HX02fff4396367e72b923720ae12920172",
-      contentVariables: JSON.stringify({
-        "1": "User",
-        "2": `verification code: ${code}`
-      })
-    });
+    console.log("Twilio WhatsApp request parameters:", messageRequest);
+
+    const response = await client.messages.create(messageRequest);
 
     console.log("WhatsApp message sent successfully:", {
       sid: response.sid,
