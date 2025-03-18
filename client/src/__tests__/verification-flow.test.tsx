@@ -65,7 +65,7 @@ describe('Auth Page', () => {
 
     // Setup user events and render
     const user = userEvent.setup();
-    const { container } = renderWithProviders(<AuthPage />);
+    const { container, debug } = renderWithProviders(<AuthPage />);
 
     // Navigate to registration and fill form
     await user.click(screen.getByRole('tab', { name: /register/i }));
@@ -87,35 +87,41 @@ describe('Auth Page', () => {
     // Submit form
     await user.click(screen.getByRole('button', { name: /create account/i }));
 
-    // Debug dialog rendering
-    await waitFor(() => {
-      const dialogContent = document.querySelector('[role="dialog"]');
-      if (!dialogContent) {
-        console.log('Dialog not found in DOM:', prettyDOM(container));
-      } else {
-        console.log('Dialog found:', prettyDOM(dialogContent));
-      }
-    });
+    // Debug dialog content before verification
+    console.log('Current DOM after form submission:', prettyDOM(container));
+    console.log('Portal root content:', prettyDOM(document.getElementById('radix-:r0:')));
 
     // Handle email verification dialog
-    const emailDialog = await screen.findByRole('dialog', {
-      name: 'Verify Your Email',
-      timeout: 5000
-    });
+    const emailDialog = await waitFor(() => {
+      const dialog = screen.getByRole('dialog', { name: /verify your email/i });
+      if (!dialog) {
+        debug();
+        throw new Error('Email verification dialog not found');
+      }
+      return dialog;
+    }, { timeout: 5000 });
+
     expect(emailDialog).toBeInTheDocument();
 
-    const emailCodeInput = await screen.findByLabelText(/email verification code/i);
+    // Enter email verification code
+    const emailCodeInput = screen.getByLabelText(/email verification code/i);
     await user.type(emailCodeInput, '123456');
     await user.click(screen.getByTestId('email-verify-button'));
 
     // Handle phone verification dialog
-    const phoneDialog = await screen.findByRole('dialog', {
-      name: 'Verify Your Phone Number',
-      timeout: 5000
-    });
+    const phoneDialog = await waitFor(() => {
+      const dialog = screen.getByRole('dialog', { name: /verify your phone number/i });
+      if (!dialog) {
+        debug();
+        throw new Error('Phone verification dialog not found');
+      }
+      return dialog;
+    }, { timeout: 5000 });
+
     expect(phoneDialog).toBeInTheDocument();
 
-    const phoneCodeInput = await screen.findByLabelText(/phone verification code/i);
+    // Enter phone verification code
+    const phoneCodeInput = screen.getByLabelText(/phone verification code/i);
     await user.type(phoneCodeInput, '123456');
     await user.click(screen.getByTestId('phone-verify-button'));
 
@@ -137,7 +143,7 @@ describe('Auth Page', () => {
     );
 
     const user = userEvent.setup();
-    const { container } = renderWithProviders(<AuthPage />);
+    const { container, debug } = renderWithProviders(<AuthPage />);
 
     // Navigate to registration and fill form
     await user.click(screen.getByRole('tab', { name: /register/i }));
@@ -146,25 +152,24 @@ describe('Auth Page', () => {
     await user.type(screen.getByRole('textbox', { name: /email/i }), 'test@example.com');
     await user.click(screen.getByRole('button', { name: /create account/i }));
 
-    // Debug dialog rendering
-    await waitFor(() => {
-      const dialogContent = document.querySelector('[role="dialog"]');
-      if (!dialogContent) {
-        console.log('Dialog not found in DOM:', prettyDOM(container));
-      } else {
-        console.log('Dialog found:', prettyDOM(dialogContent));
-      }
-    });
+    // Debug dialog content before verification
+    console.log('Current DOM after form submission:', prettyDOM(container));
+    console.log('Portal root content:', prettyDOM(document.getElementById('radix-:r0:')));
 
     // Wait for verification dialog
-    const emailDialog = await screen.findByRole('dialog', {
-      name: 'Verify Your Email',
-      timeout: 5000
-    });
+    const emailDialog = await waitFor(() => {
+      const dialog = screen.getByRole('dialog', { name: /verify your email/i });
+      if (!dialog) {
+        debug();
+        throw new Error('Email verification dialog not found');
+      }
+      return dialog;
+    }, { timeout: 5000 });
+
     expect(emailDialog).toBeInTheDocument();
 
     // Submit incorrect code
-    const codeInput = await screen.findByLabelText(/email verification code/i);
+    const codeInput = screen.getByLabelText(/email verification code/i);
     await user.type(codeInput, '000000');
     await user.click(screen.getByTestId('email-verify-button'));
 

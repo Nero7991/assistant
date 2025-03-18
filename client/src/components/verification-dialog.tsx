@@ -10,6 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogPortal,
+  DialogOverlay,
 } from "@/components/ui/dialog";
 import {
   Form,
@@ -106,23 +107,21 @@ export function VerificationDialog({
     }
   }
 
-  const dialogTitle = type === 'email' ? 'Verify Your Email' : 'Verify Your Phone Number';
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogPortal>
+        <DialogOverlay className="bg-black/80" />
         <DialogContent
           role="dialog"
-          aria-label={dialogTitle}
+          aria-modal="true"
+          aria-label={title}
           data-testid={`${type}-verification-dialog`}
-          className="sm:max-w-[425px]"
+          className="fixed left-[50%] top-[50%] z-50 w-full max-w-md translate-x-[-50%] translate-y-[-50%] rounded-lg bg-background p-6 shadow-lg"
         >
           <DialogHeader>
-            <DialogTitle>{dialogTitle}</DialogTitle>
+            <DialogTitle>{title}</DialogTitle>
             {description && (
-              <p className="text-sm text-muted-foreground">
-                {description}
-              </p>
+              <p className="text-sm text-muted-foreground">{description}</p>
             )}
           </DialogHeader>
 
