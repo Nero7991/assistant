@@ -149,12 +149,13 @@ export function setupAuth(app: Express) {
         isPhoneVerified
       });
 
-      console.log("User created:", {
+      console.log("Created user:", {
         id: user.id,
         username: user.username,
         contactPreference: user.contactPreference,
         isEmailVerified: user.isEmailVerified,
-        isPhoneVerified: user.isPhoneVerified
+        isPhoneVerified: user.isPhoneVerified,
+        user
       });
 
       // Generate new session and log in

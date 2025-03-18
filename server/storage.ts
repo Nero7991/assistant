@@ -145,7 +145,7 @@ export class MemStorage implements IStorage {
   async markContactVerified(userId: number, type: string): Promise<void> {
     console.log("Marking contact as verified:", { userId, type });
 
-    // For temporary users, just mark the verification as verified without updating user
+    // Get verification list and latest verification
     const verificationList = this.verifications.get(userId) || [];
     const latestVerification = verificationList
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
@@ -155,6 +155,10 @@ export class MemStorage implements IStorage {
       console.warn(`No verification found for ID ${userId}`);
       return;
     }
+
+    // Mark the verification as verified
+    latestVerification.verified = true;
+    this.verifications.set(userId, verificationList);
 
     // If this is a real user (not a temporary one), update their verification status
     const user = this.users.get(userId);
@@ -180,9 +184,6 @@ export class MemStorage implements IStorage {
       console.log(`No user found for ID ${userId} - this is likely a temporary verification`);
     }
 
-    // Mark the verification as verified
-    latestVerification.verified = true;
-    this.verifications.set(userId, verificationList);
     console.log("Marked verification as verified:", {
       userId,
       type: latestVerification.type,
