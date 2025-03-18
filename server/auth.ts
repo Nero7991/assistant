@@ -172,7 +172,7 @@ export function setupAuth(app: Express) {
     }
   });
 
-  // Update the verification endpoint to properly handle WhatsApp verification
+  // Update the verification endpoint to handle both temp and authenticated users
   app.post("/api/verify-contact", async (req, res) => {
     try {
       console.log("Verification attempt:", {
@@ -180,16 +180,19 @@ export function setupAuth(app: Express) {
         user: req.user?.id,
         sessionID: req.sessionID,
         body: req.body,
-        cookies: req.headers.cookie
+        cookies: req.headers.cookie,
+        tempUserId: req.session.tempUserId
       });
 
-      if (!req.isAuthenticated()) {
-        console.log("User not authenticated");
-        return res.status(401).json({ message: "Not authenticated" });
+      const { code, type } = req.body;
+      const userId = req.isAuthenticated() ? req.user.id : req.session.tempUserId;
+
+      if (!userId) {
+        console.log("No user ID found (neither authenticated nor temporary)");
+        return res.status(401).json({ message: "No valid user session" });
       }
 
-      const { code, type } = req.body;
-      const verification = await storage.getLatestContactVerification(req.user.id);
+      const verification = await storage.getLatestContactVerification(userId);
 
       console.log("Found verification:", verification);
 
@@ -205,73 +208,73 @@ export function setupAuth(app: Express) {
         return res.status(400).json({ message: "Verification code expired" });
       }
 
-      await storage.markContactVerified(req.user.id, type);
+      // If user is authenticated, mark the contact as verified
+      if (req.isAuthenticated()) {
+        await storage.markContactVerified(req.user.id, type);
 
-      // After email verification, if user chose WhatsApp, send WhatsApp verification
-      if (type === 'email' && req.user.contactPreference === 'whatsapp' && !req.user.isPhoneVerified && req.user.phoneNumber) {
-        console.log("Email verified, initiating WhatsApp verification for user:", req.user.id);
+        // After email verification, if user chose WhatsApp, send WhatsApp verification
+        if (type === 'email' && req.user.contactPreference === 'whatsapp' && !req.user.isPhoneVerified && req.user.phoneNumber) {
+          console.log("Email verified, initiating WhatsApp verification for user:", req.user.id);
 
-        const whatsAppVerificationCode = generateVerificationCode();
-        const whatsAppExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+          const whatsAppVerificationCode = generateVerificationCode();
+          const whatsAppExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-        await storage.createContactVerification({
-          userId: req.user.id,
-          type: 'phone',
-          code: whatsAppVerificationCode,
-          expiresAt: whatsAppExpiresAt,
-        });
+          await storage.createContactVerification({
+            userId: req.user.id,
+            type: 'phone',
+            code: whatsAppVerificationCode,
+            expiresAt: whatsAppExpiresAt,
+          });
 
-        console.log("Attempting WhatsApp verification for:", {
-          userId: req.user.id,
-          phoneNumber: req.user.phoneNumber,
-          code: whatsAppVerificationCode
-        });
+          const whatsAppMessageSent = await sendVerificationMessage(
+            'whatsapp',
+            req.user.phoneNumber,
+            whatsAppVerificationCode
+          );
 
-        const whatsAppMessageSent = await sendVerificationMessage(
-          'whatsapp',
-          req.user.phoneNumber,
-          whatsAppVerificationCode
-        );
-
-        console.log("WhatsApp verification message result:", {
-          userId: req.user.id,
-          phoneNumber: req.user.phoneNumber,
-          success: whatsAppMessageSent
-        });
-      }
-
-      // Get updated user and refresh session
-      const updatedUser = await storage.getUser(req.user.id);
-      if (!updatedUser) {
-        return res.status(404).json({ message: "User not found" });
-      }
-
-      // Regenerate session and update user
-      req.session.regenerate((err) => {
-        if (err) {
-          console.error("Session regenerate error:", err);
-          return res.status(500).json({ message: "Failed to update session" });
+          console.log("WhatsApp verification message result:", {
+            userId: req.user.id,
+            phoneNumber: req.user.phoneNumber,
+            success: whatsAppMessageSent
+          });
         }
-        req.login(updatedUser, (err) => {
+
+        // Get updated user and refresh session
+        const updatedUser = await storage.getUser(req.user.id);
+        if (!updatedUser) {
+          return res.status(404).json({ message: "User not found" });
+        }
+
+        // Regenerate session and update user
+        req.session.regenerate((err) => {
           if (err) {
-            console.error("Session refresh error:", err);
+            console.error("Session regenerate error:", err);
             return res.status(500).json({ message: "Failed to update session" });
           }
-          req.session.save((err) => {
+          req.login(updatedUser, (err) => {
             if (err) {
-              console.error("Session save error:", err);
-              return res.status(500).json({ message: "Failed to save session" });
+              console.error("Session refresh error:", err);
+              return res.status(500).json({ message: "Failed to update session" });
             }
-            console.log("Verification successful:", {
-              userId: updatedUser.id,
-              type,
-              isAuthenticated: req.isAuthenticated(),
-              session: req.sessionID
+            req.session.save((err) => {
+              if (err) {
+                console.error("Session save error:", err);
+                return res.status(500).json({ message: "Failed to save session" });
+              }
+              console.log("Verification successful:", {
+                userId: updatedUser.id,
+                type,
+                isAuthenticated: req.isAuthenticated(),
+                session: req.sessionID
+              });
+              res.json({ message: "Contact verified successfully" });
             });
-            res.json({ message: "Contact verified successfully" });
           });
         });
-      });
+      } else {
+        // For temporary users, just confirm the verification was successful
+        res.json({ message: "Verification successful" });
+      }
     } catch (error) {
       console.error("Verification error:", error);
       res.status(500).json({ message: "Verification failed" });
@@ -410,14 +413,14 @@ export function setupAuth(app: Express) {
       // Store temp user ID in session for later use
       req.session.tempUserId = tempUserId;
 
-      res.json({ 
+      res.json({
         message: "Verification code sent",
-        tempUserId 
+        tempUserId
       });
     } catch (error) {
       console.error("Verification initiation error:", error);
-      res.status(500).json({ 
-        message: error instanceof Error ? error.message : "Failed to send verification code" 
+      res.status(500).json({
+        message: error instanceof Error ? error.message : "Failed to send verification code"
       });
     }
   });
