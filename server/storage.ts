@@ -44,6 +44,7 @@ export class MemStorage implements IStorage {
     code: string;
     expiresAt: Date;
     createdAt: Date;
+    verified?: boolean;
   }>>;
   sessionStore: session.Store;
   private currentId: number;
@@ -140,7 +141,8 @@ export class MemStorage implements IStorage {
     const verificationList = this.verifications.get(verification.userId) || [];
     verificationList.push({
       ...verification,
-      createdAt: new Date()
+      createdAt: new Date(),
+      verified: false
     });
     this.verifications.set(verification.userId, verificationList);
   }
@@ -149,6 +151,7 @@ export class MemStorage implements IStorage {
     type: string;
     code: string;
     expiresAt: Date;
+    verified?: boolean;
   } | undefined> {
     const verificationList = this.verifications.get(userId) || [];
     return verificationList
@@ -157,17 +160,29 @@ export class MemStorage implements IStorage {
   }
 
   async markContactVerified(userId: number, type: string): Promise<void> {
+    // Check if it's a regular user
     const user = this.users.get(userId);
-    if (!user) throw new Error("User not found");
-
-    const updatedUser = { ...user };
-    if (type === 'phone') {
-      updatedUser.isPhoneVerified = true;
-    } else if (type === 'email') {
-      updatedUser.isEmailVerified = true;
+    if (user) {
+      // Update regular user verification status
+      const updatedUser = { ...user };
+      if (type === 'phone' || type === 'whatsapp') {
+        updatedUser.isPhoneVerified = true;
+      } else if (type === 'email') {
+        updatedUser.isEmailVerified = true;
+      }
+      this.users.set(userId, updatedUser);
     }
 
-    this.users.set(userId, updatedUser);
+    // Mark the verification as verified regardless of user existence
+    const verificationList = this.verifications.get(userId) || [];
+    const latestVerification = verificationList
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      [0];
+
+    if (latestVerification) {
+      latestVerification.verified = true;
+      this.verifications.set(userId, verificationList);
+    }
   }
 }
 
