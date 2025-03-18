@@ -384,7 +384,12 @@ export function setupAuth(app: Express) {
   // Add new endpoint for initiating verification
   app.post("/api/initiate-verification", async (req, res) => {
     try {
-      const { email, type } = req.body;
+      const { email, phone, type } = req.body;
+      const contact = type === 'email' ? email : phone;
+
+      if (!contact) {
+        throw new Error(`${type === 'email' ? 'Email' : 'Phone number'} is required`);
+      }
 
       // Generate verification code
       const verificationCode = generateVerificationCode();
@@ -399,15 +404,17 @@ export function setupAuth(app: Express) {
         expiresAt,
       });
 
+      console.log(`Initiating ${type} verification for:`, contact);
+
       // Send verification code
       const messageSent = await sendVerificationMessage(
         type,
-        email,
+        contact,
         verificationCode
       );
 
       if (!messageSent) {
-        throw new Error("Failed to send verification code");
+        throw new Error(`Failed to send ${type} verification code`);
       }
 
       // Store temp user ID in session for later use

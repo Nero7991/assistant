@@ -39,8 +39,7 @@ export default function AuthPage() {
   const [, setLocation] = useLocation();
 
   // Only redirect if user is logged in AND email is verified
-  if (user?.isEmailVerified && 
-      (user.contactPreference !== "whatsapp" || user.isPhoneVerified)) {
+  if (user?.isEmailVerified && (user.contactPreference !== "whatsapp" || user.isPhoneVerified)) {
     setLocation("/");
     return null;
   }
@@ -241,18 +240,19 @@ function RegisterForm() {
     console.log("Contact preference:", form.getValues("contactPreference"));
 
     if (
-      form.getValues("contactPreference") === "whatsapp" && 
+      form.getValues("contactPreference") === "whatsapp" &&
       form.getValues("phoneNumber")
     ) {
       try {
         // Initiate phone verification
         const res = await apiRequest("POST", "/api/initiate-verification", {
-          email: form.getValues("phoneNumber"),
-          type: "phone"
+          phone: form.getValues("phoneNumber"),
+          type: "whatsapp"
         });
 
         if (!res.ok) {
-          throw new Error("Failed to send phone verification code");
+          const error = await res.json();
+          throw new Error(error.message || "Failed to send phone verification code");
         }
 
         console.log("Showing phone verification dialog");
@@ -261,7 +261,7 @@ function RegisterForm() {
         console.error("Phone verification initiation failed:", error);
         toast({
           title: "Verification failed",
-          description: "Failed to send phone verification code",
+          description: error instanceof Error ? error.message : "Failed to send phone verification code",
           variant: "destructive",
         });
       }
@@ -404,8 +404,8 @@ function RegisterForm() {
             />
           )}
 
-          <Button 
-            type="submit" 
+          <Button
+            type="submit"
             className="w-full"
             disabled={registerMutation.isPending || isCheckingUsername}
           >
