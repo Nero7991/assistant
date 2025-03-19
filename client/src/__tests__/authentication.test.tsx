@@ -1,15 +1,11 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { server } from './mocks/server';
 
 describe('Authentication Flow', () => {
-  beforeAll(() => {
-    server.listen();
-  });
-
-  afterAll(() => {
-    server.close();
-  });
+  beforeAll(() => server.listen());
+  afterAll(() => server.close());
+  afterEach(() => server.resetHandlers());
 
   it('handles username availability check', async () => {
     server.use(
@@ -30,7 +26,7 @@ describe('Authentication Flow', () => {
 
   it('handles email verification flow', async () => {
     const tempUserId = Math.floor(Math.random() * 1000000);
-    
+
     server.use(
       http.post('/api/initiate-verification', () => {
         return HttpResponse.json({
@@ -106,7 +102,11 @@ describe('Authentication Flow', () => {
           email: 'test@example.com'
         });
       }),
-      http.get('/api/user', () => {
+      http.get('/api/user', ({ request }) => {
+        const cookie = request.headers.get('Cookie');
+        if (!cookie?.includes('connect.sid')) {
+          return HttpResponse.json(null, { status: 401 });
+        }
         return HttpResponse.json({
           id: 1,
           username: 'testuser',
@@ -114,7 +114,12 @@ describe('Authentication Flow', () => {
         });
       }),
       http.post('/api/logout', () => {
-        return new HttpResponse(null, { status: 200 });
+        return new HttpResponse(null, { 
+          status: 200,
+          headers: {
+            'Set-Cookie': 'connect.sid=; Max-Age=0; Path=/; HttpOnly'
+          }
+        });
       })
     );
 
