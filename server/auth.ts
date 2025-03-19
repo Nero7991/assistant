@@ -416,7 +416,12 @@ export function setupAuth(app: Express) {
 async function verifyContactAndUpdateUser(userId: number, type: string, code: string) {
   // Get latest verification using userId as tempId for non-authenticated users
   const verification = await storage.getLatestContactVerification(userId);
-  console.log("Found verification:", verification);
+  console.log("Found verification:", {
+    verification,
+    providedCode: code,
+    tempUserId: userId,
+    type
+  });
 
   if (!verification) {
     throw new Error("No verification pending");

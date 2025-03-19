@@ -226,7 +226,7 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(contactVerifications)
       .where(eq(contactVerifications.tempId, userId.toString()))
-      .orderBy(contactVerifications.createdAt)
+      .orderBy(contactVerifications.createdAt, "desc") // Change to DESC order
       .limit(1);
     return latest;
   }
