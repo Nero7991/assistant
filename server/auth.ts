@@ -49,7 +49,7 @@ async function validateTempUserId(id: number): Promise<boolean> {
   return id > 0 && id < 2147483647; // PostgreSQL integer max
 }
 
-async function verifyContactAndUpdateUser(userId: number, type: string, code: string) {
+async function verifyContactAndUpdateUser(userId: string, type: string, code: string) {
   console.log("Starting verification process:", {
     userId,
     type,
