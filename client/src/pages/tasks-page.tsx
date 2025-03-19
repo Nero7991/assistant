@@ -25,8 +25,8 @@ export default function TasksPage() {
   };
 
   return (
-    <div className="container py-4">
-      <div className="flex items-center justify-between mb-6">
+    <div className="container">
+      <div className="flex items-center justify-between mb-4">
         <h1 className="text-3xl font-bold">Tasks & Goals</h1>
         <Button onClick={() => setAddTaskOpen(true)}>
           <Plus className="w-4 h-4 mr-2" />
