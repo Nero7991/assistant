@@ -9,6 +9,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Authentication must be set up first
   setupAuth(app);
 
+  // Verification Endpoints
+  app.post("/api/initiate-verification", async (req, res) => {
+    try {
+      const { email, type } = req.body;
+      console.log("Initiating verification:", { email, type });
+
+      // Generate a verification code
+      const code = generateVerificationCode();
+      console.log("Generated verification code:", code);
+
+      // Send the verification message
+      const sent = await sendVerificationMessage(
+        type,
+        email,
+        code
+      );
+
+      if (!sent) {
+        console.error("Failed to send verification message");
+        return res.status(500).json({ message: "Failed to send verification code" });
+      }
+
+      // Store the verification code temporarily
+      const tempUserId = Date.now();
+      await storage.storeVerificationCode(tempUserId, code, type);
+
+      console.log("Verification initiated successfully");
+      res.json({
+        message: "Verification code sent",
+        tempUserId
+      });
+    } catch (error) {
+      console.error("Verification initiation error:", error);
+      res.status(500).json({ message: "Failed to initiate verification" });
+    }
+  });
+
+  app.post("/api/verify-contact", async (req, res) => {
+    try {
+      const { code, type } = req.body;
+      console.log("Verifying contact:", { type, code });
+
+      // Verify the code
+      const isValid = await storage.verifyCode(code, type);
+      if (!isValid) {
+        return res.status(400).json({ message: "Invalid verification code" });
+      }
+
+      // Mark the appropriate verification as complete
+      if (req.isAuthenticated()) {
+        if (type === "email") {
+          await storage.markEmailVerified(req.user.id);
+        } else if (type === "phone" || type === "whatsapp") {
+          await storage.markPhoneVerified(req.user.id);
+        }
+      }
+
+      res.json({ message: "Verification successful" });
+    } catch (error) {
+      console.error("Verification error:", error);
+      res.status(500).json({ message: "Verification failed" });
+    }
+  });
+
+
   // Known User Facts Endpoints
   app.get("/api/known-facts", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
