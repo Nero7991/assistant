@@ -8,6 +8,7 @@ import { Toaster } from "@/components/ui/toaster";
 import HomePage from "@/pages/home-page";
 import AuthPage from "@/pages/auth-page";
 import GoalsPage from "@/pages/goals-page";
+import TasksPage from "@/pages/tasks-page";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -16,6 +17,7 @@ function Router() {
       <Route path="/auth" component={AuthPage} />
       <ProtectedRoute path="/" component={HomePage} />
       <ProtectedRoute path="/goals" component={GoalsPage} />
+      <ProtectedRoute path="/tasks" component={TasksPage} />
       <Route component={NotFound} />
     </Switch>
   );
