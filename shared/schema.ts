@@ -34,7 +34,8 @@ export const checkIns = pgTable("check_ins", {
 
 export const contactVerifications = pgTable("contact_verifications", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").notNull(),
+  userId: integer("user_id").notNull(), // This will be for real users
+  tempId: text("temp_id"), // New field for temporary IDs as text
   type: text("type").notNull(), // 'email' or 'phone'
   code: text("code").notNull(),
   expiresAt: timestamp("expires_at").notNull(),

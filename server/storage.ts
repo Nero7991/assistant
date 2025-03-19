@@ -207,7 +207,11 @@ export class DatabaseStorage implements IStorage {
     expiresAt: Date;
   }): Promise<void> {
     await db.insert(contactVerifications).values({
-      ...verification,
+      userId: 0, // Default userId for temporary verifications
+      tempId: verification.userId.toString(), // Store the temporary ID as text
+      type: verification.type,
+      code: verification.code,
+      expiresAt: verification.expiresAt,
       createdAt: new Date(),
     });
   }
