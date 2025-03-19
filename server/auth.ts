@@ -401,3 +401,50 @@ export function setupAuth(app: Express) {
     }
   });
 }
+
+async function verifyContactAndUpdateUser(userId: number, type: string, code: string) {
+  // Get latest verification using userId as tempId for non-authenticated users
+  const verification = await storage.getLatestContactVerification(userId);
+  console.log("Found verification:", verification);
+
+  if (!verification) {
+    throw new Error("No verification pending");
+  }
+
+  if (verification.code !== code) {
+    throw new Error("Invalid verification code");
+  }
+
+  if (new Date() > verification.expiresAt) {
+    throw new Error("Verification code expired");
+  }
+
+  // Mark the verification as complete
+  await storage.markContactVerified(userId, type);
+
+  // Get the user if they exist (they won't for temporary verifications)
+  const user = await storage.getUser(userId);
+
+  if (user) {
+    // Update user verification flags if they exist
+    const updatedUser = await storage.updateUser({
+      ...user,
+      isEmailVerified: type === 'email' ? true : user.isEmailVerified,
+      isPhoneVerified: type === 'phone' || type === 'whatsapp' ? true : user.isPhoneVerified
+    });
+
+    console.log("Updated user verification status:", {
+      userId: updatedUser.id,
+      isEmailVerified: updatedUser.isEmailVerified,
+      isPhoneVerified: updatedUser.isPhoneVerified
+    });
+
+    return updatedUser;
+  } else {
+    console.log("Verification completed for temporary user:", {
+      userId,
+      type
+    });
+    return null;
+  }
+}
