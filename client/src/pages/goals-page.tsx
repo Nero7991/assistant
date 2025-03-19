@@ -24,13 +24,9 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 import { PlusCircle, Calendar, Loader2 } from "lucide-react";
 
-export default function GoalsPage() {
+function AddGoalButton({ children }: { children?: React.ReactNode }) {
+  const [isOpen, setIsOpen] = useState(false);
   const { toast } = useToast();
-  const [isFormOpen, setIsFormOpen] = useState(false);
-
-  const { data: goals, isLoading } = useQuery<Goal[]>({
-    queryKey: ["/api/goals"],
-  });
 
   const createGoalMutation = useMutation({
     mutationFn: async (data: { title: string; description: string; deadline?: Date }) => {
@@ -39,12 +35,40 @@ export default function GoalsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/goals"] });
-      setIsFormOpen(false);
+      setIsOpen(false);
       toast({
         title: "Goal created",
         description: "Your new goal has been created successfully.",
       });
     },
+  });
+
+  return (
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger asChild>
+        {children || (
+          <Button>
+            <PlusCircle className="h-4 w-4 mr-2" />
+            Add Goal
+          </Button>
+        )}
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Create New Goal</DialogTitle>
+        </DialogHeader>
+        <GoalForm
+          onSubmit={(data) => createGoalMutation.mutate(data)}
+          isPending={createGoalMutation.isPending}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export default function GoalsPage() {
+  const { data: goals, isLoading } = useQuery<Goal[]>({
+    queryKey: ["/api/goals"],
   });
 
   const updateGoalMutation = useMutation({
@@ -66,24 +90,7 @@ export default function GoalsPage() {
             Track and manage your ADHD-friendly goals
           </p>
         </div>
-
-        <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <PlusCircle className="h-4 w-4 mr-2" />
-              Add Goal
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Create New Goal</DialogTitle>
-            </DialogHeader>
-            <GoalForm
-              onSubmit={(data) => createGoalMutation.mutate(data)}
-              isPending={createGoalMutation.isPending}
-            />
-          </DialogContent>
-        </Dialog>
+        <AddGoalButton />
       </div>
 
       {isLoading ? (
@@ -97,12 +104,12 @@ export default function GoalsPage() {
             <p className="text-muted-foreground mb-4">
               Start by creating your first goal
             </p>
-            <DialogTrigger asChild>
+            <AddGoalButton>
               <Button>
                 <PlusCircle className="h-4 w-4 mr-2" />
                 Add Goal
               </Button>
-            </DialogTrigger>
+            </AddGoalButton>
           </CardContent>
         </Card>
       ) : (
