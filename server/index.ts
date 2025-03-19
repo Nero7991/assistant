@@ -10,19 +10,25 @@ app.use(cors({
   origin: true, // Allow all origins in development
   credentials: true, // Important: needed for cookies
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept']
 }));
+
+// Add JSON and URL-encoded body parsing before routes
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+
+// Set trust proxy to handle cookies properly behind reverse proxy
+app.set('trust proxy', 1);
 
 // Add security headers
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Content-Type', 'application/json');
   next();
 });
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
-
+// API route logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -54,11 +60,10 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Set trust proxy to handle cookies properly behind reverse proxy
-  app.set('trust proxy', 1);
-
+  // Setup API routes first
   const server = await registerRoutes(app);
 
+  // Global error handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
@@ -66,7 +71,8 @@ app.use((req, res, next) => {
     res.status(status).json({ message });
   });
 
-  if (app.get("env") === "development") {
+  // Only setup Vite in development and when not running integration tests
+  if (app.get("env") === "development" && !process.env.INTEGRATION_TEST) {
     await setupVite(app, server);
   } else {
     serveStatic(app);

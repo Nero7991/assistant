@@ -9,7 +9,10 @@ import { server } from './__tests__/mocks/server';
 expect.extend(matchers);
 
 // Only enable MSW for unit tests, not integration tests
-if (!process.env.INTEGRATION_TEST) {
+// Set INTEGRATION_TEST in process.env for test environment
+process.env.INTEGRATION_TEST = process.env.INTEGRATION_TEST || 'false';
+
+if (process.env.INTEGRATION_TEST !== 'true') {
   // Establish API mocking before all tests
   beforeAll(() => {
     server.listen({ onUnhandledRequest: 'error' });

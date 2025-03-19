@@ -97,16 +97,20 @@ describe('API Integration Tests', () => {
     });
 
     it('handles CRUD operations for facts', async () => {
-      // Create fact
+      // Create fact with valid schema values
       const createResponse = await fetchWithAuth(`${API_URL}/api/known-facts`, {
         method: 'POST',
         body: JSON.stringify({
-          factType: 'user-provided',
-          category: 'preference',
+          factType: 'user-provided', // Must match enum value
+          category: 'preference', // Must match enum value
           content: 'Prefers working in quiet environments',
-          confidence: 100
+          confidence: 100 // Optional, between 0-100
         })
       });
+
+      // Log response for debugging
+      console.log('Create fact response:', await createResponse.clone().text());
+
       expect(createResponse.status).toBe(201);
       const fact = await createResponse.json();
       expect(fact.content).toBe('Prefers working in quiet environments');

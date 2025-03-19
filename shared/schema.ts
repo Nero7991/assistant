@@ -99,11 +99,18 @@ export const insertCheckInSchema = createInsertSchema(checkIns).pick({
 });
 
 // Schema for inserting known user facts
-export const insertKnownUserFactSchema = createInsertSchema(knownUserFacts).extend({
-  factType: z.enum(['user-provided', 'system-learned']),
-  category: z.enum(['preference', 'habit', 'achievement', 'goal', 'challenge', 'other']),
-  confidence: z.number().min(0).max(100).optional(),
-});
+export const insertKnownUserFactSchema = createInsertSchema(knownUserFacts)
+  .omit({ 
+    id: true, 
+    userId: true, 
+    createdAt: true, 
+    updatedAt: true 
+  })
+  .extend({
+    factType: z.enum(['user-provided', 'system-learned']),
+    category: z.enum(['preference', 'habit', 'achievement', 'goal', 'challenge', 'other']),
+    confidence: z.number().min(0).max(100).optional(),
+  });
 
 // Base task schema
 const baseTaskSchema = {
