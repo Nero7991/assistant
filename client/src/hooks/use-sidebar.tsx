@@ -1,4 +1,9 @@
 import { create } from 'zustand';
+import { 
+  SidebarProvider as UISidebarProvider,
+  type SidebarContext
+} from "@/components/ui/sidebar";
+import { ReactNode } from 'react';
 
 type SidebarStore = {
   isCollapsed: boolean;
@@ -18,3 +23,11 @@ export const useSidebar = create<SidebarStore>((set) => ({
     return { isCollapsed: newState };
   }),
 }));
+
+export function SidebarProvider({ children }: { children: ReactNode }) {
+  return (
+    <UISidebarProvider defaultOpen={!useSidebar().isCollapsed}>
+      {children}
+    </UISidebarProvider>
+  );
+}

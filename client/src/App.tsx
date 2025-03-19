@@ -5,6 +5,7 @@ import { Switch, Route } from "wouter";
 import { ProtectedRoute } from "./lib/protected-route";
 import { Toaster } from "@/components/ui/toaster";
 import { AppLayout } from "@/components/app-layout";
+import { SidebarProvider } from "@/hooks/use-sidebar";
 
 import HomePage from "@/pages/home-page";
 import AuthPage from "@/pages/auth-page";
@@ -49,8 +50,10 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <Router />
-        <Toaster />
+        <SidebarProvider>
+          <Router />
+          <Toaster />
+        </SidebarProvider>
       </AuthProvider>
     </QueryClientProvider>
   );
