@@ -87,6 +87,14 @@ async function verifyContactAndUpdateUser(userId: number, type: string, code: st
   return user;
 }
 
+function generateTempUserId(): number {
+  // Use current seconds instead of milliseconds, and add a random number
+  // to avoid collisions while staying within PostgreSQL integer limits
+  const seconds = Math.floor(Date.now() / 1000);
+  const random = Math.floor(Math.random() * 999);
+  return (seconds % 1000000) * 1000 + random; // Will be under 2147483647
+}
+
 export function setupAuth(app: Express) {
   const sessionSettings: session.SessionOptions = {
     secret: process.env.SESSION_SECRET!,
@@ -283,8 +291,8 @@ export function setupAuth(app: Express) {
       const verificationCode = generateVerificationCode();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-      // Use existing tempUserId from session or create new one
-      const tempUserId = req.session.tempUserId || Date.now();
+      // Use existing tempUserId from session or generate new one
+      const tempUserId = req.session.tempUserId || generateTempUserId();
 
       // Store or update tempUserId in session
       req.session.tempUserId = tempUserId;
