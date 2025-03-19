@@ -45,9 +45,69 @@ function generateTempUserId(): number {
   return minute * 10000 + random;
 }
 
-// Add this validation before using the tempUserId
 async function validateTempUserId(id: number): Promise<boolean> {
   return id > 0 && id < 2147483647; // PostgreSQL integer max
+}
+
+async function verifyContactAndUpdateUser(userId: number, type: string, code: string) {
+  console.log("Starting verification process:", {
+    userId,
+    type,
+    code
+  });
+
+  // Get latest verification using userId as tempId for non-authenticated users
+  const verification = await storage.getLatestContactVerification(userId);
+
+  console.log("Verification check:", {
+    verification,
+    providedCode: code,
+    tempUserId: userId,
+    type,
+    matches: verification?.code === code,
+    isExpired: verification ? new Date() > verification.expiresAt : null
+  });
+
+  if (!verification) {
+    throw new Error("No verification pending");
+  }
+
+  if (verification.code !== code) {
+    throw new Error("Invalid verification code");
+  }
+
+  if (new Date() > verification.expiresAt) {
+    throw new Error("Verification code expired");
+  }
+
+  // Mark the verification as complete
+  await storage.markContactVerified(userId, type);
+
+  // Get the user if they exist (they won't for temporary verifications)
+  const user = await storage.getUser(userId);
+
+  if (user) {
+    // Update user verification flags if they exist
+    const updatedUser = await storage.updateUser({
+      ...user,
+      isEmailVerified: type === 'email' ? true : user.isEmailVerified,
+      isPhoneVerified: type === 'phone' || type === 'whatsapp' ? true : user.isPhoneVerified
+    });
+
+    console.log("Updated user verification status:", {
+      userId: updatedUser.id,
+      isEmailVerified: updatedUser.isEmailVerified,
+      isPhoneVerified: updatedUser.isPhoneVerified
+    });
+
+    return updatedUser;
+  } else {
+    console.log("Verification completed for temporary user:", {
+      userId,
+      type
+    });
+    return null;
+  }
 }
 
 export function setupAuth(app: Express) {
@@ -225,7 +285,6 @@ export function setupAuth(app: Express) {
         // For temporary users, just confirm the verification was successful
         console.log("Verification successful for temporary user:", userId);
         res.json({ message: "Verification successful" });
-
       }
     } catch (error) {
       console.error("Verification error:", error);
@@ -348,21 +407,7 @@ export function setupAuth(app: Express) {
 
     res.json({ message: "Verification code resent" });
   });
-  // Add debug endpoint
-  app.get("/api/debug-session", (req, res) => {
-    console.log("Debug session:", {
-      sessionID: req.sessionID,
-      isAuthenticated: req.isAuthenticated(),
-      user: req.user?.id,
-      cookies: req.headers.cookie,
-      session: req.session
-    });
-    res.json({
-      sessionID: req.sessionID,
-      isAuthenticated: req.isAuthenticated(),
-      userId: req.user?.id
-    });
-  });
+
   app.post("/api/login", (req, res, next) => {
     passport.authenticate("local", (err, user, info) => {
       if (err) return next(err);
@@ -411,56 +456,4 @@ export function setupAuth(app: Express) {
       res.status(500).json({ message: "Failed to check username availability" });
     }
   });
-}
-
-async function verifyContactAndUpdateUser(userId: number, type: string, code: string) {
-  // Get latest verification using userId as tempId for non-authenticated users
-  const verification = await storage.getLatestContactVerification(userId);
-  console.log("Found verification:", {
-    verification,
-    providedCode: code,
-    tempUserId: userId,
-    type
-  });
-
-  if (!verification) {
-    throw new Error("No verification pending");
-  }
-
-  if (verification.code !== code) {
-    throw new Error("Invalid verification code");
-  }
-
-  if (new Date() > verification.expiresAt) {
-    throw new Error("Verification code expired");
-  }
-
-  // Mark the verification as complete
-  await storage.markContactVerified(userId, type);
-
-  // Get the user if they exist (they won't for temporary verifications)
-  const user = await storage.getUser(userId);
-
-  if (user) {
-    // Update user verification flags if they exist
-    const updatedUser = await storage.updateUser({
-      ...user,
-      isEmailVerified: type === 'email' ? true : user.isEmailVerified,
-      isPhoneVerified: type === 'phone' || type === 'whatsapp' ? true : user.isPhoneVerified
-    });
-
-    console.log("Updated user verification status:", {
-      userId: updatedUser.id,
-      isEmailVerified: updatedUser.isEmailVerified,
-      isPhoneVerified: updatedUser.isPhoneVerified
-    });
-
-    return updatedUser;
-  } else {
-    console.log("Verification completed for temporary user:", {
-      userId,
-      type
-    });
-    return null;
-  }
 }

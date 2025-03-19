@@ -2,7 +2,7 @@ import session from "express-session";
 import createMemoryStore from "memorystore";
 import { User, Goal, CheckIn, Task, KnownUserFact, InsertKnownUserFact, InsertTask } from "@shared/schema";
 import { db } from "./db";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { users, goals, checkIns, contactVerifications, knownUserFacts, tasks } from "@shared/schema";
 import type { User, Goal, CheckIn, Task, KnownUserFact, InsertKnownUserFact, InsertTask } from "@shared/schema";
 import connectPg from "connect-pg-simple";
@@ -60,6 +60,7 @@ export interface IStorage {
   getCheckIns(userId: number): Promise<CheckIn[]>;
   createCheckIn(checkIn: Omit<CheckIn, "id">): Promise<CheckIn>;
   updateCheckIn(id: number, response: string): Promise<CheckIn>;
+  clearPreviousVerifications(tempId: string, type: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -206,6 +207,53 @@ export class DatabaseStorage implements IStorage {
     code: string;
     expiresAt: Date;
   }): Promise<void> {
+    // First get existing verifications for logging
+    const existing = await db
+      .select()
+      .from(contactVerifications)
+      .where(
+        and(
+          eq(contactVerifications.tempId, verification.userId.toString()),
+          eq(contactVerifications.type, verification.type)
+        )
+      );
+
+    console.log("Existing verifications before cleanup:", {
+      tempId: verification.userId.toString(),
+      type: verification.type,
+      count: existing.length,
+      verifications: existing
+    });
+
+    // Delete existing verifications
+    await db
+      .delete(contactVerifications)
+      .where(
+        and(
+          eq(contactVerifications.tempId, verification.userId.toString()),
+          eq(contactVerifications.type, verification.type)
+        )
+      );
+
+    // Verify deletion
+    const remaining = await db
+      .select()
+      .from(contactVerifications)
+      .where(
+        and(
+          eq(contactVerifications.tempId, verification.userId.toString()),
+          eq(contactVerifications.type, verification.type)
+        )
+      );
+
+    console.log("Verifications after cleanup:", {
+      tempId: verification.userId.toString(),
+      type: verification.type,
+      count: remaining.length,
+      verifications: remaining
+    });
+
+    // Create the new verification
     await db.insert(contactVerifications).values({
       userId: 0, // Default userId for temporary verifications
       tempId: verification.userId.toString(), // Store the temporary ID as text
@@ -213,6 +261,26 @@ export class DatabaseStorage implements IStorage {
       code: verification.code,
       expiresAt: verification.expiresAt,
       createdAt: new Date(),
+    });
+
+    // Verify creation
+    const [latest] = await db
+      .select()
+      .from(contactVerifications)
+      .where(
+        and(
+          eq(contactVerifications.tempId, verification.userId.toString()),
+          eq(contactVerifications.type, verification.type)
+        )
+      )
+      .orderBy(({ desc }) => [desc(contactVerifications.createdAt)])
+      .limit(1);
+
+    console.log("New verification created:", {
+      tempId: verification.userId.toString(),
+      type: verification.type,
+      code: latest.code,
+      expiresAt: latest.expiresAt
     });
   }
 
@@ -222,12 +290,31 @@ export class DatabaseStorage implements IStorage {
     expiresAt: Date;
     verified?: boolean;
   } | undefined> {
-    const [latest] = await db
+    // Get all verifications for this user
+    const allVerifications = await db
       .select()
       .from(contactVerifications)
       .where(eq(contactVerifications.tempId, userId.toString()))
-      .orderBy(contactVerifications.createdAt, "desc") // Change to DESC order
-      .limit(1);
+      .orderBy(({ desc }) => [desc(contactVerifications.createdAt)]);
+
+    console.log("All verifications found:", {
+      tempId: userId.toString(),
+      count: allVerifications.length,
+      verifications: allVerifications
+    });
+
+    // Get the latest one
+    const [latest] = allVerifications;
+
+    if (latest) {
+      console.log("Using latest verification:", {
+        tempId: userId.toString(),
+        type: latest.type,
+        code: latest.code,
+        expiresAt: latest.expiresAt
+      });
+    }
+
     return latest;
   }
 
@@ -315,6 +402,53 @@ export class DatabaseStorage implements IStorage {
       .where(eq(checkIns.id, id))
       .returning();
     return updated;
+  }
+  async clearPreviousVerifications(tempId: string, type: string): Promise<void> {
+    // First get existing verifications for logging
+    const existing = await db
+      .select()
+      .from(contactVerifications)
+      .where(
+        and(
+          eq(contactVerifications.tempId, tempId),
+          eq(contactVerifications.type, type)
+        )
+      );
+
+    console.log("Existing verifications before cleanup:", {
+      tempId,
+      type,
+      count: existing.length,
+      verifications: existing
+    });
+
+    // Delete existing verifications
+    await db
+      .delete(contactVerifications)
+      .where(
+        and(
+          eq(contactVerifications.tempId, tempId),
+          eq(contactVerifications.type, type)
+        )
+      );
+
+    // Verify deletion
+    const remaining = await db
+      .select()
+      .from(contactVerifications)
+      .where(
+        and(
+          eq(contactVerifications.tempId, tempId),
+          eq(contactVerifications.type, type)
+        )
+      );
+
+    console.log("Verifications after cleanup:", {
+      tempId,
+      type,
+      count: remaining.length,
+      verifications: remaining
+    });
   }
 }
 
