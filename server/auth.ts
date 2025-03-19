@@ -178,6 +178,15 @@ export function setupAuth(app: Express) {
         console.log("Checking verifications from temp user:", req.session.tempUserId);
         const verifications = await storage.getVerifications(req.session.tempUserId);
 
+        console.log("Found verifications for temp user:", {
+          tempUserId: req.session.tempUserId,
+          verifications: verifications.map(v => ({
+            type: v.type,
+            verified: v.verified,
+            expiresAt: v.expiresAt
+          }))
+        });
+
         // Check both email and phone verifications
         for (const verification of verifications) {
           if (verification.verified) {
@@ -189,6 +198,12 @@ export function setupAuth(app: Express) {
             }
           }
         }
+
+        console.log("Verification status determined:", {
+          tempUserId: req.session.tempUserId,
+          isEmailVerified,
+          isPhoneVerified
+        });
       }
 
       // Create the user with verification flags
@@ -204,8 +219,7 @@ export function setupAuth(app: Express) {
         username: user.username,
         contactPreference: user.contactPreference,
         isEmailVerified: user.isEmailVerified,
-        isPhoneVerified: user.isPhoneVerified,
-        user
+        isPhoneVerified: user.isPhoneVerified
       });
 
       // Generate new session and log in

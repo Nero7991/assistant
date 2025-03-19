@@ -318,10 +318,14 @@ export class DatabaseStorage implements IStorage {
     return latest;
   }
 
-  //Update the markContactVerified method to actually mark the verification as verified
   async markContactVerified(userId: number, type: string): Promise<void> {
+    console.log("Marking contact as verified:", {
+      tempId: userId.toString(),
+      type
+    });
+
     // Mark the verification as verified in contact_verifications
-    await db
+    const [updated] = await db
       .update(contactVerifications)
       .set({ verified: true })
       .where(
@@ -329,31 +333,63 @@ export class DatabaseStorage implements IStorage {
           eq(contactVerifications.tempId, userId.toString()),
           eq(contactVerifications.type, type)
         )
-      );
+      )
+      .returning();
+
+    console.log("Verification record updated:", {
+      tempId: userId.toString(),
+      type,
+      updated
+    });
 
     const user = await this.getUser(userId);
     if (user) {
-      await db
+      console.log("Updating user verification status:", {
+        userId,
+        currentEmailVerified: user.isEmailVerified,
+        currentPhoneVerified: user.isPhoneVerified,
+        type
+      });
+
+      const [updatedUser] = await db
         .update(users)
         .set({
           isEmailVerified: type === 'email' ? true : user.isEmailVerified,
           isPhoneVerified: type === 'phone' || type === 'whatsapp' ? true : user.isPhoneVerified,
         })
-        .where(eq(users.id, userId));
+        .where(eq(users.id, userId))
+        .returning();
+
+      console.log("User verification status updated:", {
+        userId,
+        isEmailVerified: updatedUser.isEmailVerified,
+        isPhoneVerified: updatedUser.isPhoneVerified
+      });
     }
   }
 
-  // Update getVerifications to use the verified field from the database
   async getVerifications(userId: number): Promise<Array<{
     type: string;
     code: string;
     expiresAt: Date;
     verified: boolean;
   }>> {
+    console.log("Getting verifications for user:", userId);
+
     const verifications = await db
       .select()
       .from(contactVerifications)
       .where(eq(contactVerifications.tempId, userId.toString()));
+
+    console.log("Found verifications:", {
+      tempId: userId.toString(),
+      count: verifications.length,
+      verifications: verifications.map(v => ({
+        type: v.type,
+        verified: v.verified,
+        expiresAt: v.expiresAt
+      }))
+    });
 
     return verifications.map(v => ({
       type: v.type,
