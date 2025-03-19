@@ -6,7 +6,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -15,7 +14,6 @@ const navItems = [
   { label: "Dashboard", href: "/" },
   { label: "Goals", href: "/goals" },
   { label: "Tasks", href: "/tasks" },
-  { label: "Facts", href: "/facts" },
 ];
 
 export function MainNav() {
@@ -23,34 +21,36 @@ export function MainNav() {
   const [location] = useLocation();
 
   return (
-    <header className="fixed top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container flex h-14 items-center">
-        {/* Logo - Always visible */}
-        <Link href="/" className="mr-6 flex items-center space-x-2">
+    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <nav className="container flex h-14 items-center">
+        {/* Logo */}
+        <Link href="/" className="flex items-center gap-2 mr-4">
           <Brain className="h-6 w-6" />
           <span className="font-bold">ADHD Coach</span>
         </Link>
 
         {/* Desktop Navigation */}
-        <nav className="hidden md:flex items-center space-x-6 text-sm font-medium">
+        <div className="hidden md:flex items-center gap-6">
           {navItems.map((item) => (
             <Link
               key={item.href}
               href={item.href}
               className={cn(
-                "transition-colors hover:text-foreground/80",
-                location === item.href ? "text-foreground" : "text-foreground/60"
+                "text-sm font-medium transition-colors hover:text-primary",
+                location === item.href
+                  ? "text-foreground"
+                  : "text-muted-foreground"
               )}
             >
               {item.label}
             </Link>
           ))}
-        </nav>
+        </div>
 
         {/* Mobile Menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild className="md:hidden">
-            <Button variant="ghost" size="icon">
+            <Button variant="ghost" size="icon" className="ml-2">
               <Menu className="h-5 w-5" />
               <span className="sr-only">Toggle menu</span>
             </Button>
@@ -66,13 +66,13 @@ export function MainNav() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* User Menu - Right side */}
-        <div className="flex flex-1 items-center justify-end space-x-4">
+        {/* User Section */}
+        <div className="flex items-center gap-4 ml-auto">
           {user && (
             <>
-              <p className="text-sm text-muted-foreground hidden md:block">
+              <span className="text-sm text-muted-foreground hidden md:block">
                 {user.username}
-              </p>
+              </span>
               <Button
                 variant="outline"
                 size="sm"
@@ -85,7 +85,7 @@ export function MainNav() {
             </>
           )}
         </div>
-      </div>
+      </nav>
     </header>
   );
 }
