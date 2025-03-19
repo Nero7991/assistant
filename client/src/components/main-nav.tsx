@@ -22,15 +22,15 @@ export function MainNav() {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <nav className="container flex h-14 items-center">
+      <nav className="container flex h-14 items-center px-8">
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2 mr-4">
+        <Link href="/" className="flex items-center gap-2 mr-8">
           <Brain className="h-6 w-6" />
           <span className="font-bold">ADHD Coach</span>
         </Link>
 
         {/* Desktop Navigation */}
-        <div className="hidden md:flex items-center gap-6">
+        <div className="hidden md:flex items-center gap-8">
           {navItems.map((item) => (
             <Link
               key={item.href}
@@ -78,6 +78,7 @@ export function MainNav() {
                 size="sm"
                 onClick={() => logoutMutation.mutate()}
                 disabled={logoutMutation.isPending}
+                className="mr-2"
               >
                 <LogOut className="h-4 w-4 mr-2" />
                 Sign Out
