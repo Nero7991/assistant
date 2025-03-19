@@ -8,6 +8,13 @@ import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
 import { sendVerificationMessage, generateVerificationCode } from "./messaging";
 
+// Add tempUserId to session type
+declare module 'express-session' {
+  interface SessionData {
+    tempUserId?: number;
+  }
+}
+
 declare global {
   namespace Express {
     interface User extends SelectUser {}
@@ -27,64 +34,6 @@ async function comparePasswords(supplied: string, stored: string) {
   const hashedBuf = Buffer.from(hashed, "hex");
   const suppliedBuf = (await scryptAsync(supplied, salt, 64)) as Buffer;
   return timingSafeEqual(hashedBuf, suppliedBuf);
-}
-
-async function verifyContactAndUpdateUser(userId: number, type: string, code: string) {
-  const verification = await storage.getLatestContactVerification(userId);
-  console.log("Found verification:", verification);
-
-  if (!verification) {
-    throw new Error("No verification pending");
-  }
-
-  if (verification.code !== code) {
-    throw new Error("Invalid verification code");
-  }
-
-  if (new Date() > verification.expiresAt) {
-    throw new Error("Verification code expired");
-  }
-
-  // Mark the verification as complete
-  await storage.markContactVerified(userId, type);
-
-  // Get the user and their verification status
-  const user = await storage.getUser(userId);
-
-  // Get all verifications for this user to check status
-  const verifications = await storage.getVerifications(userId);
-  const isEmailVerified = verifications.some(v => (v.type === 'email' && v.verified));
-  const isPhoneVerified = verifications.some(v => ((v.type === 'phone' || v.type === 'whatsapp') && v.verified));
-
-  console.log("Verification status check:", {
-    userId,
-    type,
-    isEmailVerified,
-    isPhoneVerified,
-    verifications
-  });
-
-  if (user) {
-    // Update user verification flags if they exist
-    user.isEmailVerified = isEmailVerified;
-    user.isPhoneVerified = isPhoneVerified;
-    await storage.updateUser(user);
-
-    console.log("Updated user verification status:", {
-      userId: user.id,
-      isEmailVerified: user.isEmailVerified,
-      isPhoneVerified: user.isPhoneVerified
-    });
-  } else {
-    console.log("Verification completed for temporary user:", {
-      userId,
-      type,
-      isEmailVerified,
-      isPhoneVerified
-    });
-  }
-
-  return user;
 }
 
 function generateTempUserId(): number {
@@ -291,20 +240,26 @@ export function setupAuth(app: Express) {
       const verificationCode = generateVerificationCode();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-      // Use existing tempUserId from session or generate new one
-      const tempUserId = req.session.tempUserId || generateTempUserId();
-
-      // Store or update tempUserId in session
-      req.session.tempUserId = tempUserId;
+      // Generate new temp ID only if one doesn't exist
+      if (!req.session.tempUserId) {
+        req.session.tempUserId = generateTempUserId();
+        // Save session explicitly to ensure the tempUserId is stored
+        await new Promise<void>((resolve, reject) => {
+          req.session.save((err) => {
+            if (err) reject(err);
+            else resolve();
+          });
+        });
+      }
 
       console.log("Using temporary user ID for verification:", {
-        tempUserId,
+        tempUserId: req.session.tempUserId,
         type,
         isNewId: !req.session.tempUserId
       });
 
       await storage.createContactVerification({
-        userId: tempUserId,
+        userId: req.session.tempUserId!,
         type,
         code: verificationCode,
         expiresAt,
@@ -325,7 +280,7 @@ export function setupAuth(app: Express) {
 
       res.json({
         message: "Verification code sent",
-        tempUserId
+        tempUserId: req.session.tempUserId
       });
     } catch (error) {
       console.error("Verification initiation error:", error);
@@ -445,5 +400,4 @@ export function setupAuth(app: Express) {
       res.status(500).json({ message: "Failed to check username availability" });
     }
   });
-
 }
