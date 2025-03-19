@@ -1,8 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Goal } from "@shared/schema";
-import { SidebarNav } from "@/components/sidebar-nav";
-import { useSidebar } from "@/hooks/use-sidebar";
 import { GoalForm } from "@/components/goal-form";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -24,12 +22,10 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { format } from "date-fns";
 import { PlusCircle, Calendar, Loader2 } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 export default function GoalsPage() {
   const { toast } = useToast();
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const { isCollapsed } = useSidebar();
 
   const { data: goals, isLoading } = useQuery<Goal[]>({
     queryKey: ["/api/goals"],
@@ -61,12 +57,8 @@ export default function GoalsPage() {
   });
 
   return (
-    <div className="flex min-h-screen bg-background">
-      <SidebarNav />
-      <main className={cn(
-        "flex-1 transition-all duration-300",
-        isCollapsed ? "pl-16" : "pl-64"
-      )}>
+    <>
+      <main className="flex-1 transition-all duration-300 pl-16"> {/* Removed isCollapsed conditional, assuming shared layout handles this */}
         <div className="max-w-4xl mx-auto w-full p-4 md:p-8 pt-16 md:pt-8">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
             <div>
@@ -163,6 +155,6 @@ export default function GoalsPage() {
           )}
         </div>
       </main>
-    </div>
+    </>
   );
 }
