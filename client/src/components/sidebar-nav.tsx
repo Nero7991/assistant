@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { Brain, Home, Target, LogOut, Menu, ChevronLeft, ChevronRight } from "lucide-react";
+import { Brain, Home, Target, LogOut, Menu, ChevronLeft, ChevronRight, ListTodo, UserCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useSidebar } from "@/hooks/use-sidebar";
@@ -17,6 +17,8 @@ export function SidebarNav({ className }: SidebarNavProps) {
   const items = [
     { icon: Home, label: "Dashboard", href: "/" },
     { icon: Target, label: "Goals", href: "/goals" },
+    { icon: ListTodo, label: "Tasks", href: "/tasks" },
+    { icon: UserCircle2, label: "User Facts", href: "/facts" },
   ];
 
   const NavContent = () => (
