@@ -8,8 +8,8 @@ import { AppLayout } from "@/components/app-layout";
 
 import HomePage from "@/pages/home-page";
 import AuthPage from "@/pages/auth-page";
-import GoalsPage from "@/pages/goals-page";
 import TasksPage from "@/pages/tasks-page";
+import FactsPage from "@/pages/facts-page";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -25,18 +25,18 @@ function Router() {
         )} 
       />
       <ProtectedRoute 
-        path="/goals" 
-        component={() => (
-          <AppLayout>
-            <GoalsPage />
-          </AppLayout>
-        )} 
-      />
-      <ProtectedRoute 
         path="/tasks" 
         component={() => (
           <AppLayout>
             <TasksPage />
+          </AppLayout>
+        )} 
+      />
+      <ProtectedRoute 
+        path="/facts" 
+        component={() => (
+          <AppLayout>
+            <FactsPage />
           </AppLayout>
         )} 
       />

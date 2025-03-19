@@ -12,8 +12,8 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { label: "Dashboard", href: "/" },
-  { label: "Goals", href: "/goals" },
-  { label: "Tasks", href: "/tasks" },
+  { label: "Tasks & Goals", href: "/tasks" },
+  { label: "Facts", href: "/facts" },
 ];
 
 export function MainNav() {
