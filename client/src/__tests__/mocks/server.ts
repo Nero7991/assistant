@@ -32,6 +32,40 @@ export const handlers = [
     });
   }),
 
+  // Known User Facts endpoints
+  http.get('/api/known-facts', () => {
+    return HttpResponse.json([]);
+  }),
+
+  http.post('/api/known-facts', () => {
+    return HttpResponse.json({
+      id: 1,
+      userId: 1,
+      factType: 'user-provided',
+      category: 'preference',
+      content: 'Test fact',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }, { status: 201 });
+  }),
+
+  // Tasks endpoints
+  http.get('/api/tasks', () => {
+    return HttpResponse.json([]);
+  }),
+
+  http.post('/api/tasks', () => {
+    return HttpResponse.json({
+      id: 1,
+      userId: 1,
+      title: 'Test task',
+      taskType: 'daily',
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }, { status: 201 });
+  }),
+
   // Username availability check
   http.get('/api/check-username/:username', () => {
     return HttpResponse.json({ message: 'Username available' });
