@@ -225,7 +225,7 @@ export class DatabaseStorage implements IStorage {
     const [latest] = await db
       .select()
       .from(contactVerifications)
-      .where(eq(contactVerifications.userId, userId))
+      .where(eq(contactVerifications.tempId, userId.toString()))
       .orderBy(contactVerifications.createdAt)
       .limit(1);
     return latest;
@@ -253,7 +253,7 @@ export class DatabaseStorage implements IStorage {
     const verifications = await db
       .select()
       .from(contactVerifications)
-      .where(eq(contactVerifications.userId, userId));
+      .where(eq(contactVerifications.tempId, userId.toString()));
     return verifications.map(v => ({
       type: v.type,
       code: v.code,
