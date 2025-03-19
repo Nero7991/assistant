@@ -100,11 +100,12 @@ describe('API Integration Tests', () => {
       // Create fact with valid schema values
       const createResponse = await fetchWithAuth(`${API_URL}/api/known-facts`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          factType: 'user-provided', // Must match enum value
-          category: 'preference', // Must match enum value
+          factType: 'user-provided',
+          category: 'preference',
           content: 'Prefers working in quiet environments',
-          confidence: 100 // Optional, between 0-100
+          confidence: 100
         })
       });
 

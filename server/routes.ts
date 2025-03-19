@@ -19,21 +19,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/known-facts", async (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
 
-    console.log("Received known-facts payload:", req.body);
+    // Log the incoming request data and authenticated user
+    console.log("Creating known fact:", {
+      body: req.body,
+      user: req.user,
+      userId: Number(req.user.id)
+    });
+
+    // First validate the request body against our schema
     const parsed = insertKnownUserFactSchema.safeParse(req.body);
     if (!parsed.success) {
-      console.log("Validation error:", parsed.error);
+      console.log("Validation error:", parsed.error.flatten());
       return res.status(400).json({ 
         message: "Invalid request body",
         errors: parsed.error.flatten()
       });
     }
 
-    const fact = await storage.addKnownUserFact({
-      ...parsed.data,
-      userId: req.user.id,
-    });
-    res.status(201).json(fact);
+    try {
+      // Add the user ID to the validated data before creating the fact
+      const fact = await storage.addKnownUserFact({
+        ...parsed.data,
+        userId: Number(req.user.id)
+      });
+      res.status(201).json(fact);
+    } catch (error) {
+      console.error("Error creating known fact:", error);
+      res.status(500).json({ message: "Failed to create known fact" });
+    }
   });
 
   app.patch("/api/known-facts/:id", async (req, res) => {

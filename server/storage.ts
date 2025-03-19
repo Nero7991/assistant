@@ -1,13 +1,13 @@
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { eq, desc } from "drizzle-orm";
-import { User, Goal, CheckIn, Task, KnownUserFact, InsertKnownUserFact, InsertTask } from "@shared/schema";
+import { User, Goal, CheckIn, Task, KnownUserFact, InsertKnownUserFact } from "@shared/schema";
 import { db, pool } from "./db";
 import { users, goals, checkIns, tasks, knownUserFacts, contactVerifications } from "@shared/schema";
 
 const PostgresSessionStore = connectPg(session);
 
-export interface IStorage {
+interface IStorage {
   sessionStore: session.Store;
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
@@ -115,7 +115,7 @@ export class DatabaseStorage implements IStorage {
       .values({
         ...fact,
         createdAt: new Date(),
-        updatedAt: new Date(),
+        updatedAt: new Date()
       })
       .returning();
     return newFact;
@@ -322,5 +322,4 @@ export class DatabaseStorage implements IStorage {
   }
 }
 
-// Export a single instance
 export const storage = new DatabaseStorage();
