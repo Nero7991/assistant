@@ -1,5 +1,5 @@
-import { Link } from "wouter";
-import { Brain, Home, Target, LogOut, Menu, ListTodo, UserCircle2 } from "lucide-react";
+import { Link, useLocation } from "wouter";
+import { Brain, Home, Target, LogOut, ListTodo, UserCircle2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import {
   Sidebar,
@@ -11,10 +11,9 @@ import {
   SidebarMenuButton,
 } from "@/components/ui/sidebar";
 
-interface SidebarNavProps extends React.HTMLAttributes<HTMLElement> {}
-
-export function SidebarNav({ className }: SidebarNavProps) {
+export function SidebarNav() {
   const { user, logoutMutation } = useAuth();
+  const [location] = useLocation();
 
   const items = [
     { icon: Home, label: "Dashboard", href: "/" },
@@ -24,9 +23,9 @@ export function SidebarNav({ className }: SidebarNavProps) {
   ];
 
   return (
-    <Sidebar>
+    <Sidebar variant="floating" collapsible="icon">
       <SidebarHeader>
-        <div className="flex items-center gap-2 px-2">
+        <div className="flex items-center gap-2">
           <Brain className="h-6 w-6" />
           <span className="font-bold">ADHD Coach</span>
         </div>
@@ -37,15 +36,13 @@ export function SidebarNav({ className }: SidebarNavProps) {
           {items.map((item) => (
             <SidebarMenuItem key={item.href}>
               <Link href={item.href}>
-                {({ isActive }) => (
-                  <SidebarMenuButton
-                    isActive={isActive}
-                    tooltip={item.label}
-                  >
-                    <item.icon className="h-4 w-4" />
-                    <span>{item.label}</span>
-                  </SidebarMenuButton>
-                )}
+                <SidebarMenuButton 
+                  isActive={location === item.href}
+                  tooltip={item.label}
+                >
+                  <item.icon className="h-4 w-4" />
+                  <span>{item.label}</span>
+                </SidebarMenuButton>
               </Link>
             </SidebarMenuItem>
           ))}
