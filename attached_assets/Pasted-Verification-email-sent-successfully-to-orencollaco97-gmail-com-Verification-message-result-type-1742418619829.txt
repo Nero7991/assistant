@@ -1,0 +1,231 @@
+Verification email sent successfully to: orencollaco97@gmail.com
+Verification message result: { type: 'email', contact: 'orencollaco97@gmail.com', success: true }
+9:06:41 PM [express] POST /api/initiate-verification 200 in 537ms :: {"message":"Verification code s…
+Processing verification: {
+  isAuthenticated: false,
+  userId: 19990,
+  type: 'email',
+  code: '358639'
+}
+Starting verification process: { userId: 19990, type: 'email', code: '358639' }
+All verifications found: {
+  tempId: '19990',
+  count: 1,
+  verifications: [
+    {
+      id: 1,
+      userId: 0,
+      tempId: '19990',
+      type: 'email',
+      code: '358639',
+      expiresAt: 2025-03-19T21:16:40.960Z,
+      createdAt: 2025-03-19T21:06:41.017Z,
+      verified: false
+    }
+  ]
+}
+Using latest verification: {
+  tempId: '19990',
+  type: 'email',
+  code: '358639',
+  expiresAt: 2025-03-19T21:16:40.960Z
+}
+Verification check: {
+  verification: {
+    id: 1,
+    userId: 0,
+    tempId: '19990',
+    type: 'email',
+    code: '358639',
+    expiresAt: 2025-03-19T21:16:40.960Z,
+    createdAt: 2025-03-19T21:06:41.017Z,
+    verified: false
+  },
+  providedCode: '358639',
+  tempUserId: 19990,
+  type: 'email',
+  matches: true,
+  isExpired: false
+}
+Marking contact as verified: { tempId: '19990', type: 'email' }
+Verification record updated: {
+  tempId: '19990',
+  type: 'email',
+  updated: {
+    id: 1,
+    userId: 0,
+    tempId: '19990',
+    type: 'email',
+    code: '358639',
+    expiresAt: 2025-03-19T21:16:40.960Z,
+    createdAt: 2025-03-19T21:06:41.017Z,
+    verified: true
+  }
+}
+Verification completed for temporary user: { userId: 19990, type: 'email' }
+Verification successful for temporary user: 19990
+9:06:50 PM [express] POST /api/verify-contact 200 in 119ms :: {"message":"Verification successful"}
+Get user request: {
+  isAuthenticated: false,
+  sessionID: '4EUhsPA_REIisMuG-OKQwX1pEhoQr03y',
+  user: undefined,
+  cookies: 'connect.sid=s%3A4EUhsPA_REIisMuG-OKQwX1pEhoQr03y.jeNLHU9TvxwgAn2eQABnHgTjOQfPxqhlD0Idc64gPNM'
+}
+9:06:50 PM [express] GET /api/user 401 in 35ms
+Using temporary user ID for verification: { tempUserId: 19990, type: 'whatsapp', isNewId: false }
+Existing verifications before cleanup: { tempId: '19990', type: 'whatsapp', count: 0, verifications: [] }
+Verifications after cleanup: { tempId: '19990', type: 'whatsapp', count: 0, verifications: [] }
+New verification created: {
+  tempId: '19990',
+  type: 'whatsapp',
+  code: '763639',
+  expiresAt: 2025-03-19T21:16:50.782Z
+}
+Initiating whatsapp verification for: +17323187616
+Sending verification message: { type: 'whatsapp', contact: '+17323187616', code: '763639' }
+Attempting to send WhatsApp message to: +17323187616
+Using Twilio credentials: { accountSid: 'ACba38e0...', hasAuthToken: true }
+Twilio WhatsApp request parameters: {
+  to: 'whatsapp:+17323187616',
+  from: 'whatsapp:+18557270654',
+  contentSid: 'HX02fff4396367e72b923720ae12920172',
+  contentVariables: '{"1":"User","2":"verification code: 763639"}'
+}
+WhatsApp message sent successfully: {
+  sid: 'MM93661c042623a1085159958ccf7cd4e1',
+  status: 'queued',
+  errorCode: null,
+  errorMessage: null,
+  to: '+17323187616'
+}
+Verification message result: { type: 'whatsapp', contact: '+17323187616', success: true }
+9:06:51 PM [express] POST /api/initiate-verification 200 in 539ms :: {"message":"Verification code s…
+Get user request: {
+  isAuthenticated: false,
+  sessionID: 'ZGK2kG7JDK1miKWKDiOcr6RiTkzs3nW6',
+  user: undefined,
+  cookies: 'connect.sid=s%3AZGK2kG7JDK1miKWKDiOcr6RiTkzs3nW6.CGSL7Zz%2BS6fjIEZ8tl4hb%2BBjWggXDOmUMDs%2B9ZEtqpA'
+}
+9:06:55 PM [express] GET /api/user 401 in 43ms
+Processing verification: {
+  isAuthenticated: false,
+  userId: 19990,
+  type: 'phone',
+  code: '763639'
+}
+Starting verification process: { userId: 19990, type: 'phone', code: '763639' }
+All verifications found: {
+  tempId: '19990',
+  count: 2,
+  verifications: [
+    {
+      id: 2,
+      userId: 0,
+      tempId: '19990',
+      type: 'whatsapp',
+      code: '763639',
+      expiresAt: 2025-03-19T21:16:50.782Z,
+      createdAt: 2025-03-19T21:06:50.839Z,
+      verified: false
+    },
+    {
+      id: 1,
+      userId: 0,
+      tempId: '19990',
+      type: 'email',
+      code: '358639',
+      expiresAt: 2025-03-19T21:16:40.960Z,
+      createdAt: 2025-03-19T21:06:41.017Z,
+      verified: true
+    }
+  ]
+}
+Using latest verification: {
+  tempId: '19990',
+  type: 'whatsapp',
+  code: '763639',
+  expiresAt: 2025-03-19T21:16:50.782Z
+}
+Verification check: {
+  verification: {
+    id: 2,
+    userId: 0,
+    tempId: '19990',
+    type: 'whatsapp',
+    code: '763639',
+    expiresAt: 2025-03-19T21:16:50.782Z,
+    createdAt: 2025-03-19T21:06:50.839Z,
+    verified: false
+  },
+  providedCode: '763639',
+  tempUserId: 19990,
+  type: 'phone',
+  matches: true,
+  isExpired: false
+}
+Marking contact as verified: { tempId: '19990', type: 'phone' }
+Verification record updated: { tempId: '19990', type: 'phone', updated: undefined }
+Verification completed for temporary user: { userId: 19990, type: 'phone' }
+Verification successful for temporary user: 19990
+9:07:20 PM [express] POST /api/verify-contact 200 in 197ms :: {"message":"Verification successful"}
+Get user request: {
+  isAuthenticated: false,
+  sessionID: '4EUhsPA_REIisMuG-OKQwX1pEhoQr03y',
+  user: undefined,
+  cookies: 'connect.sid=s%3A4EUhsPA_REIisMuG-OKQwX1pEhoQr03y.jeNLHU9TvxwgAn2eQABnHgTjOQfPxqhlD0Idc64gPNM'
+}
+9:07:20 PM [express] GET /api/user 401 in 39ms
+Registration request received: {
+  username: 'orencollaco',
+  password: '[REDACTED]',
+  email: 'orencollaco97@gmail.com',
+  phoneNumber: '+17323187616',
+  contactPreference: 'whatsapp'
+}
+Checking verifications from temp user: 19990
+Getting verifications for user: 19990
+Found verifications: {
+  tempId: '19990',
+  count: 2,
+  verifications: [
+    {
+      type: 'email',
+      verified: true,
+      expiresAt: 2025-03-19T21:16:40.960Z
+    },
+    {
+      type: 'whatsapp',
+      verified: false,
+      expiresAt: 2025-03-19T21:16:50.782Z
+    }
+  ]
+}
+Found verifications for temp user: {
+  tempUserId: 19990,
+  verifications: [
+    {
+      type: 'email',
+      verified: true,
+      expiresAt: 2025-03-19T21:16:40.960Z
+    },
+    {
+      type: 'whatsapp',
+      verified: false,
+      expiresAt: 2025-03-19T21:16:50.782Z
+    }
+  ]
+}
+Found verified contact: {
+  type: 'email',
+  code: '358639',
+  expiresAt: 2025-03-19T21:16:40.960Z,
+  verified: true
+}
+Verification status determined: { tempUserId: 19990, isEmailVerified: true, isPhoneVerified: false }
+Created user: {
+  id: 1,
+  username: 'orencollaco',
+  contactPreference: 'whatsapp',
+  isEmailVerified: true,
+  isPhoneVerified: false
+}
