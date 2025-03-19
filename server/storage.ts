@@ -1,8 +1,15 @@
 import session from "express-session";
 import createMemoryStore from "memorystore";
 import { User, Goal, CheckIn, Task, KnownUserFact, InsertKnownUserFact, InsertTask } from "@shared/schema";
+import { db } from "./db";
+import { eq } from "drizzle-orm";
+import { users, goals, checkIns, contactVerifications, knownUserFacts, tasks } from "@shared/schema";
+import type { User, Goal, CheckIn, Task, KnownUserFact, InsertKnownUserFact, InsertTask } from "@shared/schema";
+import connectPg from "connect-pg-simple";
+import { pool } from "./db";
 
 const MemoryStore = createMemoryStore(session);
+const PostgresSessionStore = connectPg(session);
 
 export interface IStorage {
   sessionStore: session.Store;
@@ -24,7 +31,7 @@ export interface IStorage {
   deleteTask(id: number): Promise<void>;
   completeTask(id: number): Promise<Task>;
 
-  // Keep existing contact verification methods
+  // Contact verification methods
   createContactVerification(verification: {
     userId: number;
     type: string;
@@ -55,189 +62,153 @@ export interface IStorage {
   updateCheckIn(id: number, response: string): Promise<CheckIn>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<number, User>;
-  private knownUserFacts: Map<number, KnownUserFact>;
-  private tasks: Map<number, Task>;
-  private goals: Map<number, Goal>;
-  private checkIns: Map<number, CheckIn>;
-  private verifications: Map<number, Array<{
-    userId: number;
-    type: string;
-    code: string;
-    expiresAt: Date;
-    createdAt: Date;
-    verified?: boolean;
-  }>>;
+export class DatabaseStorage implements IStorage {
   sessionStore: session.Store;
-  private currentId: number;
-  private sessionTempUserId?: number;
 
   constructor() {
-    this.users = new Map();
-    this.knownUserFacts = new Map();
-    this.tasks = new Map();
-    this.goals = new Map();
-    this.checkIns = new Map();
-    this.verifications = new Map();
-    this.currentId = 1;
-    this.sessionStore = new MemoryStore({
-      checkPeriod: 86400000,
+    this.sessionStore = new PostgresSessionStore({
+      pool,
+      createTableIfMissing: true,
     });
   }
 
   async getUser(id: number): Promise<User | undefined> {
-    return this.users.get(id);
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
   }
 
   async createUser(insertUser: { username: string; password: string; phoneNumber?: string; email: string; contactPreference?: string; isEmailVerified?: boolean; isPhoneVerified?: boolean; }): Promise<User> {
-    const id = this.currentId++;
-
-    // Check temporary user verifications if they exist
-    let isEmailVerified = insertUser.isEmailVerified || false;
-    let isPhoneVerified = insertUser.isPhoneVerified || false;
-
-    if (this.sessionTempUserId) {
-      const verifications = await this.getVerifications(this.sessionTempUserId);
-      isEmailVerified = isEmailVerified || verifications.some(v => v.type === 'email' && v.verified);
-      isPhoneVerified = isPhoneVerified || verifications.some(v => (v.type === 'phone' || v.type === 'whatsapp') && v.verified);
-    }
-
-    const user = {
+    const [user] = await db.insert(users).values({
       ...insertUser,
-      id,
-      isPhoneVerified,
-      isEmailVerified,
+      isPhoneVerified: insertUser.isPhoneVerified || false,
+      isEmailVerified: insertUser.isEmailVerified || false,
       contactPreference: insertUser.contactPreference || 'email',
       phoneNumber: insertUser.phoneNumber || null,
       allowEmailNotifications: true,
-      allowPhoneNotifications: false
-    };
-
-    this.users.set(id, user);
-    console.log("Created user with verification status:", {
-      id: user.id,
-      username: user.username,
-      isEmailVerified: user.isEmailVerified,
-      isPhoneVerified: user.isPhoneVerified
-    });
-
+      allowPhoneNotifications: false,
+    }).returning();
     return user;
+  }
+
+  async updateUser(user: User): Promise<User> {
+    const [updated] = await db
+      .update(users)
+      .set(user)
+      .where(eq(users.id, user.id))
+      .returning();
+    return updated;
   }
 
   // Known User Facts methods
   async getKnownUserFacts(userId: number): Promise<KnownUserFact[]> {
-    return Array.from(this.knownUserFacts.values())
-      .filter(fact => fact.userId === userId)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return db
+      .select()
+      .from(knownUserFacts)
+      .where(eq(knownUserFacts.userId, userId))
+      .orderBy(knownUserFacts.createdAt);
   }
 
   async addKnownUserFact(fact: InsertKnownUserFact & { userId: number }): Promise<KnownUserFact> {
-    const id = this.currentId++;
-    const newFact: KnownUserFact = {
-      ...fact,
-      id,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    this.knownUserFacts.set(id, newFact);
+    const now = new Date();
+    const [newFact] = await db
+      .insert(knownUserFacts)
+      .values({
+        ...fact,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
     return newFact;
   }
 
   async updateKnownUserFact(id: number, update: Partial<KnownUserFact>): Promise<KnownUserFact> {
-    const fact = this.knownUserFacts.get(id);
-    if (!fact) throw new Error("Known user fact not found");
-
-    const updatedFact = {
-      ...fact,
-      ...update,
-      updatedAt: new Date(),
-    };
-    this.knownUserFacts.set(id, updatedFact);
-    return updatedFact;
+    const [updated] = await db
+      .update(knownUserFacts)
+      .set({
+        ...update,
+        updatedAt: new Date(),
+      })
+      .where(eq(knownUserFacts.id, id))
+      .returning();
+    return updated;
   }
 
   async deleteKnownUserFact(id: number): Promise<void> {
-    this.knownUserFacts.delete(id);
+    await db.delete(knownUserFacts).where(eq(knownUserFacts.id, id));
   }
 
   // Task management methods
   async getTasks(userId: number, type?: string): Promise<Task[]> {
-    return Array.from(this.tasks.values())
-      .filter(task => task.userId === userId && (!type || task.taskType === type))
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    let query = db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.userId, userId));
+
+    if (type) {
+      query = query.where(eq(tasks.taskType, type));
+    }
+
+    return query.orderBy(tasks.createdAt);
   }
 
   async createTask(task: InsertTask & { userId: number }): Promise<Task> {
-    const id = this.currentId++;
-    const newTask: Task = {
-      ...task,
-      id,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      completedAt: null,
-      metadata: task.metadata || null,
-    };
-    this.tasks.set(id, newTask);
+    const now = new Date();
+    const [newTask] = await db
+      .insert(tasks)
+      .values({
+        ...task,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
     return newTask;
   }
 
   async updateTask(id: number, update: Partial<Task>): Promise<Task> {
-    const task = this.tasks.get(id);
-    if (!task) throw new Error("Task not found");
-
-    const updatedTask = {
-      ...task,
-      ...update,
-      updatedAt: new Date(),
-    };
-    this.tasks.set(id, updatedTask);
-    return updatedTask;
+    const [updated] = await db
+      .update(tasks)
+      .set({
+        ...update,
+        updatedAt: new Date(),
+      })
+      .where(eq(tasks.id, id))
+      .returning();
+    return updated;
   }
 
   async deleteTask(id: number): Promise<void> {
-    this.tasks.delete(id);
+    await db.delete(tasks).where(eq(tasks.id, id));
   }
 
   async completeTask(id: number): Promise<Task> {
-    const task = this.tasks.get(id);
-    if (!task) throw new Error("Task not found");
-
-    const completedTask = {
-      ...task,
-      status: 'completed',
-      completedAt: new Date(),
-      updatedAt: new Date(),
-    };
-    this.tasks.set(id, completedTask);
-    return completedTask;
+    const now = new Date();
+    const [completed] = await db
+      .update(tasks)
+      .set({
+        status: 'completed',
+        completedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(tasks.id, id))
+      .returning();
+    return completed;
   }
 
+  // Contact verification methods
   async createContactVerification(verification: {
     userId: number;
     type: string;
     code: string;
     expiresAt: Date;
   }): Promise<void> {
-    const verificationList = this.verifications.get(verification.userId) || [];
-    verificationList.push({
+    await db.insert(contactVerifications).values({
       ...verification,
       createdAt: new Date(),
-      verified: false
-    });
-    this.verifications.set(verification.userId, verificationList);
-
-    console.log("Created verification:", {
-      userId: verification.userId,
-      type: verification.type,
-      code: verification.code,
-      expiresAt: verification.expiresAt
     });
   }
 
@@ -247,67 +218,26 @@ export class MemStorage implements IStorage {
     expiresAt: Date;
     verified?: boolean;
   } | undefined> {
-    const verificationList = this.verifications.get(userId) || [];
-    const latest = verificationList
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-      [0];
-
-    console.log("Retrieved latest verification:", {
-      userId,
-      verification: latest
-    });
-
+    const [latest] = await db
+      .select()
+      .from(contactVerifications)
+      .where(eq(contactVerifications.userId, userId))
+      .orderBy(contactVerifications.createdAt)
+      .limit(1);
     return latest;
   }
 
   async markContactVerified(userId: number, type: string): Promise<void> {
-    console.log("Marking contact as verified:", { userId, type });
-
-    // Get verification list and latest verification
-    const verificationList = this.verifications.get(userId) || [];
-    const latestVerification = verificationList
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-      [0];
-
-    if (!latestVerification) {
-      console.warn(`No verification found for ID ${userId}`);
-      return;
-    }
-
-    // Mark the verification as verified
-    latestVerification.verified = true;
-    this.verifications.set(userId, verificationList);
-
-    // If this is a real user (not a temporary one), update their verification status
-    const user = this.users.get(userId);
+    const user = await this.getUser(userId);
     if (user) {
-      if (type === 'phone' || type === 'whatsapp') {
-        user.isPhoneVerified = true;
-        console.log(`Set isPhoneVerified to true for user ${userId}`);
-      } else if (type === 'email') {
-        user.isEmailVerified = true;
-        console.log(`Set isEmailVerified to true for user ${userId}`);
-      }
-
-      // Save the updated user
-      this.users.set(userId, user);
-      console.log("Updated user verification status:", {
-        userId,
-        type,
-        isEmailVerified: user.isEmailVerified,
-        isPhoneVerified: user.isPhoneVerified,
-        user
-      });
-    } else {
-      console.log(`No user found for ID ${userId} - this is likely a temporary verification`);
+      await db
+        .update(users)
+        .set({
+          isEmailVerified: type === 'email' ? true : user.isEmailVerified,
+          isPhoneVerified: type === 'phone' || type === 'whatsapp' ? true : user.isPhoneVerified,
+        })
+        .where(eq(users.id, userId));
     }
-
-    console.log("Marked verification as verified:", {
-      userId,
-      type: latestVerification.type,
-      verified: true,
-      verification: latestVerification
-    });
   }
 
   async getVerifications(userId: number): Promise<Array<{
@@ -316,75 +246,72 @@ export class MemStorage implements IStorage {
     expiresAt: Date;
     verified: boolean;
   }>> {
-    const verificationList = this.verifications.get(userId) || [];
-    return verificationList.map(v => ({
+    const verifications = await db
+      .select()
+      .from(contactVerifications)
+      .where(eq(contactVerifications.userId, userId));
+    return verifications.map(v => ({
       type: v.type,
       code: v.code,
       expiresAt: v.expiresAt,
-      verified: v.verified || false
+      verified: false, // We don't store verified status in the database
     }));
   }
-  async updateUser(user: User): Promise<User> {
-    // Ensure user exists
-    if (!this.users.has(user.id)) {
-      throw new Error(`User ${user.id} not found`);
-    }
 
-    // Update user with verification flags
-    this.users.set(user.id, {
-      ...user,
-      isEmailVerified: user.isEmailVerified || false,
-      isPhoneVerified: user.isPhoneVerified || false
-    });
-
-    return this.users.get(user.id)!;
-  }
-
+  // Goals methods
   async getGoals(userId: number): Promise<Goal[]> {
-    return Array.from(this.goals.values()).filter(
-      (goal) => goal.userId === userId,
-    );
+    return db
+      .select()
+      .from(goals)
+      .where(eq(goals.userId, userId));
   }
 
   async createGoal(goal: Omit<Goal, "id">): Promise<Goal> {
-    const id = this.currentId++;
-    const newGoal = { ...goal, id };
-    this.goals.set(id, newGoal);
+    const [newGoal] = await db
+      .insert(goals)
+      .values(goal)
+      .returning();
     return newGoal;
   }
 
   async updateGoal(id: number, update: Partial<Goal>): Promise<Goal> {
-    const goal = this.goals.get(id);
-    if (!goal) throw new Error("Goal not found");
-    const updatedGoal = { ...goal, ...update };
-    this.goals.set(id, updatedGoal);
-    return updatedGoal;
+    const [updated] = await db
+      .update(goals)
+      .set(update)
+      .where(eq(goals.id, id))
+      .returning();
+    return updated;
   }
 
   async deleteGoal(id: number): Promise<void> {
-    this.goals.delete(id);
+    await db.delete(goals).where(eq(goals.id, id));
   }
 
+  // Check-ins methods
   async getCheckIns(userId: number): Promise<CheckIn[]> {
-    return Array.from(this.checkIns.values())
-      .filter((checkIn) => checkIn.userId === userId)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    return db
+      .select()
+      .from(checkIns)
+      .where(eq(checkIns.userId, userId))
+      .orderBy(checkIns.createdAt);
   }
 
   async createCheckIn(checkIn: Omit<CheckIn, "id">): Promise<CheckIn> {
-    const id = this.currentId++;
-    const newCheckIn = { ...checkIn, id };
-    this.checkIns.set(id, newCheckIn);
+    const [newCheckIn] = await db
+      .insert(checkIns)
+      .values(checkIn)
+      .returning();
     return newCheckIn;
   }
 
   async updateCheckIn(id: number, response: string): Promise<CheckIn> {
-    const checkIn = this.checkIns.get(id);
-    if (!checkIn) throw new Error("Check-in not found");
-    const updatedCheckIn = { ...checkIn, response };
-    this.checkIns.set(id, updatedCheckIn);
-    return updatedCheckIn;
+    const [updated] = await db
+      .update(checkIns)
+      .set({ response })
+      .where(eq(checkIns.id, id))
+      .returning();
+    return updated;
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
