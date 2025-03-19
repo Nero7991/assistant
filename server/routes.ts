@@ -6,138 +6,51 @@ import { generateCoachingResponse } from "./coach";
 import { insertGoalSchema, insertCheckInSchema, insertKnownUserFactSchema, insertTaskSchema } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Authentication must be set up first
   setupAuth(app);
-
-  // Verification Endpoints
-  app.post("/api/initiate-verification", async (req, res) => {
-    try {
-      const { email, type } = req.body;
-      console.log("Initiating verification:", { email, type });
-
-      // Generate a verification code
-      const code = generateVerificationCode();
-      console.log("Generated verification code:", code);
-
-      // Send the verification message
-      const sent = await sendVerificationMessage(
-        type,
-        email,
-        code
-      );
-
-      if (!sent) {
-        console.error("Failed to send verification message");
-        return res.status(500).json({ message: "Failed to send verification code" });
-      }
-
-      // Store the verification code temporarily
-      const tempUserId = Date.now();
-      await storage.storeVerificationCode(tempUserId, code, type);
-
-      console.log("Verification initiated successfully");
-      res.json({
-        message: "Verification code sent",
-        tempUserId
-      });
-    } catch (error) {
-      console.error("Verification initiation error:", error);
-      res.status(500).json({ message: "Failed to initiate verification" });
-    }
-  });
-
-  app.post("/api/verify-contact", async (req, res) => {
-    try {
-      const { code, type } = req.body;
-      console.log("Verifying contact:", { type, code });
-
-      // Verify the code
-      const isValid = await storage.verifyCode(code, type);
-      if (!isValid) {
-        return res.status(400).json({ message: "Invalid verification code" });
-      }
-
-      // Mark the appropriate verification as complete
-      if (req.isAuthenticated()) {
-        if (type === "email") {
-          await storage.markEmailVerified(req.user.id);
-        } else if (type === "phone" || type === "whatsapp") {
-          await storage.markPhoneVerified(req.user.id);
-        }
-      }
-
-      res.json({ message: "Verification successful" });
-    } catch (error) {
-      console.error("Verification error:", error);
-      res.status(500).json({ message: "Verification failed" });
-    }
-  });
-
 
   // Known User Facts Endpoints
   app.get("/api/known-facts", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.isAuthenticated()) return res.sendStatus(401);
     const facts = await storage.getKnownUserFacts(req.user.id);
     res.json(facts);
   });
 
   app.post("/api/known-facts", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
-
-    // Log the incoming request data and authenticated user
-    console.log("Creating known fact:", {
-      body: req.body,
-      user: req.user,
-      userId: Number(req.user.id)
-    });
-
-    // First validate the request body against our schema
+    if (!req.isAuthenticated()) return res.sendStatus(401);
     const parsed = insertKnownUserFactSchema.safeParse(req.body);
-    if (!parsed.success) {
-      console.log("Validation error:", parsed.error.flatten());
-      return res.status(400).json({ 
-        message: "Invalid request body",
-        errors: parsed.error.flatten()
-      });
-    }
+    if (!parsed.success) return res.status(400).send(parsed.error);
 
-    try {
-      // Add the user ID to the validated data before creating the fact
-      const fact = await storage.addKnownUserFact({
-        ...parsed.data,
-        userId: Number(req.user.id)
-      });
-      res.status(201).json(fact);
-    } catch (error) {
-      console.error("Error creating known fact:", error);
-      res.status(500).json({ message: "Failed to create known fact" });
-    }
+    const fact = await storage.addKnownUserFact({
+      ...parsed.data,
+      userId: req.user.id,
+    });
+    res.status(201).json(fact);
   });
 
   app.patch("/api/known-facts/:id", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.isAuthenticated()) return res.sendStatus(401);
     const updatedFact = await storage.updateKnownUserFact(parseInt(req.params.id), req.body);
     res.json(updatedFact);
   });
 
   app.delete("/api/known-facts/:id", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.isAuthenticated()) return res.sendStatus(401);
     await storage.deleteKnownUserFact(parseInt(req.params.id));
     res.sendStatus(204);
   });
 
   // Tasks Endpoints
   app.get("/api/tasks", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.isAuthenticated()) return res.sendStatus(401);
     const type = req.query.type as string | undefined;
     const tasks = await storage.getTasks(req.user.id, type);
     res.json(tasks);
   });
 
   app.post("/api/tasks", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.isAuthenticated()) return res.sendStatus(401);
     const parsed = insertTaskSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json(parsed.error);
+    if (!parsed.success) return res.status(400).send(parsed.error);
 
     const task = await storage.createTask({
       ...parsed.data,
@@ -147,34 +60,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.patch("/api/tasks/:id", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.isAuthenticated()) return res.sendStatus(401);
     const updatedTask = await storage.updateTask(parseInt(req.params.id), req.body);
     res.json(updatedTask);
   });
 
   app.delete("/api/tasks/:id", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.isAuthenticated()) return res.sendStatus(401);
     await storage.deleteTask(parseInt(req.params.id));
     res.sendStatus(204);
   });
 
   app.post("/api/tasks/:id/complete", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.isAuthenticated()) return res.sendStatus(401);
     const completedTask = await storage.completeTask(parseInt(req.params.id));
     res.json(completedTask);
   });
 
   // Goals
   app.get("/api/goals", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.isAuthenticated()) return res.sendStatus(401);
     const goals = await storage.getGoals(req.user.id);
     res.json(goals);
   });
 
   app.post("/api/goals", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.isAuthenticated()) return res.sendStatus(401);
     const parsed = insertGoalSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json(parsed.error);
+    if (!parsed.success) return res.status(400).send(parsed.error);
 
     const goal = await storage.createGoal({
       ...parsed.data,
@@ -185,28 +98,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.patch("/api/goals/:id", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.isAuthenticated()) return res.sendStatus(401);
     const goal = await storage.updateGoal(parseInt(req.params.id), req.body);
     res.json(goal);
   });
 
   app.delete("/api/goals/:id", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.isAuthenticated()) return res.sendStatus(401);
     await storage.deleteGoal(parseInt(req.params.id));
     res.sendStatus(204);
   });
 
   // Check-ins
   app.get("/api/checkins", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.isAuthenticated()) return res.sendStatus(401);
     const checkIns = await storage.getCheckIns(req.user.id);
     res.json(checkIns);
   });
 
   app.post("/api/checkins", async (req, res) => {
-    if (!req.isAuthenticated()) return res.status(401).json({ message: "Unauthorized" });
+    if (!req.isAuthenticated()) return res.sendStatus(401);
     const parsed = insertCheckInSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json(parsed.error);
+    if (!parsed.success) return res.status(400).send(parsed.error);
 
     const checkIns = await storage.getCheckIns(req.user.id);
     const previousResponses = checkIns

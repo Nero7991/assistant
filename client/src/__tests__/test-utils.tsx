@@ -2,6 +2,7 @@ import { render as rtlRender, RenderOptions } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '@/hooks/use-auth';
 import { Router } from 'wouter';
+import { vi } from 'vitest';
 import { ReactElement } from 'react';
 
 // Create a fresh QueryClient for each test
@@ -25,7 +26,7 @@ function createTestQueryClient() {
 // Setup base URL for Wouter Router
 const mockBaseUrl = '/';
 
-function renderWithProviders(
+function render(
   ui: ReactElement,
   { wrapper, ...renderOptions }: RenderOptions = {}
 ) {
@@ -51,4 +52,4 @@ function renderWithProviders(
 
 // re-export everything
 export * from '@testing-library/react';
-export { renderWithProviders };
+export { render };

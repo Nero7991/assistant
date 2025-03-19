@@ -14,11 +14,7 @@ if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !proces
 }
 
 const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-const twilioPhone = process.env.TWILIO_PHONE_NUMBER;
-
-export function generateVerificationCode(): string {
-  return randomInt(100000, 999999).toString();
-}
+const twilioPhone = "+18557270654"; // Production WhatsApp business number
 
 export async function sendWhatsAppMessage(to: string, code: string): Promise<boolean> {
   try {
@@ -109,11 +105,17 @@ export async function sendSMS(to: string, message: string): Promise<boolean> {
   }
 }
 
+export function generateVerificationCode(): string {
+  return randomInt(100000, 999999).toString();
+}
+
 export async function sendVerificationMessage(
   type: "whatsapp" | "imessage" | "email",
   contact: string,
   code: string,
 ): Promise<boolean> {
+  const message = `Your ADHD Coach verification code is: ${code}. This code will expire in 10 minutes.`;
+
   console.log("Sending verification message:", {
     type,
     contact,
@@ -121,32 +123,23 @@ export async function sendVerificationMessage(
   });
 
   let result;
-  try {
-    switch (type) {
-      case "whatsapp":
-        result = await sendWhatsAppMessage(contact, code);
-        break;
-      case "imessage":
-        result = await sendSMS(contact, code);
-        break;
-      case "email":
-        result = await sendVerificationEmail(contact, code);
-        break;
-    }
-
-    console.log("Verification message result:", {
-      type,
-      contact,
-      success: result,
-    });
-
-    return result;
-  } catch (error) {
-    console.error("Error sending verification message:", {
-      type,
-      contact,
-      error
-    });
-    return false;
+  switch (type) {
+    case "whatsapp":
+      result = await sendWhatsAppMessage(contact, code);
+      break;
+    case "imessage":
+      result = await sendSMS(contact, message);
+      break;
+    case "email":
+      result = await sendVerificationEmail(contact, code);
+      break;
   }
+
+  console.log("Verification message result:", {
+    type,
+    contact,
+    success: result,
+  });
+
+  return result;
 }

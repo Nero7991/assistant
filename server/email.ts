@@ -14,11 +14,10 @@ export async function sendVerificationEmail(
   code: string
 ): Promise<boolean> {
   try {
-    console.log("Starting email verification process:", {
+    console.log("Preparing to send verification email:", {
       to,
       from: FROM_EMAIL,
-      code,
-      hasApiKey: !!process.env.SENDGRID_API_KEY
+      subject: 'Verify your ADHD Coach account'
     });
 
     const emailData = {
@@ -42,18 +41,15 @@ export async function sendVerificationEmail(
       `,
     };
 
-    console.log("Attempting to send verification email with SendGrid...");
+    console.log("Sending verification email with SendGrid...");
     const response = await mailService.send(emailData);
-    console.log("SendGrid API Response:", {
-      statusCode: response[0]?.statusCode,
-      headers: response[0]?.headers,
-    });
-
+    console.log("SendGrid API Response:", response);
+    console.log("Verification email sent successfully to:", to);
     return true;
   } catch (error: any) {
     console.error("SendGrid email error:", error);
     if (error.response) {
-      console.error("SendGrid API Error Details:", {
+      console.error("SendGrid API Error Response:", {
         status: error.response.status,
         body: error.response.body,
         headers: error.response.headers

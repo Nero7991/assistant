@@ -99,10 +99,9 @@ export const insertCheckInSchema = createInsertSchema(checkIns).pick({
 });
 
 // Schema for inserting known user facts
-export const insertKnownUserFactSchema = z.object({
+export const insertKnownUserFactSchema = createInsertSchema(knownUserFacts).extend({
   factType: z.enum(['user-provided', 'system-learned']),
   category: z.enum(['preference', 'habit', 'achievement', 'goal', 'challenge', 'other']),
-  content: z.string().min(1, "Content is required"),
   confidence: z.number().min(0).max(100).optional(),
 });
 

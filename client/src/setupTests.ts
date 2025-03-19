@@ -8,25 +8,19 @@ import { server } from './__tests__/mocks/server';
 // Extend Vitest's expect with React Testing Library's matchers
 expect.extend(matchers);
 
-// Only enable MSW for unit tests, not integration tests
-// Set INTEGRATION_TEST in process.env for test environment
-process.env.INTEGRATION_TEST = process.env.INTEGRATION_TEST || 'false';
+// Establish API mocking before all tests
+beforeAll(() => {
+  server.listen({ onUnhandledRequest: 'error' });
+});
 
-if (process.env.INTEGRATION_TEST !== 'true') {
-  // Establish API mocking before all tests
-  beforeAll(() => {
-    server.listen({ onUnhandledRequest: 'error' });
-  });
+// Reset any request handlers that we may add during the tests
+afterEach(() => {
+  cleanup();
+  server.resetHandlers();
+});
 
-  // Reset any request handlers that we may add during the tests
-  afterEach(() => {
-    cleanup();
-    server.resetHandlers();
-  });
-
-  // Clean up after the tests are finished
-  afterAll(() => server.close());
-}
+// Clean up after the tests are finished
+afterAll(() => server.close());
 
 // Mock ResizeObserver which is not available in jsdom
 global.ResizeObserver = vi.fn().mockImplementation(() => ({

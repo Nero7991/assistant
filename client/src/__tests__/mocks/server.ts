@@ -8,20 +8,6 @@ export const handlers = [
     return HttpResponse.json(null, { status: 401 });
   }),
 
-  http.post('/api/login', () => {
-    return HttpResponse.json({
-      id: 1,
-      username: 'testuser',
-      email: 'test@example.com',
-      isEmailVerified: true,
-      isPhoneVerified: true,
-    });
-  }),
-
-  http.post('/api/logout', () => {
-    return new HttpResponse(null, { status: 200 });
-  }),
-
   // Registration flow endpoints
   http.post('/api/register', () => {
     return HttpResponse.json({
