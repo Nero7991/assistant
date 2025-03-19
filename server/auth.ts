@@ -37,11 +37,17 @@ async function comparePasswords(supplied: string, stored: string) {
 }
 
 function generateTempUserId(): number {
-  // Use current seconds instead of milliseconds, and add a random number
-  // to avoid collisions while staying within PostgreSQL integer limits
-  const seconds = Math.floor(Date.now() / 1000);
-  const random = Math.floor(Math.random() * 999);
-  return (seconds % 1000000) * 1000 + random; // Will be under 2147483647
+  // Use a smaller range for temporary IDs
+  // Current minute (0-59) * 10000 + random(0-9999)
+  // This gives us numbers in range 0-599999
+  const minute = Math.floor(Date.now() / 60000) % 60;
+  const random = Math.floor(Math.random() * 10000);
+  return minute * 10000 + random;
+}
+
+// Add this validation before using the tempUserId
+async function validateTempUserId(id: number): Promise<boolean> {
+  return id > 0 && id < 2147483647; // PostgreSQL integer max
 }
 
 export function setupAuth(app: Express) {
@@ -242,7 +248,12 @@ export function setupAuth(app: Express) {
 
       // Generate new temp ID only if one doesn't exist
       if (!req.session.tempUserId) {
-        req.session.tempUserId = generateTempUserId();
+        let tempId;
+        do {
+          tempId = generateTempUserId();
+        } while (!(await validateTempUserId(tempId)));
+
+        req.session.tempUserId = tempId;
         // Save session explicitly to ensure the tempUserId is stored
         await new Promise<void>((resolve, reject) => {
           req.session.save((err) => {
