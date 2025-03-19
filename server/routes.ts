@@ -3,10 +3,79 @@ import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { storage } from "./storage";
 import { generateCoachingResponse } from "./coach";
-import { insertGoalSchema, insertCheckInSchema } from "@shared/schema";
+import { insertGoalSchema, insertCheckInSchema, insertKnownUserFactSchema, insertTaskSchema } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
+
+  // Known User Facts Endpoints
+  app.get("/api/known-facts", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const facts = await storage.getKnownUserFacts(req.user.id);
+    res.json(facts);
+  });
+
+  app.post("/api/known-facts", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const parsed = insertKnownUserFactSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).send(parsed.error);
+
+    const fact = await storage.addKnownUserFact({
+      ...parsed.data,
+      userId: req.user.id,
+    });
+    res.status(201).json(fact);
+  });
+
+  app.patch("/api/known-facts/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const updatedFact = await storage.updateKnownUserFact(parseInt(req.params.id), req.body);
+    res.json(updatedFact);
+  });
+
+  app.delete("/api/known-facts/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    await storage.deleteKnownUserFact(parseInt(req.params.id));
+    res.sendStatus(204);
+  });
+
+  // Tasks Endpoints
+  app.get("/api/tasks", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const type = req.query.type as string | undefined;
+    const tasks = await storage.getTasks(req.user.id, type);
+    res.json(tasks);
+  });
+
+  app.post("/api/tasks", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const parsed = insertTaskSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).send(parsed.error);
+
+    const task = await storage.createTask({
+      ...parsed.data,
+      userId: req.user.id,
+    });
+    res.status(201).json(task);
+  });
+
+  app.patch("/api/tasks/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const updatedTask = await storage.updateTask(parseInt(req.params.id), req.body);
+    res.json(updatedTask);
+  });
+
+  app.delete("/api/tasks/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    await storage.deleteTask(parseInt(req.params.id));
+    res.sendStatus(204);
+  });
+
+  app.post("/api/tasks/:id/complete", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const completedTask = await storage.completeTask(parseInt(req.params.id));
+    res.json(completedTask);
+  });
 
   // Goals
   app.get("/api/goals", async (req, res) => {
@@ -19,7 +88,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const parsed = insertGoalSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).send(parsed.error);
-    
+
     const goal = await storage.createGoal({
       ...parsed.data,
       userId: req.user.id,
@@ -56,7 +125,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const previousResponses = checkIns
       .slice(0, 3)
       .map(ci => ci.response)
-      .filter(Boolean);
+      .filter((response): response is string => response !== null);
 
     const coachingResponse = await generateCoachingResponse(
       parsed.data.content,

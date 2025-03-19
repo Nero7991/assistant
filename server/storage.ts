@@ -1,6 +1,6 @@
 import session from "express-session";
 import createMemoryStore from "memorystore";
-import { User, Goal, CheckIn } from "@shared/schema";
+import { User, Goal, CheckIn, Task, KnownUserFact, InsertKnownUserFact, InsertTask } from "@shared/schema";
 
 const MemoryStore = createMemoryStore(session);
 
@@ -9,17 +9,22 @@ export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: { username: string; password: string; phoneNumber?: string; email: string; contactPreference?: string; isEmailVerified?: boolean; isPhoneVerified?: boolean; }): Promise<User>;
+  updateUser(user: User): Promise<User>;
 
-  getGoals(userId: number): Promise<Goal[]>;
-  createGoal(goal: Omit<Goal, "id">): Promise<Goal>;
-  updateGoal(id: number, goal: Partial<Goal>): Promise<Goal>;
-  deleteGoal(id: number): Promise<void>;
+  // Known User Facts methods
+  getKnownUserFacts(userId: number): Promise<KnownUserFact[]>;
+  addKnownUserFact(fact: InsertKnownUserFact & { userId: number }): Promise<KnownUserFact>;
+  updateKnownUserFact(id: number, fact: Partial<KnownUserFact>): Promise<KnownUserFact>;
+  deleteKnownUserFact(id: number): Promise<void>;
 
-  getCheckIns(userId: number): Promise<CheckIn[]>;
-  createCheckIn(checkIn: Omit<CheckIn, "id">): Promise<CheckIn>;
-  updateCheckIn(id: number, response: string): Promise<CheckIn>;
+  // Task management methods
+  getTasks(userId: number, type?: string): Promise<Task[]>;
+  createTask(task: InsertTask & { userId: number }): Promise<Task>;
+  updateTask(id: number, task: Partial<Task>): Promise<Task>;
+  deleteTask(id: number): Promise<void>;
+  completeTask(id: number): Promise<Task>;
 
-  // Contact verification methods
+  // Keep existing contact verification methods
   createContactVerification(verification: {
     userId: number;
     type: string;
@@ -39,11 +44,21 @@ export interface IStorage {
     expiresAt: Date;
     verified: boolean;
   }>>;
-  updateUser(user: User): Promise<User>;
+
+  getGoals(userId: number): Promise<Goal[]>;
+  createGoal(goal: Omit<Goal, "id">): Promise<Goal>;
+  updateGoal(id: number, goal: Partial<Goal>): Promise<Goal>;
+  deleteGoal(id: number): Promise<void>;
+
+  getCheckIns(userId: number): Promise<CheckIn[]>;
+  createCheckIn(checkIn: Omit<CheckIn, "id">): Promise<CheckIn>;
+  updateCheckIn(id: number, response: string): Promise<CheckIn>;
 }
 
 export class MemStorage implements IStorage {
   private users: Map<number, User>;
+  private knownUserFacts: Map<number, KnownUserFact>;
+  private tasks: Map<number, Task>;
   private goals: Map<number, Goal>;
   private checkIns: Map<number, CheckIn>;
   private verifications: Map<number, Array<{
@@ -56,10 +71,12 @@ export class MemStorage implements IStorage {
   }>>;
   sessionStore: session.Store;
   private currentId: number;
-  private sessionTempUserId?: number; // Added to track temporary user ID from session
+  private sessionTempUserId?: number;
 
   constructor() {
     this.users = new Map();
+    this.knownUserFacts = new Map();
+    this.tasks = new Map();
     this.goals = new Map();
     this.checkIns = new Map();
     this.verifications = new Map();
@@ -112,6 +129,94 @@ export class MemStorage implements IStorage {
     });
 
     return user;
+  }
+
+  // Known User Facts methods
+  async getKnownUserFacts(userId: number): Promise<KnownUserFact[]> {
+    return Array.from(this.knownUserFacts.values())
+      .filter(fact => fact.userId === userId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
+  async addKnownUserFact(fact: InsertKnownUserFact & { userId: number }): Promise<KnownUserFact> {
+    const id = this.currentId++;
+    const newFact: KnownUserFact = {
+      ...fact,
+      id,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.knownUserFacts.set(id, newFact);
+    return newFact;
+  }
+
+  async updateKnownUserFact(id: number, update: Partial<KnownUserFact>): Promise<KnownUserFact> {
+    const fact = this.knownUserFacts.get(id);
+    if (!fact) throw new Error("Known user fact not found");
+
+    const updatedFact = {
+      ...fact,
+      ...update,
+      updatedAt: new Date(),
+    };
+    this.knownUserFacts.set(id, updatedFact);
+    return updatedFact;
+  }
+
+  async deleteKnownUserFact(id: number): Promise<void> {
+    this.knownUserFacts.delete(id);
+  }
+
+  // Task management methods
+  async getTasks(userId: number, type?: string): Promise<Task[]> {
+    return Array.from(this.tasks.values())
+      .filter(task => task.userId === userId && (!type || task.taskType === type))
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
+  async createTask(task: InsertTask & { userId: number }): Promise<Task> {
+    const id = this.currentId++;
+    const newTask: Task = {
+      ...task,
+      id,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      completedAt: null,
+      metadata: task.metadata || null,
+    };
+    this.tasks.set(id, newTask);
+    return newTask;
+  }
+
+  async updateTask(id: number, update: Partial<Task>): Promise<Task> {
+    const task = this.tasks.get(id);
+    if (!task) throw new Error("Task not found");
+
+    const updatedTask = {
+      ...task,
+      ...update,
+      updatedAt: new Date(),
+    };
+    this.tasks.set(id, updatedTask);
+    return updatedTask;
+  }
+
+  async deleteTask(id: number): Promise<void> {
+    this.tasks.delete(id);
+  }
+
+  async completeTask(id: number): Promise<Task> {
+    const task = this.tasks.get(id);
+    if (!task) throw new Error("Task not found");
+
+    const completedTask = {
+      ...task,
+      status: 'completed',
+      completedAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.tasks.set(id, completedTask);
+    return completedTask;
   }
 
   async createContactVerification(verification: {
@@ -205,6 +310,36 @@ export class MemStorage implements IStorage {
     });
   }
 
+  async getVerifications(userId: number): Promise<Array<{
+    type: string;
+    code: string;
+    expiresAt: Date;
+    verified: boolean;
+  }>> {
+    const verificationList = this.verifications.get(userId) || [];
+    return verificationList.map(v => ({
+      type: v.type,
+      code: v.code,
+      expiresAt: v.expiresAt,
+      verified: v.verified || false
+    }));
+  }
+  async updateUser(user: User): Promise<User> {
+    // Ensure user exists
+    if (!this.users.has(user.id)) {
+      throw new Error(`User ${user.id} not found`);
+    }
+
+    // Update user with verification flags
+    this.users.set(user.id, {
+      ...user,
+      isEmailVerified: user.isEmailVerified || false,
+      isPhoneVerified: user.isPhoneVerified || false
+    });
+
+    return this.users.get(user.id)!;
+  }
+
   async getGoals(userId: number): Promise<Goal[]> {
     return Array.from(this.goals.values()).filter(
       (goal) => goal.userId === userId,
@@ -249,35 +384,6 @@ export class MemStorage implements IStorage {
     const updatedCheckIn = { ...checkIn, response };
     this.checkIns.set(id, updatedCheckIn);
     return updatedCheckIn;
-  }
-  async getVerifications(userId: number): Promise<Array<{
-    type: string;
-    code: string;
-    expiresAt: Date;
-    verified: boolean;
-  }>> {
-    const verificationList = this.verifications.get(userId) || [];
-    return verificationList.map(v => ({
-      type: v.type,
-      code: v.code,
-      expiresAt: v.expiresAt,
-      verified: v.verified || false
-    }));
-  }
-  async updateUser(user: User): Promise<User> {
-    // Ensure user exists
-    if (!this.users.has(user.id)) {
-      throw new Error(`User ${user.id} not found`);
-    }
-
-    // Update user with verification flags
-    this.users.set(user.id, {
-      ...user,
-      isEmailVerified: user.isEmailVerified || false,
-      isPhoneVerified: user.isPhoneVerified || false
-    });
-
-    return this.users.get(user.id)!;
   }
 }
 

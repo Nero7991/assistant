@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -41,6 +41,43 @@ export const contactVerifications = pgTable("contact_verifications", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Known user facts table
+export const knownUserFacts = pgTable("known_user_facts", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  factType: text("fact_type").notNull(), // 'user-provided' or 'system-learned'
+  category: text("category").notNull(), // e.g., 'preference', 'habit', 'achievement'
+  content: text("content").notNull(),
+  confidence: integer("confidence"), // For system-learned facts (0-100)
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Task types enum
+export const TaskType = {
+  DAILY: 'daily',
+  PERSONAL_PROJECT: 'personal_project',
+  LONG_TERM_PROJECT: 'long_term_project',
+  LIFE_GOAL: 'life_goal',
+} as const;
+
+// Tasks table with discriminator for different types
+export const tasks = pgTable("tasks", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  taskType: text("task_type").notNull(), // One of TaskType values
+  status: text("status").notNull().default('active'), // 'active', 'completed', 'archived'
+  priority: integer("priority"), // 1-5, higher is more important
+  estimatedDuration: text("estimated_duration"), // e.g., "30m", "2h", "3d", "2w"
+  deadline: timestamp("deadline"),
+  completedAt: timestamp("completed_at"),
+  metadata: jsonb("metadata"), // Type-specific data
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 export const insertUserSchema = createInsertSchema(users).extend({
   username: z.string().min(3, "Username must be at least 3 characters"),
   password: z.string().min(6, "Password must be at least 6 characters"),
@@ -61,6 +98,57 @@ export const insertCheckInSchema = createInsertSchema(checkIns).pick({
   content: true,
 });
 
+// Schema for inserting known user facts
+export const insertKnownUserFactSchema = createInsertSchema(knownUserFacts).extend({
+  factType: z.enum(['user-provided', 'system-learned']),
+  category: z.enum(['preference', 'habit', 'achievement', 'goal', 'challenge', 'other']),
+  confidence: z.number().min(0).max(100).optional(),
+});
+
+// Base task schema
+const baseTaskSchema = {
+  title: z.string().min(1, "Title is required"),
+  description: z.string().optional(),
+  priority: z.number().min(1).max(5).optional(),
+  status: z.enum(['active', 'completed', 'archived']).default('active'),
+};
+
+// Task-type specific schemas
+export const dailyTaskSchema = z.object({
+  ...baseTaskSchema,
+  taskType: z.literal(TaskType.DAILY),
+  estimatedDuration: z.string().regex(/^\d+[mh]$/, "Duration must be in minutes (m) or hours (h)"),
+  deadline: z.date().optional(),
+});
+
+export const personalProjectSchema = z.object({
+  ...baseTaskSchema,
+  taskType: z.literal(TaskType.PERSONAL_PROJECT),
+  estimatedDuration: z.string().regex(/^\d+[dw]$/, "Duration must be in days (d) or weeks (w)"),
+  deadline: z.date().optional(),
+});
+
+export const longTermProjectSchema = z.object({
+  ...baseTaskSchema,
+  taskType: z.literal(TaskType.LONG_TERM_PROJECT),
+  estimatedDuration: z.string().regex(/^\d+[mM]$/, "Duration must be in months (M)"),
+  deadline: z.date().optional(),
+});
+
+export const lifeGoalSchema = z.object({
+  ...baseTaskSchema,
+  taskType: z.literal(TaskType.LIFE_GOAL),
+  estimatedDuration: z.string().regex(/^\d+[yY]$/, "Duration must be in years (y)").optional(),
+});
+
+// Combined task schema using discriminated union
+export const insertTaskSchema = z.discriminatedUnion("taskType", [
+  dailyTaskSchema,
+  personalProjectSchema,
+  longTermProjectSchema,
+  lifeGoalSchema,
+]);
+
 export const verificationCodeSchema = z.object({
   code: z.string().length(6, "Verification code must be 6 digits"),
 });
@@ -69,3 +157,7 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type Goal = typeof goals.$inferSelect;
 export type CheckIn = typeof checkIns.$inferSelect;
+export type KnownUserFact = typeof knownUserFacts.$inferSelect;
+export type InsertKnownUserFact = z.infer<typeof insertKnownUserFactSchema>;
+export type Task = typeof tasks.$inferSelect;
+export type InsertTask = z.infer<typeof insertTaskSchema>;
