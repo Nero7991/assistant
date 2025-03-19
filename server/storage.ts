@@ -2,7 +2,7 @@ import session from "express-session";
 import createMemoryStore from "memorystore";
 import { User, Goal, CheckIn, Task, KnownUserFact, InsertKnownUserFact, InsertTask } from "@shared/schema";
 import { db } from "./db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { users, goals, checkIns, contactVerifications, knownUserFacts, tasks } from "@shared/schema";
 import type { User, Goal, CheckIn, Task, KnownUserFact, InsertKnownUserFact, InsertTask } from "@shared/schema";
 import connectPg from "connect-pg-simple";
@@ -273,7 +273,7 @@ export class DatabaseStorage implements IStorage {
           eq(contactVerifications.type, verification.type)
         )
       )
-      .orderBy(({ desc }) => [desc(contactVerifications.createdAt)])
+      .orderBy(desc(contactVerifications.createdAt))
       .limit(1);
 
     console.log("New verification created:", {
@@ -295,7 +295,7 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(contactVerifications)
       .where(eq(contactVerifications.tempId, userId.toString()))
-      .orderBy(({ desc }) => [desc(contactVerifications.createdAt)]);
+      .orderBy(desc(contactVerifications.createdAt));
 
     console.log("All verifications found:", {
       tempId: userId.toString(),
