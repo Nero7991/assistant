@@ -40,6 +40,7 @@ export const contactVerifications = pgTable("contact_verifications", {
   code: text("code").notNull(),
   expiresAt: timestamp("expires_at").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  verified: boolean("verified").notNull().default(false),
 });
 
 // Known user facts table

@@ -49,7 +49,7 @@ async function validateTempUserId(id: number): Promise<boolean> {
   return id > 0 && id < 2147483647; // PostgreSQL integer max
 }
 
-async function verifyContactAndUpdateUser(userId: string, type: string, code: string) {
+async function verifyContactAndUpdateUser(userId: number, type: string, code: string) {
   console.log("Starting verification process:", {
     userId,
     type,
@@ -241,12 +241,17 @@ export function setupAuth(app: Express) {
   app.post("/api/verify-contact", async (req, res) => {
     try {
       const { code, type } = req.body;
-      const userId = req.isAuthenticated() ? req.user.id : req.session.tempUserId;
+      let userId: number;
 
-      if (!userId) {
+      if (req.isAuthenticated()) {
+        userId = req.user.id;
+      } else if (req.session.tempUserId) {
+        userId = req.session.tempUserId;
+      } else {
         console.log("No user ID found (neither authenticated nor temporary)");
         return res.status(401).json({ message: "No valid user session" });
       }
+
 
       console.log("Processing verification:", {
         isAuthenticated: req.isAuthenticated(),

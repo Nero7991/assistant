@@ -318,7 +318,19 @@ export class DatabaseStorage implements IStorage {
     return latest;
   }
 
+  //Update the markContactVerified method to actually mark the verification as verified
   async markContactVerified(userId: number, type: string): Promise<void> {
+    // Mark the verification as verified in contact_verifications
+    await db
+      .update(contactVerifications)
+      .set({ verified: true })
+      .where(
+        and(
+          eq(contactVerifications.tempId, userId.toString()),
+          eq(contactVerifications.type, type)
+        )
+      );
+
     const user = await this.getUser(userId);
     if (user) {
       await db
@@ -331,6 +343,7 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
+  // Update getVerifications to use the verified field from the database
   async getVerifications(userId: number): Promise<Array<{
     type: string;
     code: string;
@@ -341,11 +354,12 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(contactVerifications)
       .where(eq(contactVerifications.tempId, userId.toString()));
+
     return verifications.map(v => ({
       type: v.type,
       code: v.code,
       expiresAt: v.expiresAt,
-      verified: false, // We don't store verified status in the database
+      verified: v.verified,
     }));
   }
 
