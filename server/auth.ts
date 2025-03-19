@@ -45,13 +45,8 @@ async function verifyContactAndUpdateUser(userId: number, type: string, code: st
     throw new Error("Verification code expired");
   }
 
-  // Mark the verification as complete
   await storage.markContactVerified(userId, type);
-
-  // Get the user and their verification status
   const user = await storage.getUser(userId);
-
-  // Get all verifications for this user to check status
   const verifications = await storage.getVerifications(userId);
   const isEmailVerified = verifications.some(v => (v.type === 'email' && v.verified));
   const isPhoneVerified = verifications.some(v => ((v.type === 'phone' || v.type === 'whatsapp') && v.verified));
@@ -65,23 +60,9 @@ async function verifyContactAndUpdateUser(userId: number, type: string, code: st
   });
 
   if (user) {
-    // Update user verification flags if they exist
     user.isEmailVerified = isEmailVerified;
     user.isPhoneVerified = isPhoneVerified;
     await storage.updateUser(user);
-
-    console.log("Updated user verification status:", {
-      userId: user.id,
-      isEmailVerified: user.isEmailVerified,
-      isPhoneVerified: user.isPhoneVerified
-    });
-  } else {
-    console.log("Verification completed for temporary user:", {
-      userId,
-      type,
-      isEmailVerified,
-      isPhoneVerified
-    });
   }
 
   return user;
@@ -90,11 +71,11 @@ async function verifyContactAndUpdateUser(userId: number, type: string, code: st
 export function setupAuth(app: Express) {
   const sessionSettings: session.SessionOptions = {
     secret: process.env.SESSION_SECRET!,
-    resave: true,
-    saveUninitialized: true,
+    resave: false,
+    saveUninitialized: false,
     store: storage.sessionStore,
     cookie: {
-      secure: false,
+      secure: process.env.NODE_ENV === 'production',
       httpOnly: true,
       sameSite: 'lax',
       maxAge: 24 * 60 * 60 * 1000
@@ -102,6 +83,7 @@ export function setupAuth(app: Express) {
     name: 'connect.sid'
   };
 
+  app.set('trust proxy', 1);
   app.use(session(sessionSettings));
   app.use(passport.initialize());
   app.use(passport.session());
@@ -147,7 +129,6 @@ export function setupAuth(app: Express) {
         return res.status(400).json({ message: "Username already exists" });
       }
 
-      // Check for verified contact from temp user
       let isEmailVerified = false;
       let isPhoneVerified = false;
 
@@ -155,7 +136,6 @@ export function setupAuth(app: Express) {
         console.log("Checking verifications from temp user:", req.session.tempUserId);
         const verifications = await storage.getVerifications(req.session.tempUserId);
 
-        // Check both email and phone verifications
         for (const verification of verifications) {
           if (verification.verified) {
             console.log("Found verified contact:", verification);
@@ -168,7 +148,6 @@ export function setupAuth(app: Express) {
         }
       }
 
-      // Create the user with verification flags
       const user = await storage.createUser({
         ...req.body,
         password: await hashPassword(req.body.password),
@@ -176,16 +155,6 @@ export function setupAuth(app: Express) {
         isPhoneVerified
       });
 
-      console.log("Created user:", {
-        id: user.id,
-        username: user.username,
-        contactPreference: user.contactPreference,
-        isEmailVerified: user.isEmailVerified,
-        isPhoneVerified: user.isPhoneVerified,
-        user
-      });
-
-      // Generate new session and log in
       req.session.regenerate((err) => {
         if (err) {
           console.error("Session regenerate error:", err);
@@ -198,14 +167,7 @@ export function setupAuth(app: Express) {
             return next(err);
           }
 
-          console.log("User logged in after registration:", {
-            id: user.id,
-            isAuthenticated: req.isAuthenticated(),
-            isEmailVerified: user.isEmailVerified,
-            isPhoneVerified: user.isPhoneVerified,
-            session: req.sessionID
-          });
-
+          delete req.session.tempUserId;
           res.status(201).json(user);
         });
       });
@@ -235,34 +197,20 @@ export function setupAuth(app: Express) {
       await verifyContactAndUpdateUser(userId, type, code);
 
       if (req.isAuthenticated()) {
-        // Get fresh user object with updated verification status
         const updatedUser = await storage.getUser(userId);
         if (!updatedUser) {
           throw new Error("Failed to retrieve updated user");
         }
 
-        // Update session with new verification state
         req.login(updatedUser, (err) => {
           if (err) {
             console.error("Error updating user session:", err);
             return res.status(500).json({ message: "Failed to update session" });
           }
-
-          console.log("Updated authenticated user session:", {
-            userId: updatedUser.id,
-            isAuthenticated: req.isAuthenticated(),
-            isEmailVerified: updatedUser.isEmailVerified,
-            isPhoneVerified: updatedUser.isPhoneVerified,
-            session: req.sessionID
-          });
-
           res.json({ message: "Verification successful", user: updatedUser });
         });
       } else {
-        // For temporary users, just confirm the verification was successful
-        console.log("Verification successful for temporary user:", userId);
         res.json({ message: "Verification successful" });
-
       }
     } catch (error) {
       console.error("Verification error:", error);
@@ -279,12 +227,11 @@ export function setupAuth(app: Express) {
         throw new Error(`${type === 'email' ? 'Email' : 'Phone number'} is required`);
       }
 
-      // Generate verification code
       const verificationCode = generateVerificationCode();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
       // Use existing tempUserId from session or create new one
-      const tempUserId = req.session.tempUserId || Date.now();
+      const tempUserId = req.session.tempUserId || (Math.floor(Math.random() * 100000) + 1);
 
       // Store or update tempUserId in session
       req.session.tempUserId = tempUserId;
@@ -304,7 +251,6 @@ export function setupAuth(app: Express) {
 
       console.log(`Initiating ${type} verification for:`, contact);
 
-      // Send verification code
       const messageSent = await sendVerificationMessage(
         type,
         contact,
@@ -327,88 +273,10 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/resend-verification", async (req, res) => {
-    if (!req.isAuthenticated()) {
-      return res.status(401).json({ message: "Not authenticated" });
-    }
-
-    const verificationCode = generateVerificationCode();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
-    await storage.createContactVerification({
-      userId: req.user.id,
-      type: req.body.type || 'email',
-      code: verificationCode,
-      expiresAt,
-    });
-
-    // Send verification message based on type
-    const messageType = req.body.type === 'phone' ?
-      (req.user.contactPreference === 'whatsapp' ? 'whatsapp' : 'imessage') :
-      'email';
-
-    const contact = req.body.type === 'phone' ? req.user.phoneNumber : req.user.email;
-
-    console.log("Sending verification message:", {
-      type: messageType,
-      contact,
-      code: verificationCode
-    });
-
-    const messageSent = await sendVerificationMessage(
-      messageType,
-      contact,
-      verificationCode
-    );
-
-    console.log("Verification message result:", {
-      type: messageType,
-      contact,
-      success: messageSent
-    });
-
-    if (!messageSent) {
-      console.error("Failed to send verification message");
-      return res.status(500).json({ message: "Failed to send verification code" });
-    }
-
-    res.json({ message: "Verification code resent" });
-  });
-  // Add debug endpoint
-  app.get("/api/debug-session", (req, res) => {
-    console.log("Debug session:", {
-      sessionID: req.sessionID,
-      isAuthenticated: req.isAuthenticated(),
-      user: req.user?.id,
-      cookies: req.headers.cookie,
-      session: req.session
-    });
-    res.json({
-      sessionID: req.sessionID,
-      isAuthenticated: req.isAuthenticated(),
-      userId: req.user?.id
-    });
-  });
-  app.post("/api/login", (req, res, next) => {
-    passport.authenticate("local", (err, user, info) => {
-      if (err) return next(err);
-      if (!user) return res.status(401).json({ message: "Invalid credentials" });
-
-      req.login(user, (err) => {
-        if (err) return next(err);
-        console.log("User logged in:", {
-          id: user.id,
-          isAuthenticated: req.isAuthenticated(),
-          session: req.sessionID
-        });
-        res.status(200).json(user);
-      });
-    })(req, res, next);
-  });
-
   app.post("/api/logout", (req, res, next) => {
-    req.logout((err) => {
+    req.session.destroy((err) => {
       if (err) return next(err);
+      res.clearCookie('connect.sid');
       res.sendStatus(200);
     });
   });
@@ -424,7 +292,6 @@ export function setupAuth(app: Express) {
     res.json(req.user);
   });
 
-  // Add the username check endpoint
   app.get("/api/check-username/:username", async (req, res) => {
     try {
       const existingUser = await storage.getUserByUsername(req.params.username);
@@ -437,5 +304,4 @@ export function setupAuth(app: Express) {
       res.status(500).json({ message: "Failed to check username availability" });
     }
   });
-
 }
