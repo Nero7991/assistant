@@ -59,11 +59,16 @@ async function verifyContactAndUpdateUser(userId: number, type: string, code: st
   // Get latest verification using userId as tempId for non-authenticated users
   const verification = await storage.getLatestContactVerification(userId);
 
+  // Map 'phone' type to match the stored verification type if it's 'whatsapp'
+  const verificationTypeToCheck = (type === 'phone' && verification?.type === 'whatsapp') ? 'whatsapp' : type;
+
   console.log("Verification check:", {
     verification,
     providedCode: code,
     tempUserId: userId,
     type,
+    requestedType: type,
+    actualType: verification?.type,
     matches: verification?.code === code,
     isExpired: verification ? new Date() > verification.expiresAt : null
   });
@@ -80,8 +85,8 @@ async function verifyContactAndUpdateUser(userId: number, type: string, code: st
     throw new Error("Verification code expired");
   }
 
-  // Mark the verification as complete
-  await storage.markContactVerified(userId, type);
+  // Mark the verification as complete using the original verification type
+  await storage.markContactVerified(userId, verification.type);
 
   // Get the user if they exist (they won't for temporary verifications)
   const user = await storage.getUser(userId);
@@ -91,7 +96,7 @@ async function verifyContactAndUpdateUser(userId: number, type: string, code: st
     const updatedUser = await storage.updateUser({
       ...user,
       isEmailVerified: type === 'email' ? true : user.isEmailVerified,
-      isPhoneVerified: type === 'phone' || type === 'whatsapp' ? true : user.isPhoneVerified
+      isPhoneVerified: (type === 'phone' || type === 'whatsapp') ? true : user.isPhoneVerified
     });
 
     console.log("Updated user verification status:", {
