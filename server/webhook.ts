@@ -17,6 +17,7 @@ console.log('Initializing Twilio client with:', {
 
 export async function handleWhatsAppWebhook(req: Request, res: Response) {
   // Log raw request details first
+  console.log('********** INCOMING WHATSAPP WEBHOOK REQUEST **********');
   console.log('Incoming webhook request:', {
     headers: req.headers,
     body: req.body,
@@ -24,6 +25,7 @@ export async function handleWhatsAppWebhook(req: Request, res: Response) {
     url: req.url,
     timestamp: new Date().toISOString()
   });
+  console.log('****************************************************');
 
   try {
     const messagingService = new MessagingService();
