@@ -13,6 +13,8 @@ export const users = pgTable("users", {
   isEmailVerified: boolean("is_email_verified").notNull().default(false),
   allowEmailNotifications: boolean("allow_email_notifications").notNull().default(true),
   allowPhoneNotifications: boolean("allow_phone_notifications").notNull().default(false),
+  preferredMessageTime: text("preferred_message_time"), // Format: "HH:mm"
+  timeZone: text("time_zone"),
 });
 
 export const goals = pgTable("goals", {
@@ -80,6 +82,37 @@ export const tasks = pgTable("tasks", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+export const messagingPreferences = pgTable("messaging_preferences", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  timeZone: text("time_zone").notNull(),
+  preferredTime: text("preferred_time").notNull(), // Format: "HH:mm"
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const messageHistory = pgTable("message_history", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  content: text("content").notNull(),
+  type: text("type").notNull(), // 'morning_message', 'follow_up', 'response'
+  status: text("status").notNull(), // 'sent', 'delivered', 'failed'
+  metadata: jsonb("metadata"), // Store additional context like tasks mentioned
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const messageSchedules = pgTable("message_schedules", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  type: text("type").notNull(), // 'morning_message', 'follow_up'
+  scheduledFor: timestamp("scheduled_for").notNull(),
+  sentAt: timestamp("sent_at"),
+  status: text("status").notNull().default('pending'), // 'pending', 'sent', 'cancelled'
+  metadata: jsonb("metadata"), // Store context for message generation
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+
 export const insertUserSchema = createInsertSchema(users).extend({
   username: z.string().min(3, "Username must be at least 3 characters"),
   password: z.string().min(6, "Password must be at least 6 characters"),
@@ -88,6 +121,8 @@ export const insertUserSchema = createInsertSchema(users).extend({
   contactPreference: z.enum(["whatsapp", "imessage", "email"], {
     required_error: "Please select a contact preference",
   }),
+  preferredMessageTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, "Invalid time format. Use HH:mm").optional(),
+  timeZone: z.string().optional(),
 });
 
 export const insertGoalSchema = createInsertSchema(goals).pick({
@@ -155,6 +190,12 @@ export const verificationCodeSchema = z.object({
   code: z.string().length(6, "Verification code must be 6 digits"),
 });
 
+export const insertMessagingPreferencesSchema = createInsertSchema(messagingPreferences).pick({
+  timeZone: true,
+  preferredTime: true,
+  isEnabled: true,
+});
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type Goal = typeof goals.$inferSelect;
@@ -163,3 +204,7 @@ export type KnownUserFact = typeof knownUserFacts.$inferSelect;
 export type InsertKnownUserFact = z.infer<typeof insertKnownUserFactSchema>;
 export type Task = typeof tasks.$inferSelect;
 export type InsertTask = z.infer<typeof insertTaskSchema>;
+export type MessagingPreferences = typeof messagingPreferences.$inferSelect;
+export type MessageHistory = typeof messageHistory.$inferSelect;
+export type MessageSchedule = typeof messageSchedules.$inferSelect;
+export type InsertMessagingPreferences = z.infer<typeof insertMessagingPreferencesSchema>;

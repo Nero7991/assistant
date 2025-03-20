@@ -47,6 +47,7 @@
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.2.0",
     "@testing-library/user-event": "^14.6.1",
+    "@types/twilio": "^3.19.2",
     "@vitest/ui": "^3.0.9",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",

@@ -4,9 +4,17 @@ import { setupAuth } from "./auth";
 import { storage } from "./storage";
 import { generateCoachingResponse } from "./coach";
 import { insertGoalSchema, insertCheckInSchema, insertKnownUserFactSchema, insertTaskSchema } from "@shared/schema";
+import { handleWhatsAppWebhook } from "./webhook";
+import { messageScheduler } from "./scheduler";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
+
+  // WhatsApp Webhook endpoint
+  app.post("/api/webhook/whatsapp", handleWhatsAppWebhook);
+
+  // Start the message scheduler
+  messageScheduler.start();
 
   // Known User Facts Endpoints
   app.get("/api/known-facts", async (req, res) => {
@@ -143,5 +151,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   const httpServer = createServer(app);
+
+  // Graceful shutdown
+  httpServer.on('close', () => {
+    messageScheduler.stop();
+  });
+
   return httpServer;
 }
