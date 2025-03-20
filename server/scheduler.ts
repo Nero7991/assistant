@@ -51,6 +51,25 @@ export class MessageScheduler {
     }
   }
 
+  async scheduleTestMessage(userId: number) {
+    if (!this.isTestMode) {
+      throw new Error("Test messages can only be scheduled in test mode");
+    }
+
+    const scheduledFor = new Date(Date.now() + 60000); // 1 minute from now
+    console.log(`Scheduling test message for user ${userId} at ${scheduledFor}`);
+
+    await db.insert(messageSchedules).values({
+      userId,
+      type: 'morning_message',
+      scheduledFor,
+      status: 'pending',
+      metadata: { type: 'test_message' },
+    });
+
+    return scheduledFor;
+  }
+
   private async scheduleAllMorningMessages() {
     try {
       // Get all users with messaging preferences

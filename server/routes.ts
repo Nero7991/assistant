@@ -13,6 +13,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // WhatsApp Webhook endpoint
   app.post("/api/webhook/whatsapp", handleWhatsAppWebhook);
 
+  // Test endpoint for scheduling messages (only in development)
+  if (process.env.NODE_ENV === 'development') {
+    app.post("/api/test/schedule-message", async (req, res) => {
+      if (!req.isAuthenticated()) return res.sendStatus(401);
+      try {
+        const scheduledTime = await messageScheduler.scheduleTestMessage(req.user.id);
+        res.json({ 
+          message: "Test message scheduled",
+          scheduledFor: scheduledTime,
+          userId: req.user.id
+        });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+  }
+
   // Start the message scheduler
   messageScheduler.start();
 
