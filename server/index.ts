@@ -10,7 +10,7 @@ app.use(cors({
   origin: true, // Allow all origins in development
   credentials: true, // Important: needed for cookies
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-twilio-signature']
 }));
 
 // Add security headers
@@ -21,7 +21,7 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: true })); //Updated to true to handle form-encoded data
 
 app.use((req, res, next) => {
   const start = Date.now();
