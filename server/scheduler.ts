@@ -6,36 +6,49 @@ import { eq } from "drizzle-orm";
 export class MessageScheduler {
   private messagingService: MessagingService;
   private schedulerInterval: NodeJS.Timeout | null = null;
+  private readonly checkInterval: number;
+  private readonly isTestMode: boolean;
 
-  constructor() {
+  constructor(options = { testMode: false }) {
     this.messagingService = new MessagingService();
+    this.isTestMode = options.testMode;
+    // In test mode, check every minute, otherwise every 5 minutes
+    this.checkInterval = this.isTestMode ? 60000 : 300000;
   }
 
   start() {
-    // Check for pending messages every minute
+    // Check for pending messages based on the configured interval
     this.schedulerInterval = setInterval(() => {
       this.processPendingMessages().catch(error => {
         console.error("Error processing pending messages:", error);
       });
-    }, 60000); // 1 minute
+    }, this.checkInterval);
 
     // Schedule morning messages daily
     this.scheduleAllMorningMessages().catch(error => {
       console.error("Error scheduling morning messages:", error);
     });
 
-    console.log("Message scheduler started");
+    console.log(`Message scheduler started in ${this.isTestMode ? 'test' : 'normal'} mode`);
+    console.log(`Checking for messages every ${this.checkInterval / 1000} seconds`);
   }
 
   stop() {
     if (this.schedulerInterval) {
       clearInterval(this.schedulerInterval);
       this.schedulerInterval = null;
+      console.log("Message scheduler stopped");
     }
   }
 
   private async processPendingMessages() {
-    await this.messagingService.processPendingSchedules();
+    try {
+      console.log("Processing pending messages...");
+      await this.messagingService.processPendingSchedules();
+      console.log("Finished processing pending messages");
+    } catch (error) {
+      console.error("Error in processPendingMessages:", error);
+    }
   }
 
   private async scheduleAllMorningMessages() {
@@ -55,6 +68,8 @@ export class MessageScheduler {
         )
         .where(eq(messagingPreferences.isEnabled, true));
 
+      console.log(`Scheduling morning messages for ${userPrefs.length} users`);
+
       for (const user of userPrefs) {
         await this.scheduleMorningMessage(user);
       }
@@ -72,13 +87,17 @@ export class MessageScheduler {
       const [hours, minutes] = user.preferredTime.split(":").map(Number);
       const now = new Date();
       const userTime = new Date(now.toLocaleString("en-US", { timeZone: user.timeZone }));
-      
-      // Set the target time for tomorrow
+
+      // Set the target time for tomorrow if in test mode, otherwise use preferred time
       const targetTime = new Date(userTime);
-      targetTime.setHours(hours, minutes, 0, 0);
-      
-      if (targetTime <= userTime) {
-        targetTime.setDate(targetTime.getDate() + 1);
+      if (this.isTestMode) {
+        // Schedule 1 minute from now for testing
+        targetTime.setMinutes(targetTime.getMinutes() + 1);
+      } else {
+        targetTime.setHours(hours, minutes, 0, 0);
+        if (targetTime <= userTime) {
+          targetTime.setDate(targetTime.getDate() + 1);
+        }
       }
 
       // Convert target time back to UTC for storage
@@ -99,5 +118,7 @@ export class MessageScheduler {
   }
 }
 
-// Export singleton instance
-export const messageScheduler = new MessageScheduler();
+// Export singleton instance with test mode flag from environment
+export const messageScheduler = new MessageScheduler({
+  testMode: process.env.NODE_ENV === 'development'
+});
