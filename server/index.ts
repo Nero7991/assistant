@@ -78,6 +78,11 @@ app.use((req, res, next) => {
     host: "0.0.0.0",
     reusePort: true,
   }, () => {
-    log(`serving on port ${port}`);
+    // Log the full server URL for Twilio webhook configuration
+    const replId = process.env.REPL_ID;
+    const replSlug = process.env.REPL_SLUG;
+    const webhookUrl = `https://${replSlug}.${replId}.repl.co/api/webhook/whatsapp`;
+    log(`Server running at http://0.0.0.0:${port}`);
+    log(`Configure Twilio webhook URL as: ${webhookUrl}`);
   });
 })();
