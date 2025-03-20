@@ -8,9 +8,25 @@ const twilioClient = twilio(
 );
 
 export async function handleWhatsAppWebhook(req: Request, res: Response) {
+  // Log raw request details first
+  console.log('Incoming webhook request:', {
+    headers: req.headers,
+    body: req.body,
+    method: req.method,
+    url: req.url,
+    timestamp: new Date().toISOString()
+  });
+
   // Verify the request is coming from Twilio
   const signature = req.headers["x-twilio-signature"] as string;
   const url = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+
+  console.log('Validating Twilio signature:', {
+    signature,
+    url,
+    hasAuthToken: !!process.env.TWILIO_AUTH_TOKEN
+  });
+
   const isValidRequest = twilio.validateRequest(
     process.env.TWILIO_AUTH_TOKEN!,
     signature,
@@ -37,13 +53,12 @@ export async function handleWhatsAppWebhook(req: Request, res: Response) {
     });
 
     // Extract user ID from message metadata or lookup by phone number
-    // For now, we'll implement a simple version
     const userPhone = from.replace("whatsapp:", "");
 
     // TODO: Lookup user by phone number from database
     const userId = 1; // Placeholder, implement actual user lookup
 
-    console.log(`Received WhatsApp message from ${userPhone}: ${messageBody}`);
+    console.log(`Processing WhatsApp message from ${userPhone}: ${messageBody}`);
 
     // Handle the user's response
     await messagingService.handleUserResponse(userId, messageBody);
