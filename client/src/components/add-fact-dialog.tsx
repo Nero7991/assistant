@@ -51,8 +51,12 @@ export function AddFactDialog() {
   const [selectedCategory, setSelectedCategory] = useState<keyof typeof factExamples>('life_event');
 
   const onSubmit = async (data: InsertKnownUserFact) => {
+    console.log('Form submitted with data:', data);
     try {
-      await apiRequest('POST', '/api/known-facts', data);
+      console.log('Making API request to /api/known-facts');
+      const response = await apiRequest('POST', '/api/known-facts', data);
+      console.log('API response:', response);
+
       await queryClient.invalidateQueries({ queryKey: ['/api/known-facts'] });
       setOpen(false);
       form.reset();
@@ -61,6 +65,7 @@ export function AddFactDialog() {
         description: "Your fact has been saved successfully.",
       });
     } catch (error) {
+      console.error('Error submitting fact:', error);
       toast({
         title: "Error",
         description: "Failed to add fact. Please try again.",
