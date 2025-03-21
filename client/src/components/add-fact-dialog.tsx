@@ -28,7 +28,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertKnownUserFactSchema, factExamples } from "@shared/schema";
+import { insertKnownUserFactSchema, factExamples, type InsertKnownUserFact } from "@shared/schema";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useState } from "react";
@@ -39,7 +39,7 @@ export function AddFactDialog() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const form = useForm({
+  const form = useForm<InsertKnownUserFact>({
     resolver: zodResolver(insertKnownUserFactSchema),
     defaultValues: {
       category: 'life_event',
@@ -50,7 +50,7 @@ export function AddFactDialog() {
 
   const [selectedCategory, setSelectedCategory] = useState<keyof typeof factExamples>('life_event');
 
-  const onSubmit = async (data: any) => {
+  const onSubmit = async (data: InsertKnownUserFact) => {
     try {
       await apiRequest('POST', '/api/known-facts', data);
       await queryClient.invalidateQueries({ queryKey: ['/api/known-facts'] });
