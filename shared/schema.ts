@@ -49,8 +49,8 @@ export const contactVerifications = pgTable("contact_verifications", {
 export const knownUserFacts = pgTable("known_user_facts", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull(),
-  factType: text("fact_type").notNull(), // 'user-provided' or 'system-learned'
-  category: text("category").notNull(), // e.g., 'preference', 'habit', 'achievement'
+  factType: text("fact_type").notNull(), // Now supports custom types
+  category: text("category").notNull(), // 'life_event', 'core_memory', 'traumatic_experience', 'personality', 'attachment_style', 'custom'
   content: text("content").notNull(),
   confidence: integer("confidence"), // For system-learned facts (0-100)
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -137,9 +137,11 @@ export const insertCheckInSchema = createInsertSchema(checkIns).pick({
 
 // Schema for inserting known user facts
 export const insertKnownUserFactSchema = createInsertSchema(knownUserFacts).extend({
-  factType: z.enum(['user-provided', 'system-learned']),
-  category: z.enum(['preference', 'habit', 'achievement', 'goal', 'challenge', 'other']),
-  confidence: z.number().min(0).max(100).optional(),
+  factType: z.string().min(1, "Fact type is required"),
+  category: z.enum(['life_event', 'core_memory', 'traumatic_experience', 'personality', 'attachment_style', 'custom'], {
+    required_error: "Please select a category",
+  }),
+  content: z.string().min(3, "Please provide more detail about this fact"),
 });
 
 // Base task schema
@@ -208,3 +210,37 @@ export type MessagingPreferences = typeof messagingPreferences.$inferSelect;
 export type MessageHistory = typeof messageHistory.$inferSelect;
 export type MessageSchedule = typeof messageSchedules.$inferSelect;
 export type InsertMessagingPreferences = z.infer<typeof insertMessagingPreferencesSchema>;
+
+// Add some example facts for the UI
+export const factExamples = {
+  life_event: [
+    "Got married in 2020",
+    "Started a new job at Tech Corp",
+    "Moved to a new city"
+  ],
+  core_memory: [
+    "First time succeeding at a difficult task",
+    "A moment of deep connection with family",
+    "Overcoming a significant challenge"
+  ],
+  traumatic_experience: [
+    "Lost a loved one",
+    "Experienced a difficult breakup",
+    "Went through a challenging life change"
+  ],
+  personality: [
+    "INFJ personality type",
+    "Highly empathetic and sensitive",
+    "Strong preference for structured environments"
+  ],
+  attachment_style: [
+    "Secure attachment style",
+    "Anxious-preoccupied attachment",
+    "Working on building secure attachments"
+  ],
+  custom: [
+    "Daily meditation practice",
+    "Strong connection to nature",
+    "Value system based on compassion"
+  ]
+} as const;
