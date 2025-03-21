@@ -3,7 +3,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -161,9 +160,7 @@ export function AddFactDialog() {
               )}
             />
 
-            <DialogFooter>
-              <Button type="submit">Add Fact</Button>
-            </DialogFooter>
+            <Button type="submit">Add Fact</Button>
           </form>
         </Form>
       </DialogContent>
