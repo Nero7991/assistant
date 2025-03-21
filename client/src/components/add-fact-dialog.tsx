@@ -123,12 +123,15 @@ export function AddFactDialog() {
               name="factType"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Fact Type</FormLabel>
+                  <FormLabel>Fact Name</FormLabel>
                   <FormControl>
-                    <Input placeholder="E.g., Relationship, Work, Personal Growth" {...field} />
+                    <Input 
+                      placeholder="E.g., First College Graduation, Boulder Move 2024, Career Switch to Tech" 
+                      {...field} 
+                    />
                   </FormControl>
                   <FormDescription>
-                    Add a specific type or label for this fact
+                    Give your fact a short, memorable name
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
