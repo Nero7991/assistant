@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   Card,
   CardContent,
@@ -6,10 +6,26 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Brain, Book, Star, Heart, Sparkles, Plus } from "lucide-react";
+import { Brain, Book, Star, Heart, Sparkles, Plus, Pencil, Trash2 } from "lucide-react";
 import { AddFactDialog } from "@/components/add-fact-dialog";
+import { EditFactDialog } from "@/components/edit-fact-dialog";
 import { type KnownUserFact } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { useState } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { queryClient } from "@/lib/queryClient";
 
 const categoryIcons = {
   life_event: Book,
@@ -23,6 +39,30 @@ const categoryIcons = {
 export default function FactsPage() {
   const { data: facts, isLoading } = useQuery<KnownUserFact[]>({
     queryKey: ['/api/known-facts'],
+  });
+
+  const [factToEdit, setFactToEdit] = useState<KnownUserFact | null>(null);
+  const [factToDelete, setFactToDelete] = useState<KnownUserFact | null>(null);
+  const { toast } = useToast();
+
+  const deleteMutation = useMutation({
+    mutationFn: async (factId: number) => {
+      await apiRequest('DELETE', `/api/known-facts/${factId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/known-facts'] });
+      toast({
+        title: "Success",
+        description: "Fact deleted successfully.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to delete fact. Please try again.",
+        variant: "destructive",
+      });
+    },
   });
 
   // Group facts by category
@@ -97,20 +137,69 @@ export default function FactsPage() {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <ul className="space-y-2">
+                  <ul className="space-y-4">
                     {categoryFacts.map(fact => (
-                      <li key={fact.id} className="text-sm">
-                        <span className="font-medium">{fact.factType}:</span>{' '}
-                        {fact.content}
+                      <li key={fact.id} className="flex items-start justify-between gap-4">
+                        <div className="text-sm">
+                          <span className="font-medium">{fact.factType}:</span>{' '}
+                          {fact.content}
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setFactToEdit(fact)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setFactToDelete(fact)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </li>
                     ))}
                   </ul>
                 </CardContent>
               </Card>
-            )
+            );
           })
         )}
       </div>
+
+      {factToEdit && (
+        <EditFactDialog
+          fact={factToEdit}
+          onClose={() => setFactToEdit(null)}
+        />
+      )}
+
+      <AlertDialog open={!!factToDelete} onOpenChange={() => setFactToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete this fact. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (factToDelete) {
+                  deleteMutation.mutate(factToDelete.id);
+                  setFactToDelete(null);
+                }
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
