@@ -85,12 +85,8 @@ export function AddFactDialog() {
             Share important facts about yourself that will help personalize your coaching experience.
           </DialogDescription>
         </DialogHeader>
-        <div className="py-4">
-          <form onSubmit={(e) => {
-            console.log("Form submit event triggered");
-            e.preventDefault();
-            form.handleSubmit(onSubmit)(e);
-          }} className="space-y-4">
+        <Form {...form}>
+          <div className="space-y-4">
             <FormField
               control={form.control}
               name="category"
@@ -166,12 +162,16 @@ export function AddFactDialog() {
 
             <Button 
               type="submit" 
-              onClick={() => console.log("Add Fact button clicked")}
+              onClick={(e) => {
+                e.preventDefault();
+                console.log("Add Fact button clicked");
+                form.handleSubmit(onSubmit)(e);
+              }}
             >
               Add Fact
             </Button>
-          </form>
-        </div>
+          </div>
+        </Form>
       </DialogContent>
     </Dialog>
   );
