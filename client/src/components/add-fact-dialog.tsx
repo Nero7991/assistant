@@ -86,7 +86,7 @@ export function AddFactDialog() {
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <div className="space-y-4">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
               control={form.control}
               name="category"
@@ -160,17 +160,10 @@ export function AddFactDialog() {
               )}
             />
 
-            <Button 
-              type="submit" 
-              onClick={(e) => {
-                e.preventDefault();
-                console.log("Add Fact button clicked");
-                form.handleSubmit(onSubmit)(e);
-              }}
-            >
+            <Button type="submit">
               Add Fact
             </Button>
-          </div>
+          </form>
         </Form>
       </DialogContent>
     </Dialog>
