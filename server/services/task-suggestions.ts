@@ -18,7 +18,7 @@ interface TaskSuggestionResponse {
 }
 
 export async function generateTaskSuggestions(
-  taskType: TaskType,
+  taskType: typeof TaskType[keyof typeof TaskType],
   title: string,
   description: string
 ): Promise<TaskSuggestionResponse> {
@@ -35,7 +35,7 @@ export async function generateTaskSuggestions(
           - Realistic time estimates accounting for context switching
           - Buffer time for unexpected challenges
           - Progressive difficulty to build momentum
-          
+
           Respond in JSON format with:
           {
             "subtasks": [
@@ -56,7 +56,7 @@ export async function generateTaskSuggestions(
           content: `Task Type: ${taskType}
           Title: ${title}
           Description: ${description}
-          
+
           Please suggest a breakdown of this task into manageable subtasks with deadlines.`
         }
       ],

@@ -18,9 +18,24 @@ interface AddTaskDialogProps {
   defaultType: keyof typeof TaskType;
 }
 
+interface SubTaskSuggestion {
+  title: string;
+  description: string;
+  estimatedDuration: string;
+  deadline: string;
+}
+
+interface TaskSuggestions {
+  subtasks: SubTaskSuggestion[];
+  estimatedTotalDuration: string;
+  suggestedDeadline: string;
+  tips: string[];
+}
+
 export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialogProps) {
   const { toast } = useToast();
   const [selectedType, setSelectedType] = useState<keyof typeof TaskType>(defaultType);
+  const [suggestions, setSuggestions] = useState<TaskSuggestions | null>(null);
 
   const form = useForm<InsertTask>({
     resolver: zodResolver(insertTaskSchema),
@@ -29,6 +44,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
       title: "",
       description: "",
       status: "active",
+      estimatedDuration: "",
     },
   });
 
@@ -42,14 +58,21 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
       if (!res.ok) throw new Error("Failed to create task");
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-      form.reset();
-      onOpenChange(false);
-      toast({
-        title: "Task created",
-        description: "Your new task has been created successfully.",
-      });
+
+      // If we received suggestions, show them
+      if (response.suggestions) {
+        setSuggestions(response.suggestions);
+      } else {
+        // If no suggestions, close the dialog
+        form.reset();
+        onOpenChange(false);
+        toast({
+          title: "Task created",
+          description: "Your new task has been created successfully.",
+        });
+      }
     },
     onError: (error: Error) => {
       toast({
@@ -59,6 +82,46 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
       });
     },
   });
+
+  const createSubtaskMutation = useMutation({
+    mutationFn: async (subtask: SubTaskSuggestion & { taskId: number }) => {
+      const res = await fetch(`/api/tasks/${subtask.taskId}/subtasks`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(subtask),
+      });
+      if (!res.ok) throw new Error("Failed to create subtask");
+      return res.json();
+    },
+  });
+
+  const handleSaveSuggestions = async (taskId: number) => {
+    if (!suggestions) return;
+
+    try {
+      // Create all subtasks
+      await Promise.all(
+        suggestions.subtasks.map(subtask =>
+          createSubtaskMutation.mutateAsync({ ...subtask, taskId })
+        )
+      );
+
+      // Reset and close
+      setSuggestions(null);
+      form.reset();
+      onOpenChange(false);
+      toast({
+        title: "Task created",
+        description: "Your task and subtasks have been created successfully.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to create subtasks. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const getDurationPlaceholder = () => {
     switch (selectedType) {
@@ -165,6 +228,50 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
             </div>
           </form>
         </Form>
+
+        {suggestions && (
+          <div className="mt-6 space-y-4">
+            <h3 className="font-semibold">Suggested Subtasks</h3>
+            <div className="space-y-3">
+              {suggestions.subtasks.map((subtask, index) => (
+                <div key={index} className="space-y-2 p-3 border rounded-lg">
+                  <h4 className="font-medium">{subtask.title}</h4>
+                  <p className="text-sm text-muted-foreground">{subtask.description}</p>
+                  <div className="flex items-center gap-2 text-sm">
+                    <span>Duration: {subtask.estimatedDuration}</span>
+                    <span>•</span>
+                    <span>Deadline: {subtask.deadline}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm">Total Duration: {suggestions.estimatedTotalDuration}</p>
+              <p className="text-sm">Suggested Deadline: {suggestions.suggestedDeadline}</p>
+            </div>
+
+            {suggestions.tips.length > 0 && (
+              <div className="space-y-2">
+                <h4 className="font-semibold">Tips</h4>
+                <ul className="list-disc list-inside space-y-1">
+                  {suggestions.tips.map((tip, index) => (
+                    <li key={index} className="text-sm">{tip}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setSuggestions(null)}>
+                Discard Suggestions
+              </Button>
+              <Button onClick={() => createMutation.data?.task && handleSaveSuggestions(createMutation.data.task.id)}>
+                Save with Subtasks
+              </Button>
+            </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
