@@ -43,7 +43,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/known-facts", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const parsed = insertKnownUserFactSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).send(parsed.error);
+    if (!parsed.success) return res.status(400).json(parsed.error);
 
     const fact = await storage.addKnownUserFact({
       ...parsed.data,

@@ -136,13 +136,19 @@ export const insertCheckInSchema = createInsertSchema(checkIns).pick({
 });
 
 // Schema for inserting known user facts
-export const insertKnownUserFactSchema = createInsertSchema(knownUserFacts).extend({
-  factType: z.string().min(1, "Fact type is required"),
-  category: z.enum(['life_event', 'core_memory', 'traumatic_experience', 'personality', 'attachment_style', 'custom'], {
-    required_error: "Please select a category",
-  }),
-  content: z.string().min(3, "Please provide more detail about this fact"),
-});
+export const insertKnownUserFactSchema = createInsertSchema(knownUserFacts)
+  .pick({
+    factType: true,
+    category: true,
+    content: true,
+  })
+  .extend({
+    factType: z.string().min(1, "Fact type is required"),
+    category: z.enum(['life_event', 'core_memory', 'traumatic_experience', 'personality', 'attachment_style', 'custom'], {
+      required_error: "Please select a category",
+    }),
+    content: z.string().min(3, "Please provide more detail about this fact"),
+  });
 
 // Base task schema
 const baseTaskSchema = {
