@@ -3,9 +3,10 @@ import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { storage } from "./storage";
 import { generateCoachingResponse } from "./coach";
-import { insertGoalSchema, insertCheckInSchema, insertKnownUserFactSchema, insertTaskSchema } from "@shared/schema";
+import { insertGoalSchema, insertCheckInSchema, insertKnownUserFactSchema, insertTaskSchema, insertSubtaskSchema } from "@shared/schema";
 import { handleWhatsAppWebhook } from "./webhook";
 import { messageScheduler } from "./scheduler";
+import { generateTaskSuggestions } from "./services/task-suggestions";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
@@ -75,13 +76,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/tasks", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const parsed = insertTaskSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).send(parsed.error);
+    if (!parsed.success) return res.status(400).json(parsed.error);
 
-    const task = await storage.createTask({
-      ...parsed.data,
-      userId: req.user.id,
-    });
-    res.status(201).json(task);
+    const taskData = parsed.data;
+
+    try {
+      // For specific task types, generate suggestions
+      let suggestions = null;
+      if (
+        taskData.taskType === 'personal_project' ||
+        taskData.taskType === 'long_term_project' ||
+        taskData.taskType === 'life_goal'
+      ) {
+        suggestions = await generateTaskSuggestions(
+          taskData.taskType,
+          taskData.title,
+          taskData.description || ''
+        );
+      }
+
+      // Create the main task
+      const task = await storage.createTask({
+        ...taskData,
+        userId: req.user.id,
+      });
+
+      // If we have suggestions, return them with the task
+      if (suggestions) {
+        return res.status(201).json({
+          task,
+          suggestions,
+        });
+      }
+
+      res.status(201).json({ task });
+    } catch (error) {
+      console.error("Error creating task:", error);
+      res.status(500).json({ message: "Failed to create task" });
+    }
   });
 
   app.patch("/api/tasks/:id", async (req, res) => {
@@ -96,10 +128,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.sendStatus(204);
   });
 
-  app.post("/api/tasks/:id/complete", async (req, res) => {
+  app.post("/api/tasks/:taskId/complete", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
-    const completedTask = await storage.completeTask(parseInt(req.params.id));
+    const completedTask = await storage.completeTask(parseInt(req.params.taskId));
     res.json(completedTask);
+  });
+
+
+  // Add new routes for subtasks
+  app.post("/api/tasks/:taskId/subtasks", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+
+    const taskId = parseInt(req.params.taskId);
+    const parsed = insertSubtaskSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json(parsed.error);
+
+    try {
+      const subtask = await storage.createSubtask(taskId, parsed.data);
+      res.status(201).json(subtask);
+    } catch (error) {
+      console.error("Error creating subtask:", error);
+      res.status(500).json({ message: "Failed to create subtask" });
+    }
+  });
+
+  app.get("/api/tasks/:taskId/subtasks", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+
+    const taskId = parseInt(req.params.taskId);
+    const subtasks = await storage.getSubtasks(taskId);
+    res.json(subtasks);
+  });
+
+  // Add route to mark subtask as complete
+  app.post("/api/subtasks/:id/complete", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+
+    const subtaskId = parseInt(req.params.id);
+    const completedSubtask = await storage.completeSubtask(subtaskId);
+    res.json(completedSubtask);
   });
 
   // Goals

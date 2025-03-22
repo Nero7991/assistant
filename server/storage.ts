@@ -1,9 +1,9 @@
 import session from "express-session";
 import createMemoryStore from "memorystore";
-import { User, Goal, CheckIn, Task, KnownUserFact, InsertKnownUserFact, InsertTask } from "@shared/schema";
+import { User, Goal, CheckIn, Task, KnownUserFact, InsertKnownUserFact, InsertTask, Subtask, InsertSubtask } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc } from "drizzle-orm";
-import { users, goals, checkIns, contactVerifications, knownUserFacts, tasks } from "@shared/schema";
+import { users, goals, checkIns, contactVerifications, knownUserFacts, tasks, subtasks } from "@shared/schema";
 import type { User, Goal, CheckIn, Task, KnownUserFact, InsertKnownUserFact, InsertTask } from "@shared/schema";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
@@ -61,6 +61,11 @@ export interface IStorage {
   createCheckIn(checkIn: Omit<CheckIn, "id">): Promise<CheckIn>;
   updateCheckIn(id: number, response: string): Promise<CheckIn>;
   clearPreviousVerifications(tempId: string, type: string): Promise<void>;
+
+  // Subtask management methods
+  createSubtask(taskId: number, subtask: InsertSubtask): Promise<Subtask>;
+  getSubtasks(taskId: number): Promise<Subtask[]>;
+  completeSubtask(id: number): Promise<Subtask>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -499,6 +504,43 @@ export class DatabaseStorage implements IStorage {
       count: remaining.length,
       verifications: remaining
     });
+  }
+
+  // Subtask management methods
+  async createSubtask(taskId: number, subtask: InsertSubtask): Promise<Subtask> {
+    const now = new Date();
+    const [newSubtask] = await db
+      .insert(subtasks)
+      .values({
+        ...subtask,
+        parentTaskId: taskId,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+    return newSubtask;
+  }
+
+  async getSubtasks(taskId: number): Promise<Subtask[]> {
+    return db
+      .select()
+      .from(subtasks)
+      .where(eq(subtasks.parentTaskId, taskId))
+      .orderBy(subtasks.createdAt);
+  }
+
+  async completeSubtask(id: number): Promise<Subtask> {
+    const now = new Date();
+    const [completed] = await db
+      .update(subtasks)
+      .set({
+        status: 'completed',
+        completedAt: now,
+        updatedAt: now,
+      })
+      .where(eq(subtasks.id, id))
+      .returning();
+    return completed;
   }
 }
 

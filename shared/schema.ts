@@ -1,6 +1,7 @@
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { relations } from "drizzle-orm";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -82,6 +83,19 @@ export const tasks = pgTable("tasks", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+export const subtasks = pgTable("subtasks", {
+  id: serial("id").primaryKey(),
+  parentTaskId: integer("parent_task_id").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  status: text("status").notNull().default('active'), // 'active', 'completed', 'archived'
+  estimatedDuration: text("estimated_duration"), // e.g., "30m", "2h", "3d"
+  deadline: timestamp("deadline"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 export const messagingPreferences = pgTable("messaging_preferences", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull(),
@@ -112,6 +126,17 @@ export const messageSchedules = pgTable("message_schedules", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+
+export const tasksRelations = relations(tasks, ({ many }) => ({
+  subtasks: many(subtasks),
+}));
+
+export const subtasksRelations = relations(subtasks, ({ one }) => ({
+  parentTask: one(tasks, {
+    fields: [subtasks.parentTaskId],
+    references: [tasks.id],
+  }),
+}));
 
 export const insertUserSchema = createInsertSchema(users).extend({
   username: z.string().min(3, "Username must be at least 3 characters"),
@@ -194,6 +219,13 @@ export const insertTaskSchema = z.discriminatedUnion("taskType", [
   lifeGoalSchema,
 ]);
 
+export const insertSubtaskSchema = createInsertSchema(subtasks).pick({
+  title: true,
+  description: true,
+  estimatedDuration: true,
+  deadline: true,
+});
+
 export const verificationCodeSchema = z.object({
   code: z.string().length(6, "Verification code must be 6 digits"),
 });
@@ -216,6 +248,8 @@ export type MessagingPreferences = typeof messagingPreferences.$inferSelect;
 export type MessageHistory = typeof messageHistory.$inferSelect;
 export type MessageSchedule = typeof messageSchedules.$inferSelect;
 export type InsertMessagingPreferences = z.infer<typeof insertMessagingPreferencesSchema>;
+export type Subtask = typeof subtasks.$inferSelect;
+export type InsertSubtask = z.infer<typeof insertSubtaskSchema>;
 
 // Add some example facts for the UI
 export const factExamples = {
