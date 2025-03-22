@@ -49,17 +49,14 @@ export function AddFactDialog() {
 
   const [selectedCategory, setSelectedCategory] = useState<keyof typeof factExamples>('life_event');
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (data: InsertKnownUserFact) => {
     console.log('Starting handleSubmit');
-    console.log('Current form values:', form.getValues());
+    console.log('Current form values:', data);
     console.log('Form validation errors:', form.formState.errors);
 
     try {
-      // Get the current form values
-      const formData = form.getValues();
-
-      console.log('Making API request to /api/known-facts with data:', formData);
-      const response = await apiRequest('POST', '/api/known-facts', formData);
+      console.log('Making API request to /api/known-facts with data:', data);
+      const response = await apiRequest('POST', '/api/known-facts', data);
       console.log('API response:', response);
 
       await queryClient.invalidateQueries({ queryKey: ['/api/known-facts'] });
@@ -92,7 +89,7 @@ export function AddFactDialog() {
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <div className="space-y-4">
+          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
             <FormField
               control={form.control}
               name="category"
@@ -166,15 +163,10 @@ export function AddFactDialog() {
               )}
             />
 
-            <Button 
-              onClick={() => {
-                console.log('Add Fact button clicked');
-                form.handleSubmit(handleSubmit)();
-              }}
-            >
+            <Button type="submit">
               Add Fact
             </Button>
-          </div>
+          </form>
         </Form>
       </DialogContent>
     </Dialog>
