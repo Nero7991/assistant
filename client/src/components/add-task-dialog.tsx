@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { TaskType, insertTaskSchema, type InsertTask } from "@shared/schema";
+import { Plus, X, Pencil } from "lucide-react";
 
 interface AddTaskDialogProps {
   open: boolean;
@@ -36,6 +37,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
   const { toast } = useToast();
   const [selectedType, setSelectedType] = useState<keyof typeof TaskType>(defaultType);
   const [suggestions, setSuggestions] = useState<TaskSuggestions | null>(null);
+  const [editingSubtask, setEditingSubtask] = useState<number | null>(null);
 
   const form = useForm<InsertTask>({
     resolver: zodResolver(insertTaskSchema),
@@ -76,7 +78,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
     },
     onError: (error: Error) => {
       toast({
-        title: "Failed to create task",
+        title: "Error",
         description: error.message,
         variant: "destructive",
       });
@@ -123,6 +125,46 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
     }
   };
 
+  const handleEditSubtask = (index: number, updates: Partial<SubTaskSuggestion>) => {
+    if (!suggestions) return;
+
+    const updatedSubtasks = [...suggestions.subtasks];
+    updatedSubtasks[index] = { ...updatedSubtasks[index], ...updates };
+
+    setSuggestions({
+      ...suggestions,
+      subtasks: updatedSubtasks,
+    });
+    setEditingSubtask(null);
+  };
+
+  const handleRemoveSubtask = (index: number) => {
+    if (!suggestions) return;
+
+    const updatedSubtasks = suggestions.subtasks.filter((_, i) => i !== index);
+    setSuggestions({
+      ...suggestions,
+      subtasks: updatedSubtasks,
+    });
+  };
+
+  const handleAddNewSubtask = () => {
+    if (!suggestions) return;
+
+    const newSubtask: SubTaskSuggestion = {
+      title: "",
+      description: "",
+      estimatedDuration: "1h",
+      deadline: new Date().toISOString().split('T')[0],
+    };
+
+    setSuggestions({
+      ...suggestions,
+      subtasks: [...suggestions.subtasks, newSubtask],
+    });
+    setEditingSubtask(suggestions.subtasks.length);
+  };
+
   const getDurationPlaceholder = () => {
     switch (selectedType) {
       case "DAILY":
@@ -140,7 +182,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add New Task</DialogTitle>
         </DialogHeader>
@@ -231,17 +273,78 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
 
         {suggestions && (
           <div className="mt-6 space-y-4">
-            <h3 className="font-semibold">Suggested Subtasks</h3>
-            <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold">Suggested Subtasks</h3>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleAddNewSubtask}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Subtask
+              </Button>
+            </div>
+
+            <div className="space-y-3 max-h-[40vh] overflow-y-auto">
               {suggestions.subtasks.map((subtask, index) => (
                 <div key={index} className="space-y-2 p-3 border rounded-lg">
-                  <h4 className="font-medium">{subtask.title}</h4>
-                  <p className="text-sm text-muted-foreground">{subtask.description}</p>
-                  <div className="flex items-center gap-2 text-sm">
-                    <span>Duration: {subtask.estimatedDuration}</span>
-                    <span>•</span>
-                    <span>Deadline: {subtask.deadline}</span>
-                  </div>
+                  {editingSubtask === index ? (
+                    <div className="space-y-2">
+                      <Input
+                        value={subtask.title}
+                        onChange={(e) => handleEditSubtask(index, { title: e.target.value })}
+                        placeholder="Subtask title"
+                      />
+                      <Textarea
+                        value={subtask.description}
+                        onChange={(e) => handleEditSubtask(index, { description: e.target.value })}
+                        placeholder="Subtask description"
+                      />
+                      <div className="flex gap-2">
+                        <Input
+                          value={subtask.estimatedDuration}
+                          onChange={(e) => handleEditSubtask(index, { estimatedDuration: e.target.value })}
+                          placeholder="Duration (e.g., 2h)"
+                        />
+                        <Input
+                          type="date"
+                          value={subtask.deadline}
+                          onChange={(e) => handleEditSubtask(index, { deadline: e.target.value })}
+                        />
+                      </div>
+                      <Button size="sm" onClick={() => setEditingSubtask(null)}>
+                        Save Changes
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-start justify-between">
+                        <h4 className="font-medium">{subtask.title}</h4>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setEditingSubtask(index)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleRemoveSubtask(index)}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                      <p className="text-sm text-muted-foreground">{subtask.description}</p>
+                      <div className="flex items-center gap-2 text-sm">
+                        <span>Duration: {subtask.estimatedDuration}</span>
+                        <span>•</span>
+                        <span>Deadline: {subtask.deadline}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
