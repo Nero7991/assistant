@@ -169,7 +169,7 @@ export function AddFactDialog() {
             <Button 
               onClick={() => {
                 console.log('Add Fact button clicked');
-                handleSubmit();
+                form.handleSubmit(handleSubmit)();
               }}
             >
               Add Fact
