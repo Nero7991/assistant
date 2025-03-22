@@ -49,21 +49,34 @@ export function AddFactDialog() {
 
   const [selectedCategory, setSelectedCategory] = useState<keyof typeof factExamples>('life_event');
 
-  const handleSubmit = async (data: InsertKnownUserFact) => {
-    console.log('Starting handleSubmit');
-    console.log('Current form values:', data);
-    console.log('Form validation errors:', form.formState.errors);
+  const handleFormSubmit = async () => {
+    console.log('Submit button clicked');
+
+    // Get current form values
+    const formData = form.getValues();
+    console.log('Current form values:', formData);
+    console.log('Form state:', {
+      isDirty: form.formState.isDirty,
+      errors: form.formState.errors,
+    });
 
     try {
-      console.log('Making API request to /api/known-facts with data:', data);
-      const response = await apiRequest('POST', '/api/known-facts', data);
+      console.log('Attempting form validation...');
+      const success = await form.trigger();
+      if (!success) {
+        console.log('Form validation failed:', form.formState.errors);
+        return;
+      }
+
+      console.log('Making API request to /api/known-facts with data:', formData);
+      const response = await apiRequest('POST', '/api/known-facts', formData);
       console.log('API response:', response);
 
       await queryClient.invalidateQueries({ queryKey: ['/api/known-facts'] });
       setOpen(false);
       form.reset();
       toast({
-        title: "Fact added",
+        title: "Success",
         description: "Your fact has been saved successfully.",
       });
     } catch (error) {
@@ -89,7 +102,7 @@ export function AddFactDialog() {
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
+          <div className="space-y-4">
             <FormField
               control={form.control}
               name="category"
@@ -163,10 +176,15 @@ export function AddFactDialog() {
               )}
             />
 
-            <Button type="submit">
+            <Button 
+              onClick={() => {
+                console.log('Add Fact button clicked - calling handleFormSubmit');
+                handleFormSubmit();
+              }}
+            >
               Add Fact
             </Button>
-          </form>
+          </div>
         </Form>
       </DialogContent>
     </Dialog>
