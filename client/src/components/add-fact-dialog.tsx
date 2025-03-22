@@ -51,6 +51,8 @@ export function AddFactDialog() {
 
   const onSubmit = async (data: InsertKnownUserFact) => {
     console.log('Form submitted with data:', data);
+    console.log('Form validation errors:', form.formState.errors);
+
     try {
       console.log('Making API request to /api/known-facts');
       const response = await apiRequest('POST', '/api/known-facts', data);
