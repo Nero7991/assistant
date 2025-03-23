@@ -63,11 +63,9 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
     onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
 
-      // If we received suggestions, show them
       if (response.suggestions) {
         setSuggestions(response.suggestions);
       } else {
-        // If no suggestions, close the dialog
         form.reset();
         onOpenChange(false);
         toast({
@@ -87,12 +85,25 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
 
   const createSubtaskMutation = useMutation({
     mutationFn: async (subtask: SubTaskSuggestion & { taskId: number }) => {
+      const formattedSubtask = {
+        title: subtask.title,
+        description: subtask.description || "",
+        estimatedDuration: subtask.estimatedDuration,
+        deadline: subtask.deadline ? new Date(subtask.deadline) : undefined
+      };
+
       const res = await fetch(`/api/tasks/${subtask.taskId}/subtasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(subtask),
+        body: JSON.stringify(formattedSubtask),
       });
-      if (!res.ok) throw new Error("Failed to create subtask");
+
+      if (!res.ok) {
+        const errorData = await res.json();
+        console.error('Subtask creation error:', errorData);
+        throw new Error("Failed to create subtask");
+      }
+
       return res.json();
     },
   });
@@ -101,22 +112,22 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
     if (!suggestions) return;
 
     try {
-      // Create all subtasks
-      await Promise.all(
-        suggestions.subtasks.map(subtask =>
-          createSubtaskMutation.mutateAsync({ ...subtask, taskId })
-        )
-      );
+      console.log('Creating subtasks for task:', taskId);
 
-      // Reset and close
+      for (const subtask of suggestions.subtasks) {
+        console.log('Creating subtask:', subtask);
+        await createSubtaskMutation.mutateAsync({ ...subtask, taskId });
+      }
+
       setSuggestions(null);
       form.reset();
       onOpenChange(false);
       toast({
-        title: "Task created",
+        title: "Success",
         description: "Your task and subtasks have been created successfully.",
       });
     } catch (error) {
+      console.error('Error creating subtasks:', error);
       toast({
         title: "Error",
         description: "Failed to create subtasks. Please try again.",

@@ -140,8 +140,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.sendStatus(401);
 
     const taskId = parseInt(req.params.taskId);
+    console.log('Creating subtask for task:', taskId, 'Data:', req.body);
+
     const parsed = insertSubtaskSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json(parsed.error);
+    if (!parsed.success) {
+      console.error('Subtask validation failed:', parsed.error);
+      return res.status(400).json(parsed.error);
+    }
 
     try {
       const subtask = await storage.createSubtask(taskId, parsed.data);
