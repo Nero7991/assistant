@@ -38,6 +38,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
   const [selectedType, setSelectedType] = useState<keyof typeof TaskType>(defaultType);
   const [suggestions, setSuggestions] = useState<TaskSuggestions | null>(null);
   const [editingSubtask, setEditingSubtask] = useState<number | null>(null);
+  const [mainTask, setMainTask] = useState<{ id: number } | null>(null);
 
   const form = useForm<InsertTask>({
     resolver: zodResolver(insertTaskSchema),
@@ -50,6 +51,10 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
     },
   });
 
+  const needsSuggestions = (type: string) => {
+    return ['personal_project', 'long-term-project', 'life-goal'].includes(type);
+  };
+
   const createMutation = useMutation({
     mutationFn: async (data: InsertTask) => {
       const res = await fetch("/api/tasks", {
@@ -61,16 +66,16 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
       return res.json();
     },
     onSuccess: (response) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
-
       if (response.suggestions) {
         setSuggestions(response.suggestions);
+        setMainTask(response.task);
       } else {
         form.reset();
         onOpenChange(false);
+        queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
         toast({
-          title: "Task created",
-          description: "Your new task has been created successfully.",
+          title: "Success",
+          description: "Your task has been created successfully.",
         });
       }
     },
@@ -89,8 +94,10 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
         title: subtask.title,
         description: subtask.description || "",
         estimatedDuration: subtask.estimatedDuration,
-        deadline: subtask.deadline ? new Date(subtask.deadline) : undefined
+        deadline: new Date(subtask.deadline).toISOString(),
       };
+
+      console.log('Creating subtask with formatted data:', formattedSubtask);
 
       const res = await fetch(`/api/tasks/${subtask.taskId}/subtasks`, {
         method: "POST",
@@ -108,20 +115,22 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
     },
   });
 
-  const handleSaveSuggestions = async (taskId: number) => {
-    if (!suggestions) return;
+  const handleSaveSuggestions = async () => {
+    if (!suggestions || !mainTask) return;
 
     try {
-      console.log('Creating subtasks for task:', taskId);
+      console.log('Creating subtasks for task:', mainTask.id);
 
       for (const subtask of suggestions.subtasks) {
         console.log('Creating subtask:', subtask);
-        await createSubtaskMutation.mutateAsync({ ...subtask, taskId });
+        await createSubtaskMutation.mutateAsync({ ...subtask, taskId: mainTask.id });
       }
 
       setSuggestions(null);
+      setMainTask(null);
       form.reset();
       onOpenChange(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       toast({
         title: "Success",
         description: "Your task and subtasks have been created successfully.",
@@ -276,7 +285,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
                 Cancel
               </Button>
               <Button type="submit" disabled={createMutation.isPending}>
-                Create Task
+                {needsSuggestions(form.getValues().taskType) ? "Suggest Subtasks" : "Create Task"}
               </Button>
             </div>
           </form>
@@ -377,10 +386,13 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
             )}
 
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setSuggestions(null)}>
+              <Button variant="outline" onClick={() => {
+                setSuggestions(null);
+                setMainTask(null);
+              }}>
                 Discard Suggestions
               </Button>
-              <Button onClick={() => createMutation.data?.task && handleSaveSuggestions(createMutation.data.task.id)}>
+              <Button onClick={handleSaveSuggestions}>
                 Save with Subtasks
               </Button>
             </div>
