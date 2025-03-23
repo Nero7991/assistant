@@ -219,12 +219,20 @@ export const insertTaskSchema = z.discriminatedUnion("taskType", [
   lifeGoalSchema,
 ]);
 
-export const insertSubtaskSchema = createInsertSchema(subtasks).pick({
-  title: true,
-  description: true,
-  estimatedDuration: true,
-  deadline: true,
-});
+// Update the insertSubtaskSchema to properly handle date strings
+export const insertSubtaskSchema = createInsertSchema(subtasks)
+  .pick({
+    title: true,
+    description: true,
+    estimatedDuration: true,
+    deadline: true,
+  })
+  .extend({
+    title: z.string().min(1, "Title is required"),
+    description: z.string().optional(),
+    estimatedDuration: z.string().regex(/^\d+[mhdwMy]$/, "Duration must be in a valid format (e.g., 30m, 2h, 3d)"),
+    deadline: z.coerce.date(),
+  });
 
 export const verificationCodeSchema = z.object({
   code: z.string().length(6, "Verification code must be 6 digits"),
