@@ -17,8 +17,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { AddSubtaskDialog } from "@/components/add-subtask-dialog"; // Import the new component
-
+import { AddSubtaskDialog } from "@/components/add-subtask-dialog";
 
 interface TaskListProps {
   tasks: Task[];
@@ -29,7 +28,7 @@ export function TaskList({ tasks, type }: TaskListProps) {
   const [expandedTasks, setExpandedTasks] = useState<Record<number, boolean>>({});
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
   const [subtaskToDelete, setSubtaskToDelete] = useState<{ taskId: number, subtaskId: number } | null>(null);
-  const [addSubtaskTask, setAddSubtaskTask] = useState<number | null>(null); // Added state for AddSubtaskDialog
+  const [addSubtaskTask, setAddSubtaskTask] = useState<number | null>(null);
 
   const toggleTask = (taskId: number) => {
     setExpandedTasks(prev => ({
@@ -123,7 +122,11 @@ export function TaskList({ tasks, type }: TaskListProps) {
   };
 
   const supportsSubtasks = (taskType: string) => {
-    return ['personal_project', 'long-term_project', 'life_goal'].includes(taskType);
+    return [
+      TaskType.PERSONAL_PROJECT,
+      TaskType.LONG_TERM_PROJECT,
+      TaskType.LIFE_GOAL
+    ].includes(taskType as TaskType);
   };
 
   if (tasks.length === 0) {
@@ -204,19 +207,17 @@ export function TaskList({ tasks, type }: TaskListProps) {
               </Button>
             )}
 
-            {expandedTasks[task.id] && (
+            {expandedTasks[task.id] && supportsSubtasks(task.taskType) && (
               <div className="mt-6 space-y-3 pl-6 border-l">
-                {supportsSubtasks(task.taskType) && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mb-4"
-                    onClick={() => setAddSubtaskTask(task.id)} // Updated onClick handler
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Subtask
-                  </Button>
-                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mb-4"
+                  onClick={() => setAddSubtaskTask(task.id)}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Subtask
+                </Button>
 
                 {subtasksByTask[task.id]?.map((subtask) => (
                   <div
@@ -314,7 +315,8 @@ export function TaskList({ tasks, type }: TaskListProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      <AddSubtaskDialog // Added AddSubtaskDialog component
+
+      <AddSubtaskDialog
         open={addSubtaskTask !== null}
         onOpenChange={(open) => !open && setAddSubtaskTask(null)}
         taskId={addSubtaskTask ?? 0}
