@@ -174,6 +174,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(completedSubtask);
   });
 
+  // Add new route for deleting subtasks
+  app.delete("/api/tasks/:taskId/subtasks/:subtaskId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+
+    const taskId = parseInt(req.params.taskId);
+    const subtaskId = parseInt(req.params.subtaskId);
+
+    try {
+      await storage.deleteSubtask(taskId, subtaskId);
+      res.sendStatus(204);
+    } catch (error) {
+      console.error("Error deleting subtask:", error);
+      res.status(500).json({ message: "Failed to delete subtask" });
+    }
+  });
+
   // Goals
   app.get("/api/goals", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);

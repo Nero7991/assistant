@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, Clock, Calendar, Trash2, Pencil, ChevronDown, ChevronRight } from "lucide-react";
+import { CheckCircle, Clock, Calendar, Trash2, Pencil, ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { format } from "date-fns";
 import { useState } from "react";
 import {
@@ -17,6 +17,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { AddSubtaskDialog } from "@/components/add-subtask-dialog"; // Import the new component
+
 
 interface TaskListProps {
   tasks: Task[];
@@ -27,6 +29,7 @@ export function TaskList({ tasks, type }: TaskListProps) {
   const [expandedTasks, setExpandedTasks] = useState<Record<number, boolean>>({});
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
   const [subtaskToDelete, setSubtaskToDelete] = useState<{ taskId: number, subtaskId: number } | null>(null);
+  const [addSubtaskTask, setAddSubtaskTask] = useState<number | null>(null); // Added state for AddSubtaskDialog
 
   const toggleTask = (taskId: number) => {
     setExpandedTasks(prev => ({
@@ -91,6 +94,19 @@ export function TaskList({ tasks, type }: TaskListProps) {
     },
   });
 
+  const deleteSubtaskMutation = useMutation({
+    mutationFn: async ({ taskId, subtaskId }: { taskId: number, subtaskId: number }) => {
+      const res = await fetch(`/api/tasks/${taskId}/subtasks/${subtaskId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed to delete subtask");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/subtasks"] });
+      setSubtaskToDelete(null);
+    },
+  });
+
   const getTypeLabel = (type: string) => {
     switch (type) {
       case TaskType.DAILY:
@@ -104,6 +120,10 @@ export function TaskList({ tasks, type }: TaskListProps) {
       default:
         return type;
     }
+  };
+
+  const supportsSubtasks = (taskType: string) => {
+    return ['personal_project', 'long-term_project', 'life_goal'].includes(taskType);
   };
 
   if (tasks.length === 0) {
@@ -121,7 +141,7 @@ export function TaskList({ tasks, type }: TaskListProps) {
           <CardHeader>
             <div className="flex items-start justify-between">
               <div className="flex items-start gap-2">
-                {subtasksByTask[task.id]?.length > 0 && (
+                {(subtasksByTask[task.id]?.length > 0 || supportsSubtasks(task.taskType)) && (
                   <Button
                     variant="ghost"
                     size="icon"
@@ -184,9 +204,21 @@ export function TaskList({ tasks, type }: TaskListProps) {
               </Button>
             )}
 
-            {expandedTasks[task.id] && subtasksByTask[task.id]?.length > 0 && (
+            {expandedTasks[task.id] && (
               <div className="mt-6 space-y-3 pl-6 border-l">
-                {subtasksByTask[task.id].map((subtask) => (
+                {supportsSubtasks(task.taskType) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mb-4"
+                    onClick={() => setAddSubtaskTask(task.id)} // Updated onClick handler
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Subtask
+                  </Button>
+                )}
+
+                {subtasksByTask[task.id]?.map((subtask) => (
                   <div
                     key={subtask.id}
                     className="flex items-start justify-between p-3 bg-muted/50 rounded-lg"
@@ -226,6 +258,13 @@ export function TaskList({ tasks, type }: TaskListProps) {
                           <CheckCircle className="h-4 w-4" />
                         </Button>
                       )}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setSubtaskToDelete({ taskId: task.id, subtaskId: subtask.id })}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
                 ))}
@@ -256,6 +295,30 @@ export function TaskList({ tasks, type }: TaskListProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={!!subtaskToDelete} onOpenChange={() => setSubtaskToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Subtask</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete this subtask? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => subtaskToDelete && deleteSubtaskMutation.mutate(subtaskToDelete)}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AddSubtaskDialog // Added AddSubtaskDialog component
+        open={addSubtaskTask !== null}
+        onOpenChange={(open) => !open && setAddSubtaskTask(null)}
+        taskId={addSubtaskTask ?? 0}
+      />
     </div>
   );
 }

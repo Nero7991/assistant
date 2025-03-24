@@ -66,6 +66,7 @@ export interface IStorage {
   createSubtask(taskId: number, subtask: InsertSubtask): Promise<Subtask>;
   getSubtasks(taskId: number): Promise<Subtask[]>;
   completeSubtask(id: number): Promise<Subtask>;
+  deleteSubtask(taskId: number, subtaskId: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -541,6 +542,15 @@ export class DatabaseStorage implements IStorage {
       .where(eq(subtasks.id, id))
       .returning();
     return completed;
+  }
+  async deleteSubtask(taskId: number, subtaskId: number): Promise<void> {
+    await db.delete(subtasks)
+      .where(
+        and(
+          eq(subtasks.parentTaskId, taskId),
+          eq(subtasks.id, subtaskId)
+        )
+      );
   }
 }
 
