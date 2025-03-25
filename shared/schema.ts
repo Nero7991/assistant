@@ -77,6 +77,8 @@ export const tasks = pgTable("tasks", {
   priority: integer("priority"), // 1-5, higher is more important
   estimatedDuration: text("estimated_duration"), // e.g., "30m", "2h", "3d", "2w"
   deadline: timestamp("deadline"),
+  scheduledTime: text("scheduled_time"), // Time of day in HH:MM format (e.g., "09:00")
+  recurrencePattern: text("recurrence_pattern"), // "daily", "weekly:1,3,5" (days), "monthly:15" (date), "none"
   completedAt: timestamp("completed_at"),
   metadata: jsonb("metadata"), // Type-specific data
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -91,6 +93,8 @@ export const subtasks = pgTable("subtasks", {
   status: text("status").notNull().default('active'), // 'active', 'completed', 'archived'
   estimatedDuration: text("estimated_duration"), // e.g., "30m", "2h", "3d"
   deadline: timestamp("deadline"),
+  scheduledTime: text("scheduled_time"), // Time of day in HH:MM format (e.g., "09:00")
+  recurrencePattern: text("recurrence_pattern"), // "daily", "weekly:1,3,5" (days), "monthly:15" (date), "none"
   completedAt: timestamp("completed_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -175,12 +179,25 @@ export const insertKnownUserFactSchema = createInsertSchema(knownUserFacts)
     content: z.string().min(3, "Please provide more detail about this fact"),
   });
 
+// Define recurrence patterns
+export const RecurrenceType = {
+  NONE: 'none',
+  DAILY: 'daily',
+  WEEKLY: 'weekly', // Format: "weekly:1,3,5" for Monday, Wednesday, Friday
+  MONTHLY: 'monthly', // Format: "monthly:15" for 15th of each month
+} as const;
+
+// Time validation regex for HH:MM format (24-hour)
+const timeRegex = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+
 // Base task schema
 const baseTaskSchema = {
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
   priority: z.number().min(1).max(5).optional(),
   status: z.enum(['active', 'completed', 'archived']).default('active'),
+  scheduledTime: z.string().regex(timeRegex, "Time must be in 24-hour format (HH:MM)").optional(),
+  recurrencePattern: z.string().optional(),
 };
 
 // Task-type specific schemas
@@ -189,6 +206,9 @@ export const dailyTaskSchema = z.object({
   taskType: z.literal(TaskType.DAILY),
   estimatedDuration: z.string().regex(/^\d+[mh]$/, "Duration must be in minutes (m) or hours (h)"),
   deadline: z.date().optional(),
+  // For daily tasks, we encourage scheduling
+  scheduledTime: z.string().regex(timeRegex, "Time must be in 24-hour format (HH:MM)").optional(),
+  recurrencePattern: z.string().optional(),
 });
 
 export const personalProjectSchema = z.object({
@@ -219,7 +239,7 @@ export const insertTaskSchema = z.discriminatedUnion("taskType", [
   lifeGoalSchema,
 ]);
 
-// Update the insertSubtaskSchema to properly handle date strings
+// Update the insertSubtaskSchema to properly handle date strings and scheduling
 export const insertSubtaskSchema = createInsertSchema(subtasks)
   .pick({
     title: true,
@@ -232,6 +252,8 @@ export const insertSubtaskSchema = createInsertSchema(subtasks)
     description: z.string().optional(),
     estimatedDuration: z.string().regex(/^\d+[mhdwMy]$/, "Duration must be in a valid format (e.g., 30m, 2h, 3d)"),
     deadline: z.coerce.date(),
+    scheduledTime: z.string().regex(timeRegex, "Time must be in 24-hour format (HH:MM)").optional(),
+    recurrencePattern: z.string().optional(),
   });
 
 export const verificationCodeSchema = z.object({

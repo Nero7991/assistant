@@ -278,6 +278,62 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
                   </FormItem>
                 )}
               />
+              
+              {selectedType === "DAILY" && (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="scheduledTime"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Scheduled Time</FormLabel>
+                        <FormControl>
+                          <Input 
+                            type="time" 
+                            placeholder="09:00" 
+                            {...field} 
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  
+                  <FormField
+                    control={form.control}
+                    name="recurrencePattern"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Recurrence Pattern</FormLabel>
+                        <Select
+                          value={field.value || 'none'}
+                          onValueChange={(value) => field.onChange(value)}
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select a pattern" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="none">No recurrence</SelectItem>
+                            <SelectItem value="daily">Daily</SelectItem>
+                            <SelectItem value="weekly:1,2,3,4,5">Weekdays (Mon-Fri)</SelectItem>
+                            <SelectItem value="weekly:6,7">Weekends (Sat-Sun)</SelectItem>
+                            <SelectItem value="weekly:1">Every Monday</SelectItem>
+                            <SelectItem value="weekly:2">Every Tuesday</SelectItem>
+                            <SelectItem value="weekly:3">Every Wednesday</SelectItem>
+                            <SelectItem value="weekly:4">Every Thursday</SelectItem>
+                            <SelectItem value="weekly:5">Every Friday</SelectItem>
+                            <SelectItem value="weekly:6">Every Saturday</SelectItem>
+                            <SelectItem value="weekly:7">Every Sunday</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </>
+              )}
             </form>
           </Form>
 
