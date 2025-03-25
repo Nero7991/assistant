@@ -27,7 +27,9 @@ export function AddSubtaskDialog({ open, onOpenChange, taskId }: AddSubtaskDialo
       title: "",
       description: "",
       estimatedDuration: "",
-      deadline: new Date().toISOString().split('T')[0],
+      deadline: new Date(),
+      scheduledTime: "",
+      recurrencePattern: "none",
     },
   });
 
@@ -118,11 +120,19 @@ export function AddSubtaskDialog({ open, onOpenChange, taskId }: AddSubtaskDialo
             <FormField
               control={form.control}
               name="deadline"
-              render={({ field }) => (
+              render={({ field: { value, onChange, ...field } }) => (
                 <FormItem>
                   <FormLabel>Deadline</FormLabel>
                   <FormControl>
-                    <Input type="date" {...field} />
+                    <Input 
+                      type="date" 
+                      value={value instanceof Date ? value.toISOString().split('T')[0] : value}
+                      onChange={(e) => {
+                        const date = new Date(e.target.value);
+                        onChange(date);
+                      }}
+                      {...field} 
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

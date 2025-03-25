@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, Clock, Calendar, Trash2, ChevronDown, ChevronRight, Plus } from "lucide-react";
+import { CheckCircle, Clock, Calendar, Trash2, ChevronDown, ChevronRight, Plus, AlarmClock, RepeatIcon } from "lucide-react";
 import { format } from "date-fns";
 import { useState, useEffect } from "react";
 import {
@@ -213,6 +213,39 @@ export function TaskList({ tasks, type }: TaskListProps) {
                   {format(new Date(task.deadline), 'MMM d, yyyy')}
                 </div>
               )}
+              {task.scheduledTime && (
+                <div className="flex items-center gap-1">
+                  <AlarmClock className="w-4 h-4" />
+                  {task.scheduledTime}
+                </div>
+              )}
+              {task.recurrencePattern && task.recurrencePattern !== 'none' && (
+                <div className="flex items-center gap-1">
+                  <RepeatIcon className="w-4 h-4" />
+                  {task.recurrencePattern.startsWith('daily')
+                    ? 'Daily'
+                    : task.recurrencePattern.startsWith('weekly:1,2,3,4,5')
+                      ? 'Weekdays'
+                      : task.recurrencePattern.startsWith('weekly:6,7')
+                        ? 'Weekends'
+                        : task.recurrencePattern.startsWith('weekly:1')
+                          ? 'Monday'
+                          : task.recurrencePattern.startsWith('weekly:2')
+                            ? 'Tuesday'
+                            : task.recurrencePattern.startsWith('weekly:3')
+                              ? 'Wednesday'
+                              : task.recurrencePattern.startsWith('weekly:4')
+                                ? 'Thursday'
+                                : task.recurrencePattern.startsWith('weekly:5')
+                                  ? 'Friday'
+                                  : task.recurrencePattern.startsWith('weekly:6')
+                                    ? 'Saturday'
+                                    : task.recurrencePattern.startsWith('weekly:7')
+                                      ? 'Sunday'
+                                      : task.recurrencePattern
+                  }
+                </div>
+              )}
             </div>
 
             {task.status !== 'completed' && (
@@ -253,7 +286,7 @@ export function TaskList({ tasks, type }: TaskListProps) {
                         {subtask.description && (
                           <p className="text-sm text-muted-foreground">{subtask.description}</p>
                         )}
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground mt-2">
+                        <div className="flex items-center flex-wrap gap-4 text-sm text-muted-foreground mt-2">
                           {subtask.estimatedDuration && (
                             <div className="flex items-center gap-1">
                               <Clock className="w-3 h-3" />
@@ -264,6 +297,39 @@ export function TaskList({ tasks, type }: TaskListProps) {
                             <div className="flex items-center gap-1">
                               <Calendar className="w-3 h-3" />
                               {format(new Date(subtask.deadline), 'MMM d, yyyy')}
+                            </div>
+                          )}
+                          {subtask.scheduledTime && (
+                            <div className="flex items-center gap-1">
+                              <AlarmClock className="w-3 h-3" />
+                              {subtask.scheduledTime}
+                            </div>
+                          )}
+                          {subtask.recurrencePattern && subtask.recurrencePattern !== 'none' && (
+                            <div className="flex items-center gap-1">
+                              <RepeatIcon className="w-3 h-3" />
+                              {subtask.recurrencePattern.startsWith('daily')
+                                ? 'Daily'
+                                : subtask.recurrencePattern.startsWith('weekly:1,2,3,4,5')
+                                  ? 'Weekdays'
+                                  : subtask.recurrencePattern.startsWith('weekly:6,7')
+                                    ? 'Weekends'
+                                    : subtask.recurrencePattern.startsWith('weekly:1')
+                                      ? 'Monday'
+                                      : subtask.recurrencePattern.startsWith('weekly:2')
+                                        ? 'Tuesday'
+                                        : subtask.recurrencePattern.startsWith('weekly:3')
+                                          ? 'Wednesday'
+                                          : subtask.recurrencePattern.startsWith('weekly:4')
+                                            ? 'Thursday'
+                                            : subtask.recurrencePattern.startsWith('weekly:5')
+                                              ? 'Friday'
+                                              : subtask.recurrencePattern.startsWith('weekly:6')
+                                                ? 'Saturday'
+                                                : subtask.recurrencePattern.startsWith('weekly:7')
+                                                  ? 'Sunday'
+                                                  : subtask.recurrencePattern
+                              }
                             </div>
                           )}
                         </div>

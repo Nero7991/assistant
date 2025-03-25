@@ -50,6 +50,8 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
       description: "",
       status: "active",
       estimatedDuration: "",
+      scheduledTime: "",
+      recurrencePattern: "none",
     },
   });
 
