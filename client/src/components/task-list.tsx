@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, Clock, Calendar, Trash2, ChevronDown, ChevronRight, Plus, AlarmClock, RepeatIcon } from "lucide-react";
+import { CheckCircle, Clock, Calendar, Trash2, ChevronDown, ChevronRight, Plus, AlarmClock, Repeat, Pencil } from "lucide-react";
 import { format } from "date-fns";
 import { useState, useEffect } from "react";
 import {
@@ -52,6 +52,8 @@ export function TaskList({ tasks, type }: TaskListProps) {
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
   const [subtaskToDelete, setSubtaskToDelete] = useState<{ taskId: number, subtaskId: number } | null>(null);
   const [addSubtaskTask, setAddSubtaskTask] = useState<number | null>(null);
+  const [taskToEdit, setTaskToEdit] = useState<Task | null>(null);
+  const [subtaskToEdit, setSubtaskToEdit] = useState<{ taskId: number, subtask: Subtask } | null>(null);
   
   // When tasks change or tab changes, automatically expand tasks with subtasks
   useEffect(() => {
@@ -191,6 +193,14 @@ export function TaskList({ tasks, type }: TaskListProps) {
                 <Button
                   variant="ghost"
                   size="icon"
+                  onClick={() => setTaskToEdit(task)}
+                  aria-label="Edit task schedule"
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
                   onClick={() => setTaskToDelete(task)}
                   aria-label="Delete task"
                 >
@@ -221,7 +231,7 @@ export function TaskList({ tasks, type }: TaskListProps) {
               )}
               {task.recurrencePattern && task.recurrencePattern !== 'none' && (
                 <div className="flex items-center gap-1">
-                  <RepeatIcon className="w-4 h-4" />
+                  <Repeat className="w-4 h-4" />
                   {task.recurrencePattern.startsWith('daily')
                     ? 'Daily'
                     : task.recurrencePattern.startsWith('weekly:1,2,3,4,5')
@@ -350,6 +360,14 @@ export function TaskList({ tasks, type }: TaskListProps) {
                             <CheckCircle className="h-4 w-4" />
                           </Button>
                         )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setSubtaskToEdit({ taskId: task.id, subtask })}
+                          aria-label="Edit subtask schedule"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="icon"
