@@ -6,7 +6,7 @@ import { queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { CheckCircle, Clock, Calendar, Trash2, Pencil, ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { format } from "date-fns";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,6 +29,31 @@ export function TaskList({ tasks, type }: TaskListProps) {
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
   const [subtaskToDelete, setSubtaskToDelete] = useState<{ taskId: number, subtaskId: number } | null>(null);
   const [addSubtaskTask, setAddSubtaskTask] = useState<number | null>(null);
+  
+  // Helper function to check if a task type supports subtasks
+  const supportsSubtasks = (taskType: string): boolean => {
+    return taskType === TaskType.PERSONAL_PROJECT ||
+           taskType === TaskType.LONG_TERM_PROJECT ||
+           taskType === TaskType.LIFE_GOAL;
+  };
+  
+  // When tasks change or tab changes, automatically expand tasks with subtasks
+  useEffect(() => {
+    const newExpandedState: Record<number, boolean> = {};
+    
+    // We'll pre-expand tasks that have subtasks
+    if (tasks.length > 0) {
+      // First fetch the subtasks for each task
+      tasks.forEach(task => {
+        // Only expand tasks of types that can have subtasks
+        if (supportsSubtasks(task.taskType)) {
+          newExpandedState[task.id] = true;
+        }
+      });
+    }
+    
+    setExpandedTasks(newExpandedState);
+  }, [type, tasks]); // Trigger when the tab or tasks change
 
   const toggleTask = (taskId: number) => {
     setExpandedTasks(prev => ({
@@ -37,8 +62,9 @@ export function TaskList({ tasks, type }: TaskListProps) {
     }));
   };
 
+  // Include the task type in the query key so it refetches when the task type changes
   const { data: subtasksByTask = {} } = useQuery<Record<number, Subtask[]>>({
-    queryKey: ["/api/tasks/subtasks"],
+    queryKey: ["/api/tasks/subtasks", type],
     queryFn: async () => {
       const subtasksByTask: Record<number, Subtask[]> = {};
       await Promise.all(
@@ -76,7 +102,7 @@ export function TaskList({ tasks, type }: TaskListProps) {
       return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks/subtasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/subtasks", type] });
     },
   });
 
@@ -101,7 +127,7 @@ export function TaskList({ tasks, type }: TaskListProps) {
       if (!res.ok) throw new Error("Failed to delete subtask");
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/tasks/subtasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/subtasks", type] });
       setSubtaskToDelete(null);
     },
   });
@@ -119,12 +145,6 @@ export function TaskList({ tasks, type }: TaskListProps) {
       default:
         return type;
     }
-  };
-
-  const supportsSubtasks = (taskType: string): boolean => {
-    return taskType === TaskType.PERSONAL_PROJECT ||
-           taskType === TaskType.LONG_TERM_PROJECT ||
-           taskType === TaskType.LIFE_GOAL;
   };
 
   if (tasks.length === 0) {
