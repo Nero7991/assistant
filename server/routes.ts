@@ -8,6 +8,14 @@ import { handleWhatsAppWebhook } from "./webhook";
 import { messageScheduler } from "./scheduler";
 import { generateTaskSuggestions } from "./services/task-suggestions";
 
+// Assuming TaskType enum exists elsewhere in the project.  This needs to be added if it doesn't exist.
+enum TaskType {
+  PERSONAL_PROJECT = 'personal_project',
+  LONG_TERM_PROJECT = 'long_term_project',
+  LIFE_GOAL = 'life_goal',
+}
+
+
 export async function registerRoutes(app: Express): Promise<Server> {
   setupAuth(app);
 
@@ -20,7 +28,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!req.isAuthenticated()) return res.sendStatus(401);
       try {
         const scheduledTime = await messageScheduler.scheduleTestMessage(req.user.id);
-        res.json({ 
+        res.json({
           message: "Test message scheduled",
           scheduledFor: scheduledTime,
           userId: req.user.id
@@ -85,9 +93,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // For specific task types, generate suggestions
       let suggestions = null;
       if (
-        taskData.taskType === 'personal_project' ||
-        taskData.taskType === 'long-term-project' ||
-        taskData.taskType === 'life_goal'
+        taskData.taskType === TaskType.PERSONAL_PROJECT ||
+        taskData.taskType === TaskType.LONG_TERM_PROJECT ||
+        taskData.taskType === TaskType.LIFE_GOAL
       ) {
         suggestions = await generateTaskSuggestions(
           taskData.taskType,
@@ -138,7 +146,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
 
-  // Add new routes for subtasks
+  // Subtask creation endpoint
   app.post("/api/tasks/:taskId/subtasks", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
 
@@ -153,6 +161,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
     try {
       const subtask = await storage.createSubtask(taskId, parsed.data);
+      console.log('Created subtask:', subtask);
       res.status(201).json(subtask);
     } catch (error) {
       console.error("Error creating subtask:", error);
