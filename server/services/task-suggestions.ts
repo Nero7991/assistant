@@ -23,12 +23,22 @@ export async function generateTaskSuggestions(
   description: string
 ): Promise<TaskSuggestionResponse> {
   try {
+    const currentDateTime = new Date().toISOString();
+
     const response = await openai.chat.completions.create({
       model: "gpt-4o", // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
       messages: [
         {
           role: "system",
           content: `You are an ADHD-friendly task planning assistant. Break down tasks into manageable subtasks with realistic deadlines.
+          Current datetime: ${currentDateTime}
+
+          Important rules for durations and deadlines:
+          1. Always provide a single duration value, not a range (e.g., use "3d" not "3-4d")
+          2. Use duration format: Xm (minutes), Xh (hours), Xd (days), Xw (weeks), XM (months), Xy (years)
+          3. Calculate each deadline by adding the estimated duration to the current datetime
+          4. If given a range, use the lower bound of the range
+
           Consider:
           - ADHD-friendly task sizes (25-45 minutes per subtask)
           - Clear, actionable steps
