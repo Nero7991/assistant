@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
-import { CheckCircle, Clock, Calendar, Trash2, Pencil, ChevronDown, ChevronRight, Plus } from "lucide-react";
+import { CheckCircle, Clock, Calendar, Trash2, ChevronDown, ChevronRight, Plus } from "lucide-react";
 import { format } from "date-fns";
 import { useState, useEffect } from "react";
 import {
@@ -24,18 +24,34 @@ interface TaskListProps {
   type: string;
 }
 
+// Helper function to check if a task type supports subtasks
+const supportsSubtasks = (taskType: string): boolean => {
+  return taskType === TaskType.PERSONAL_PROJECT ||
+         taskType === TaskType.LONG_TERM_PROJECT ||
+         taskType === TaskType.LIFE_GOAL;
+};
+
+// Function to get a human-readable label for task types
+const getTypeLabel = (type: string): string => {
+  switch (type) {
+    case TaskType.DAILY:
+      return "Daily Task";
+    case TaskType.PERSONAL_PROJECT:
+      return "Personal Project";
+    case TaskType.LONG_TERM_PROJECT:
+      return "Long-term Project";
+    case TaskType.LIFE_GOAL:
+      return "Life Goal";
+    default:
+      return type;
+  }
+};
+
 export function TaskList({ tasks, type }: TaskListProps) {
   const [expandedTasks, setExpandedTasks] = useState<Record<number, boolean>>({});
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
   const [subtaskToDelete, setSubtaskToDelete] = useState<{ taskId: number, subtaskId: number } | null>(null);
   const [addSubtaskTask, setAddSubtaskTask] = useState<number | null>(null);
-  
-  // Helper function to check if a task type supports subtasks
-  const supportsSubtasks = (taskType: string): boolean => {
-    return taskType === TaskType.PERSONAL_PROJECT ||
-           taskType === TaskType.LONG_TERM_PROJECT ||
-           taskType === TaskType.LIFE_GOAL;
-  };
   
   // When tasks change or tab changes, automatically expand tasks with subtasks
   useEffect(() => {
@@ -43,7 +59,6 @@ export function TaskList({ tasks, type }: TaskListProps) {
     
     // We'll pre-expand tasks that have subtasks
     if (tasks.length > 0) {
-      // First fetch the subtasks for each task
       tasks.forEach(task => {
         // Only expand tasks of types that can have subtasks
         if (supportsSubtasks(task.taskType)) {
@@ -131,21 +146,6 @@ export function TaskList({ tasks, type }: TaskListProps) {
       setSubtaskToDelete(null);
     },
   });
-
-  const getTypeLabel = (type: string) => {
-    switch (type) {
-      case TaskType.DAILY:
-        return "Daily Task";
-      case TaskType.PERSONAL_PROJECT:
-        return "Personal Project";
-      case TaskType.LONG_TERM_PROJECT:
-        return "Long-term Project";
-      case TaskType.LIFE_GOAL:
-        return "Life Goal";
-      default:
-        return type;
-    }
-  };
 
   if (tasks.length === 0) {
     return (
