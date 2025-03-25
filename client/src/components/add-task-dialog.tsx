@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -289,7 +289,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
                 )}
               />
               
-              {selectedType === "DAILY" && (
+              {(form.getValues().taskType === TaskType.DAILY || selectedType === "DAILY") && (
                 <>
                   <FormField
                     control={form.control}
@@ -304,6 +304,9 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
                             {...field} 
                           />
                         </FormControl>
+                        <div className="text-xs text-muted-foreground">
+                          Set a specific time for this task
+                        </div>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -338,6 +341,9 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
                             <SelectItem value="weekly:7">Every Sunday</SelectItem>
                           </SelectContent>
                         </Select>
+                        <div className="text-xs text-muted-foreground">
+                          Choose when this task should repeat
+                        </div>
                         <FormMessage />
                       </FormItem>
                     )}
