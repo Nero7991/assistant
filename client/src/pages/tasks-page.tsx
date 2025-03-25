@@ -6,12 +6,21 @@ import { TaskList } from "@/components/task-list";
 import { AddTaskDialog } from "@/components/add-task-dialog";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function TasksPage() {
   const { user } = useAuth();
   const [addTaskOpen, setAddTaskOpen] = useState(false);
-  const [selectedTaskType, setSelectedTaskType] = useState<keyof typeof TaskType>("DAILY");
+  // Get the selected tab from localStorage or default to "DAILY"
+  const [selectedTaskType, setSelectedTaskType] = useState<keyof typeof TaskType>(() => {
+    const savedTab = localStorage.getItem('selectedTaskTab');
+    return (savedTab as keyof typeof TaskType) || "DAILY";
+  });
+
+  // Save the selected tab to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('selectedTaskTab', selectedTaskType);
+  }, [selectedTaskType]);
 
   const { data: tasks = [] } = useQuery<Task[]>({
     queryKey: ["/api/tasks"],
@@ -34,7 +43,7 @@ export default function TasksPage() {
         </Button>
       </div>
 
-      <Tabs defaultValue={TaskType.DAILY} onValueChange={(v) => setSelectedTaskType(v as keyof typeof TaskType)}>
+      <Tabs value={selectedTaskType} onValueChange={(v) => setSelectedTaskType(v as keyof typeof TaskType)}>
         <TabsList className="grid w-full grid-cols-4 mb-6">
           <TabsTrigger value={TaskType.DAILY}>Daily Tasks</TabsTrigger>
           <TabsTrigger value={TaskType.PERSONAL_PROJECT}>Personal Projects</TabsTrigger>

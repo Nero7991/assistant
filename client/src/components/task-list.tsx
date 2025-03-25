@@ -126,7 +126,7 @@ export function TaskList({ tasks, type }: TaskListProps) {
       TaskType.PERSONAL_PROJECT,
       TaskType.LONG_TERM_PROJECT,
       TaskType.LIFE_GOAL
-    ].includes(taskType as TaskType);
+    ].includes(taskType as typeof TaskType[keyof typeof TaskType]);
   };
 
   if (tasks.length === 0) {
@@ -150,6 +150,7 @@ export function TaskList({ tasks, type }: TaskListProps) {
                     size="icon"
                     className="mt-1"
                     onClick={() => toggleTask(task.id)}
+                    aria-label={expandedTasks[task.id] ? "Collapse subtasks" : "Expand subtasks"}
                   >
                     {expandedTasks[task.id] ? (
                       <ChevronDown className="h-4 w-4" />
@@ -173,6 +174,7 @@ export function TaskList({ tasks, type }: TaskListProps) {
                   variant="ghost"
                   size="icon"
                   onClick={() => setTaskToDelete(task)}
+                  aria-label="Delete task"
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>
@@ -207,68 +209,77 @@ export function TaskList({ tasks, type }: TaskListProps) {
               </Button>
             )}
 
-            {expandedTasks[task.id] && supportsSubtasks(task.taskType) && (
+            {/* Always try to load subtasks if this task type supports them */}
+            {expandedTasks[task.id] && (
               <div className="mt-6 space-y-3 pl-6 border-l">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mb-4"
-                  onClick={() => setAddSubtaskTask(task.id)}
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Subtask
-                </Button>
-
-                {subtasksByTask[task.id]?.map((subtask) => (
-                  <div
-                    key={subtask.id}
-                    className="flex items-start justify-between p-3 bg-muted/50 rounded-lg"
+                {supportsSubtasks(task.taskType) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mb-4"
+                    onClick={() => setAddSubtaskTask(task.id)}
                   >
-                    <div>
-                      <div className="font-medium">{subtask.title}</div>
-                      {subtask.description && (
-                        <p className="text-sm text-muted-foreground">{subtask.description}</p>
-                      )}
-                      <div className="flex items-center gap-4 text-sm text-muted-foreground mt-2">
-                        {subtask.estimatedDuration && (
-                          <div className="flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            {subtask.estimatedDuration}
-                          </div>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Subtask
+                  </Button>
+                )}
+
+                {subtasksByTask[task.id]?.length > 0 ? (
+                  subtasksByTask[task.id].map((subtask) => (
+                    <div
+                      key={subtask.id}
+                      className="flex items-start justify-between p-3 bg-muted/50 rounded-lg"
+                    >
+                      <div>
+                        <div className="font-medium">{subtask.title}</div>
+                        {subtask.description && (
+                          <p className="text-sm text-muted-foreground">{subtask.description}</p>
                         )}
-                        {subtask.deadline && (
-                          <div className="flex items-center gap-1">
-                            <Calendar className="w-3 h-3" />
-                            {format(new Date(subtask.deadline), 'MMM d, yyyy')}
-                          </div>
-                        )}
+                        <div className="flex items-center gap-4 text-sm text-muted-foreground mt-2">
+                          {subtask.estimatedDuration && (
+                            <div className="flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              {subtask.estimatedDuration}
+                            </div>
+                          )}
+                          {subtask.deadline && (
+                            <div className="flex items-center gap-1">
+                              <Calendar className="w-3 h-3" />
+                              {format(new Date(subtask.deadline), 'MMM d, yyyy')}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <Badge
-                        variant={subtask.status === 'completed' ? "secondary" : "default"}
-                      >
-                        {subtask.status}
-                      </Badge>
-                      {subtask.status !== 'completed' && (
+                      <div className="flex items-start gap-2">
+                        <Badge
+                          variant={subtask.status === 'completed' ? "secondary" : "default"}
+                        >
+                          {subtask.status}
+                        </Badge>
+                        {subtask.status !== 'completed' && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => completeSubtaskMutation.mutate(subtask.id)}
+                            aria-label="Complete subtask"
+                          >
+                            <CheckCircle className="h-4 w-4" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => completeSubtaskMutation.mutate(subtask.id)}
+                          onClick={() => setSubtaskToDelete({ taskId: task.id, subtaskId: subtask.id })}
+                          aria-label="Delete subtask"
                         >
-                          <CheckCircle className="h-4 w-4" />
+                          <Trash2 className="h-4 w-4" />
                         </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setSubtaskToDelete({ taskId: task.id, subtaskId: subtask.id })}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                ) : supportsSubtasks(task.taskType) ? (
+                  <p className="text-sm text-muted-foreground">No subtasks yet. Add some to break down this task.</p>
+                ) : null}
               </div>
             )}
           </CardContent>

@@ -52,7 +52,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
   });
 
   const needsSuggestions = (type: string) => {
-    return [TaskType.PERSONAL_PROJECT, TaskType.LONG_TERM_PROJECT, TaskType.LIFE_GOAL].includes(type as TaskType);
+    return [TaskType.PERSONAL_PROJECT, TaskType.LONG_TERM_PROJECT, TaskType.LIFE_GOAL].includes(type as typeof TaskType[keyof typeof TaskType]);
   };
 
   const createMutation = useMutation({
@@ -197,12 +197,12 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add New Task</DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto pr-6 -mr-6">
+        <div className="mt-4">
           <Form {...form}>
             <form onSubmit={form.handleSubmit(data => createMutation.mutate(data))} className="space-y-4">
               <FormField
@@ -293,7 +293,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
                 </Button>
               </div>
 
-              <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-2">
+              <div className="space-y-3 max-h-[30vh] overflow-y-auto pr-2">
                 {suggestions.subtasks.map((subtask, index) => (
                   <div key={index} className="space-y-2 p-3 border rounded-lg">
                     {editingSubtask === index ? (
@@ -333,6 +333,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
                               variant="ghost"
                               size="icon"
                               onClick={() => setEditingSubtask(index)}
+                              aria-label="Edit subtask"
                             >
                               <Pencil className="h-4 w-4" />
                             </Button>
@@ -340,6 +341,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
                               variant="ghost"
                               size="icon"
                               onClick={() => handleRemoveSubtask(index)}
+                              aria-label="Remove subtask"
                             >
                               <X className="h-4 w-4" />
                             </Button>
