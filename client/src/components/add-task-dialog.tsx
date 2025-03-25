@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
 import { TaskType, insertTaskSchema, type InsertTask } from "@shared/schema";
-import { Plus, X, Pencil } from "lucide-react";
+import { Plus, X, Pencil, Loader2 } from "lucide-react";
 
 interface AddTaskDialogProps {
   open: boolean;
@@ -52,7 +52,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
   });
 
   const needsSuggestions = (type: string) => {
-    return ['personal_project', 'long-term-project', 'life-goal'].includes(type);
+    return [TaskType.PERSONAL_PROJECT, TaskType.LONG_TERM_PROJECT, TaskType.LIFE_GOAL].includes(type as TaskType);
   };
 
   const createMutation = useMutation({
@@ -97,7 +97,6 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
         deadline: new Date(subtask.deadline).toISOString(),
       };
 
-      console.log('Creating subtask with formatted data:', formattedSubtask);
 
       const res = await fetch(`/api/tasks/${subtask.taskId}/subtasks`, {
         method: "POST",
@@ -119,10 +118,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
     if (!suggestions || !mainTask) return;
 
     try {
-      console.log('Creating subtasks for task:', mainTask.id);
-
       for (const subtask of suggestions.subtasks) {
-        console.log('Creating subtask:', subtask);
         await createSubtaskMutation.mutateAsync({ ...subtask, taskId: mainTask.id });
       }
 
@@ -202,7 +198,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>Add New Task</DialogTitle>
         </DialogHeader>
@@ -285,6 +281,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
                 Cancel
               </Button>
               <Button type="submit" disabled={createMutation.isPending}>
+                {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {needsSuggestions(form.getValues().taskType) ? "Suggest Subtasks" : "Create Task"}
               </Button>
             </div>
