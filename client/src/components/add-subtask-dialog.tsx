@@ -4,12 +4,13 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { insertSubtaskSchema, type InsertSubtask } from "@shared/schema";
+import { insertSubtaskSchema, type InsertSubtask, RecurrenceType } from "@shared/schema";
 
 interface AddSubtaskDialogProps {
   open: boolean;
@@ -123,6 +124,58 @@ export function AddSubtaskDialog({ open, onOpenChange, taskId }: AddSubtaskDialo
                   <FormControl>
                     <Input type="date" {...field} />
                   </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="scheduledTime"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Scheduled Time</FormLabel>
+                  <FormControl>
+                    <Input 
+                      type="time" 
+                      placeholder="09:00" 
+                      {...field} 
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            
+            <FormField
+              control={form.control}
+              name="recurrencePattern"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Recurrence Pattern</FormLabel>
+                  <Select
+                    value={field.value || 'none'}
+                    onValueChange={(value) => field.onChange(value)}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a pattern" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="none">No recurrence</SelectItem>
+                      <SelectItem value="daily">Daily</SelectItem>
+                      <SelectItem value="weekly:1,2,3,4,5">Weekdays (Mon-Fri)</SelectItem>
+                      <SelectItem value="weekly:6,7">Weekends (Sat-Sun)</SelectItem>
+                      <SelectItem value="weekly:1">Every Monday</SelectItem>
+                      <SelectItem value="weekly:2">Every Tuesday</SelectItem>
+                      <SelectItem value="weekly:3">Every Wednesday</SelectItem>
+                      <SelectItem value="weekly:4">Every Thursday</SelectItem>
+                      <SelectItem value="weekly:5">Every Friday</SelectItem>
+                      <SelectItem value="weekly:6">Every Saturday</SelectItem>
+                      <SelectItem value="weekly:7">Every Sunday</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <FormMessage />
                 </FormItem>
               )}

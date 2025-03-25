@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
-import { TaskType, insertTaskSchema, type InsertTask } from "@shared/schema";
+import { TaskType, RecurrenceType, insertTaskSchema, type InsertTask } from "@shared/schema";
 import { Plus, X, Pencil, Loader2 } from "lucide-react";
 
 interface AddTaskDialogProps {
@@ -24,6 +24,8 @@ interface SubTaskSuggestion {
   description: string;
   estimatedDuration: string;
   deadline: string;
+  scheduledTime?: string;
+  recurrencePattern?: string;
 }
 
 interface TaskSuggestions {
@@ -97,6 +99,8 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
         description: subtask.description || "",
         estimatedDuration: subtask.estimatedDuration,
         deadline: new Date(subtask.deadline).toISOString(),
+        scheduledTime: subtask.scheduledTime,
+        recurrencePattern: subtask.recurrencePattern,
       };
 
       const res = await fetch(`/api/tasks/${subtask.taskId}/subtasks`, {
@@ -173,6 +177,8 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
       description: "",
       estimatedDuration: "1h",
       deadline: new Date().toISOString().split('T')[0],
+      scheduledTime: "",
+      recurrencePattern: "none",
     };
 
     setSuggestions({
@@ -378,7 +384,33 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
                             onChange={(e) => handleEditSubtask(index, { deadline: e.target.value })}
                           />
                         </div>
-                        <Button size="sm" onClick={() => setEditingSubtask(null)}>
+                        <div className="flex gap-2 mt-2">
+                          <div className="w-1/2">
+                            <Input
+                              type="time"
+                              value={subtask.scheduledTime}
+                              onChange={(e) => handleEditSubtask(index, { scheduledTime: e.target.value })}
+                              placeholder="HH:MM"
+                            />
+                          </div>
+                          <div className="w-1/2">
+                            <Select
+                              value={subtask.recurrencePattern || 'none'}
+                              onValueChange={(value) => handleEditSubtask(index, { recurrencePattern: value })}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Recurrence" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">No recurrence</SelectItem>
+                                <SelectItem value="daily">Daily</SelectItem>
+                                <SelectItem value="weekly:1,2,3,4,5">Weekdays</SelectItem>
+                                <SelectItem value="weekly:6,7">Weekends</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        <Button size="sm" onClick={() => setEditingSubtask(null)} className="mt-2">
                           Save Changes
                         </Button>
                       </div>
@@ -411,6 +443,26 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
                           <span>•</span>
                           <span>Deadline: {subtask.deadline}</span>
                         </div>
+                        {(subtask.scheduledTime || subtask.recurrencePattern) && (
+                          <div className="flex items-center gap-2 text-sm mt-1">
+                            {subtask.scheduledTime && (
+                              <>
+                                <span>Time: {subtask.scheduledTime}</span>
+                                {subtask.recurrencePattern && subtask.recurrencePattern !== "none" && <span>•</span>}
+                              </>
+                            )}
+                            {subtask.recurrencePattern && subtask.recurrencePattern !== "none" && (
+                              <span>Recurs: {subtask.recurrencePattern.startsWith("weekly") 
+                                ? subtask.recurrencePattern.includes("1,2,3,4,5") 
+                                  ? "Weekdays" 
+                                  : subtask.recurrencePattern.includes("6,7") 
+                                    ? "Weekends" 
+                                    : `Weekly (${subtask.recurrencePattern.split(":")[1]})` 
+                                : subtask.recurrencePattern}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </>
                     )}
                   </div>
