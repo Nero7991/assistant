@@ -185,11 +185,19 @@ export async function generateTaskSuggestions(
     const suggestions = JSON.parse(response.choices[0].message.content!) as TaskSuggestionResponse;
     
     // Process the response to ensure all deadlines are calculated properly
-    suggestions.subtasks = suggestions.subtasks.map(subtask => ({
-      ...subtask,
-      estimatedDuration: extractLowerBound(subtask.estimatedDuration),
-      deadline: calculateDeadline(subtask.estimatedDuration)
-    }));
+    suggestions.subtasks = suggestions.subtasks.map(subtask => {
+      // Preserve the scheduledTime and recurrencePattern if they exist
+      const { scheduledTime, recurrencePattern } = subtask;
+      
+      return {
+        ...subtask,
+        estimatedDuration: extractLowerBound(subtask.estimatedDuration),
+        deadline: calculateDeadline(subtask.estimatedDuration),
+        // Ensure we maintain scheduled time and recurrence pattern
+        scheduledTime: scheduledTime || undefined,
+        recurrencePattern: recurrencePattern || undefined
+      };
+    });
     
     // Calculate the suggested deadline based on the total duration
     suggestions.suggestedDeadline = calculateDeadline(suggestions.estimatedTotalDuration);

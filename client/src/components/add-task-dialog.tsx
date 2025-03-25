@@ -79,6 +79,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
         form.reset();
         onOpenChange(false);
         queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/tasks/subtasks"] });
         toast({
           title: "Success",
           description: "Your task has been created successfully.",
@@ -134,6 +135,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
       form.reset();
       onOpenChange(false);
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/subtasks"] });
       toast({
         title: "Success",
         description: "Your task and subtasks have been created successfully.",
