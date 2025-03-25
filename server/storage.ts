@@ -66,6 +66,7 @@ export interface IStorage {
   createSubtask(taskId: number, subtask: InsertSubtask): Promise<Subtask>;
   getSubtasks(taskId: number): Promise<Subtask[]>;
   completeSubtask(id: number): Promise<Subtask>;
+  updateSubtask(id: number, updates: Partial<Subtask>): Promise<Subtask>;
   deleteSubtask(taskId: number, subtaskId: number): Promise<void>;
 }
 
@@ -543,6 +544,18 @@ export class DatabaseStorage implements IStorage {
       .returning();
     return completed;
   }
+  async updateSubtask(id: number, updates: Partial<Subtask>): Promise<Subtask> {
+    const [updated] = await db
+      .update(subtasks)
+      .set({
+        ...updates,
+        updatedAt: new Date(),
+      })
+      .where(eq(subtasks.id, id))
+      .returning();
+    return updated;
+  }
+  
   async deleteSubtask(taskId: number, subtaskId: number): Promise<void> {
     await db.delete(subtasks)
       .where(

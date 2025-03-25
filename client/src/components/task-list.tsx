@@ -72,6 +72,7 @@ export function TaskList({ tasks, type }: TaskListProps) {
   const [addSubtaskTask, setAddSubtaskTask] = useState<number | null>(null);
   const [taskToEdit, setTaskToEdit] = useState<Task | null>(null);
   const [subtaskToEdit, setSubtaskToEdit] = useState<{ taskId: number, subtask: Subtask } | null>(null);
+  const { toast } = useToast();
   
   // When tasks change or tab changes, automatically expand tasks with subtasks
   useEffect(() => {
