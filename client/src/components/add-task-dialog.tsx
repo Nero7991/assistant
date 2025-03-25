@@ -51,8 +51,10 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
     },
   });
 
-  const needsSuggestions = (type: string) => {
-    return [TaskType.PERSONAL_PROJECT, TaskType.LONG_TERM_PROJECT, TaskType.LIFE_GOAL].includes(type as typeof TaskType[keyof typeof TaskType]);
+  const needsSuggestions = (type: string): boolean => {
+    return type === TaskType.PERSONAL_PROJECT ||
+           type === TaskType.LONG_TERM_PROJECT ||
+           type === TaskType.LIFE_GOAL;
   };
 
   const createMutation = useMutation({

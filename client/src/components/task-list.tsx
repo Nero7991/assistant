@@ -121,12 +121,10 @@ export function TaskList({ tasks, type }: TaskListProps) {
     }
   };
 
-  const supportsSubtasks = (taskType: string) => {
-    return [
-      TaskType.PERSONAL_PROJECT,
-      TaskType.LONG_TERM_PROJECT,
-      TaskType.LIFE_GOAL
-    ].includes(taskType as typeof TaskType[keyof typeof TaskType]);
+  const supportsSubtasks = (taskType: string): boolean => {
+    return taskType === TaskType.PERSONAL_PROJECT ||
+           taskType === TaskType.LONG_TERM_PROJECT ||
+           taskType === TaskType.LIFE_GOAL;
   };
 
   if (tasks.length === 0) {
