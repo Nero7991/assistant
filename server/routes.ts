@@ -201,6 +201,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to delete subtask" });
     }
   });
+  
+  // Update a subtask's schedule information
+  app.patch("/api/tasks/:taskId/subtasks/:subtaskId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    const taskId = parseInt(req.params.taskId);
+    const subtaskId = parseInt(req.params.subtaskId);
+    const updates = req.body;
+    
+    try {
+      // Verify the task belongs to the user
+      const tasks = await storage.getTasks(req.user.id, undefined);
+      const task = tasks.find(t => t.id === taskId);
+      
+      if (!task) {
+        return res.status(404).send("Task not found");
+      }
+      
+      // Get the subtasks to verify the subtask exists
+      const subtasks = await storage.getSubtasks(taskId);
+      const subtaskExists = subtasks.some(s => s.id === subtaskId);
+      
+      if (!subtaskExists) {
+        return res.status(404).send("Subtask not found");
+      }
+      
+      // Only allow updating schedule-related fields
+      const allowedUpdates = {
+        scheduledTime: updates.scheduledTime,
+        recurrencePattern: updates.recurrencePattern
+      };
+      
+      // Update the subtask
+      const subtask = await storage.updateSubtask(subtaskId, allowedUpdates);
+      res.status(200).json(subtask);
+    } catch (error) {
+      console.error("Error updating subtask:", error);
+      res.status(500).send("Error updating subtask");
+    }
+  });
 
   // Goals
   app.get("/api/goals", async (req, res) => {

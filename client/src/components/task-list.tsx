@@ -17,7 +17,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { AddSubtaskDialog } from "@/components/add-subtask-dialog";
+import { useToast } from "@/hooks/use-toast";
 
 interface TaskListProps {
   tasks: Task[];
@@ -146,6 +164,68 @@ export function TaskList({ tasks, type }: TaskListProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/subtasks", type] });
       setSubtaskToDelete(null);
+    },
+  });
+
+  const updateTaskMutation = useMutation({
+    mutationFn: async ({ id, updates }: { id: number, updates: Partial<Task> }) => {
+      const res = await fetch(`/api/tasks/${id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(updates),
+      });
+      if (!res.ok) throw new Error("Failed to update task");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      setTaskToEdit(null);
+      toast({
+        title: "Task updated",
+        description: "Task schedule has been updated successfully.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to update task",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateSubtaskMutation = useMutation({
+    mutationFn: async ({ taskId, subtaskId, updates }: { 
+      taskId: number, 
+      subtaskId: number, 
+      updates: Partial<Subtask> 
+    }) => {
+      const res = await fetch(`/api/tasks/${taskId}/subtasks/${subtaskId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(updates),
+      });
+      if (!res.ok) throw new Error("Failed to update subtask");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks/subtasks", type] });
+      setSubtaskToEdit(null);
+      toast({
+        title: "Subtask updated",
+        description: "Subtask schedule has been updated successfully.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to update subtask",
+        description: error.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -317,7 +397,7 @@ export function TaskList({ tasks, type }: TaskListProps) {
                           )}
                           {subtask.recurrencePattern && subtask.recurrencePattern !== 'none' && (
                             <div className="flex items-center gap-1">
-                              <RepeatIcon className="w-3 h-3" />
+                              <Repeat className="w-3 h-3" />
                               {subtask.recurrencePattern.startsWith('daily')
                                 ? 'Daily'
                                 : subtask.recurrencePattern.startsWith('weekly:1,2,3,4,5')
@@ -434,6 +514,165 @@ export function TaskList({ tasks, type }: TaskListProps) {
         onOpenChange={(open) => !open && setAddSubtaskTask(null)}
         taskId={addSubtaskTask ?? 0}
       />
+      
+      {/* Task Schedule Edit Dialog */}
+      <Dialog open={!!taskToEdit} onOpenChange={(open) => !open && setTaskToEdit(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Task Schedule</DialogTitle>
+            <DialogDescription>
+              Adjust the scheduled time and recurrence pattern for this task.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {taskToEdit && (
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-1 gap-2">
+                <Label htmlFor="scheduledTime">Scheduled Time</Label>
+                <Input
+                  id="scheduledTime"
+                  type="time"
+                  defaultValue={taskToEdit.scheduledTime || ""}
+                  onChange={(e) => setTaskToEdit({...taskToEdit, scheduledTime: e.target.value})}
+                />
+                <p className="text-sm text-muted-foreground">
+                  Set a specific time for this task.
+                </p>
+              </div>
+              
+              <div className="grid grid-cols-1 gap-2">
+                <Label htmlFor="recurrencePattern">Recurrence Pattern</Label>
+                <Select 
+                  defaultValue={taskToEdit.recurrencePattern || 'none'}
+                  onValueChange={(value) => setTaskToEdit({...taskToEdit, recurrencePattern: value})}
+                >
+                  <SelectTrigger id="recurrencePattern">
+                    <SelectValue placeholder="Select a pattern" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No recurrence</SelectItem>
+                    <SelectItem value="daily">Daily</SelectItem>
+                    <SelectItem value="weekly:1,2,3,4,5">Weekdays (Mon-Fri)</SelectItem>
+                    <SelectItem value="weekly:6,7">Weekends (Sat-Sun)</SelectItem>
+                    <SelectItem value="weekly:1">Every Monday</SelectItem>
+                    <SelectItem value="weekly:2">Every Tuesday</SelectItem>
+                    <SelectItem value="weekly:3">Every Wednesday</SelectItem>
+                    <SelectItem value="weekly:4">Every Thursday</SelectItem>
+                    <SelectItem value="weekly:5">Every Friday</SelectItem>
+                    <SelectItem value="weekly:6">Every Saturday</SelectItem>
+                    <SelectItem value="weekly:7">Every Sunday</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-sm text-muted-foreground">
+                  Set how often this task should repeat.
+                </p>
+              </div>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTaskToEdit(null)}>
+              Cancel
+            </Button>
+            <Button onClick={() => {
+              if (taskToEdit) {
+                updateTaskMutation.mutate({
+                  id: taskToEdit.id,
+                  updates: {
+                    scheduledTime: taskToEdit.scheduledTime,
+                    recurrencePattern: taskToEdit.recurrencePattern,
+                  }
+                });
+              }
+            }}>
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Subtask Schedule Edit Dialog */}
+      <Dialog open={!!subtaskToEdit} onOpenChange={(open) => !open && setSubtaskToEdit(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Subtask Schedule</DialogTitle>
+            <DialogDescription>
+              Adjust the scheduled time and recurrence pattern for this subtask.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {subtaskToEdit && (
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-1 gap-2">
+                <Label htmlFor="scheduledTime">Scheduled Time</Label>
+                <Input
+                  id="scheduledTime"
+                  type="time"
+                  defaultValue={subtaskToEdit.subtask.scheduledTime || ""}
+                  onChange={(e) => setSubtaskToEdit({
+                    ...subtaskToEdit, 
+                    subtask: {...subtaskToEdit.subtask, scheduledTime: e.target.value}
+                  })}
+                />
+                <p className="text-sm text-muted-foreground">
+                  Set a specific time for this subtask.
+                </p>
+              </div>
+              
+              <div className="grid grid-cols-1 gap-2">
+                <Label htmlFor="recurrencePattern">Recurrence Pattern</Label>
+                <Select 
+                  defaultValue={subtaskToEdit.subtask.recurrencePattern || 'none'}
+                  onValueChange={(value) => setSubtaskToEdit({
+                    ...subtaskToEdit, 
+                    subtask: {...subtaskToEdit.subtask, recurrencePattern: value}
+                  })}
+                >
+                  <SelectTrigger id="recurrencePattern">
+                    <SelectValue placeholder="Select a pattern" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No recurrence</SelectItem>
+                    <SelectItem value="daily">Daily</SelectItem>
+                    <SelectItem value="weekly:1,2,3,4,5">Weekdays (Mon-Fri)</SelectItem>
+                    <SelectItem value="weekly:6,7">Weekends (Sat-Sun)</SelectItem>
+                    <SelectItem value="weekly:1">Every Monday</SelectItem>
+                    <SelectItem value="weekly:2">Every Tuesday</SelectItem>
+                    <SelectItem value="weekly:3">Every Wednesday</SelectItem>
+                    <SelectItem value="weekly:4">Every Thursday</SelectItem>
+                    <SelectItem value="weekly:5">Every Friday</SelectItem>
+                    <SelectItem value="weekly:6">Every Saturday</SelectItem>
+                    <SelectItem value="weekly:7">Every Sunday</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-sm text-muted-foreground">
+                  Set how often this subtask should repeat.
+                </p>
+              </div>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSubtaskToEdit(null)}>
+              Cancel
+            </Button>
+            <Button onClick={() => {
+              if (subtaskToEdit) {
+                updateSubtaskMutation.mutate({
+                  taskId: subtaskToEdit.taskId,
+                  subtaskId: subtaskToEdit.subtask.id,
+                  updates: {
+                    scheduledTime: subtaskToEdit.subtask.scheduledTime,
+                    recurrencePattern: subtaskToEdit.subtask.recurrencePattern,
+                  }
+                });
+              }
+            }}>
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
