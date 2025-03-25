@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import { TaskType } from "@shared/schema";
+import { storage } from "../storage";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -20,24 +21,37 @@ interface TaskSuggestionResponse {
 export async function generateTaskSuggestions(
   taskType: typeof TaskType[keyof typeof TaskType],
   title: string,
-  description: string
+  description: string,
+  userId: number,
+  estimatedDuration?: string
 ): Promise<TaskSuggestionResponse> {
   try {
     const currentDateTime = new Date().toISOString();
 
+    // Fetch user facts for context
+    const userFacts = await storage.getKnownUserFacts(userId);
+    const userFactsContext = userFacts.length > 0
+      ? `Known facts about the user:\n${userFacts.map(f => `- ${f.category}: ${f.content}`).join('\n')}`
+      : "No known user facts available.";
+
     const response = await openai.chat.completions.create({
-      model: "gpt-4o", // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
+      model: "gpt-4o", 
       messages: [
         {
           role: "system",
           content: `You are an ADHD-friendly task planning assistant. Break down tasks into manageable subtasks with realistic deadlines.
           Current datetime: ${currentDateTime}
 
+          ${userFactsContext}
+
+          Overall task duration provided by user: ${estimatedDuration || 'Not specified'}
+
           Important rules for durations and deadlines:
           1. Always provide a single duration value, not a range (e.g., use "3d" not "3-4d")
           2. Use duration format: Xm (minutes), Xh (hours), Xd (days), Xw (weeks), XM (months), Xy (years)
           3. Calculate each deadline by adding the estimated duration to the current datetime
           4. If given a range, use the lower bound of the range
+          5. Ensure all subtasks can be completed within the overall task duration (if provided)
 
           Consider:
           - ADHD-friendly task sizes (25-45 minutes per subtask)
@@ -73,7 +87,7 @@ export async function generateTaskSuggestions(
       response_format: { type: "json_object" }
     });
 
-    return JSON.parse(response.choices[0].message.content) as TaskSuggestionResponse;
+    return JSON.parse(response.choices[0].message.content!) as TaskSuggestionResponse;
   } catch (error) {
     console.error("Error generating task suggestions:", error);
     throw new Error("Failed to generate task suggestions");

@@ -73,6 +73,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(tasks);
   });
 
+  // Task creation endpoint with task suggestions
   app.post("/api/tasks", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const parsed = insertTaskSchema.safeParse(req.body);
@@ -85,13 +86,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let suggestions = null;
       if (
         taskData.taskType === 'personal_project' ||
-        taskData.taskType === 'long_term_project' ||
+        taskData.taskType === 'long-term-project' ||
         taskData.taskType === 'life_goal'
       ) {
         suggestions = await generateTaskSuggestions(
           taskData.taskType,
           taskData.title,
-          taskData.description || ''
+          taskData.description || '',
+          req.user.id,
+          taskData.estimatedDuration
         );
       }
 
