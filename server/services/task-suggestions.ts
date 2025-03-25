@@ -9,6 +9,8 @@ interface SubTaskSuggestion {
   description: string;
   estimatedDuration: string;
   deadline: string;
+  scheduledTime?: string;
+  recurrencePattern?: string;
 }
 
 interface TaskSuggestionResponse {
@@ -132,7 +134,9 @@ export async function generateTaskSuggestions(
           "title": "string",
           "description": "string",
           "estimatedDuration": "string (e.g. 2h, 3d, 1w)",
-          "deadline": "YYYY-MM-DD"
+          "deadline": "YYYY-MM-DD",
+          "scheduledTime": "HH:MM (24-hour format, optional)",
+          "recurrencePattern": "none|daily|weekly:1,2,3,4,5|weekly:6,7|weekly:1|weekly:2|etc (optional)"
         }
       ],
       "estimatedTotalDuration": "string",
@@ -144,7 +148,11 @@ export async function generateTaskSuggestions(
     Title: ${title}
     Description: ${description}
 
-    Please suggest a breakdown of this task into manageable subtasks with deadlines.`;
+    Please suggest a breakdown of this task into manageable subtasks with deadlines.
+    
+    For subtasks that would benefit from specific scheduling (like daily medication or routine tasks), 
+    please include scheduledTime (in 24-hour format like "09:00") and recurrencePattern 
+    (e.g., "daily", "weekly:1,2,3,4,5" for weekdays, or day-specific like "weekly:1" for Monday).`;
 
     // Debug log the prompts in development mode
     if (process.env.NODE_ENV === 'development') {

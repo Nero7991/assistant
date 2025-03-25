@@ -120,18 +120,19 @@ export function AddSubtaskDialog({ open, onOpenChange, taskId }: AddSubtaskDialo
             <FormField
               control={form.control}
               name="deadline"
-              render={({ field: { value, onChange, ...field } }) => (
+              render={({ field }) => (
                 <FormItem>
                   <FormLabel>Deadline</FormLabel>
                   <FormControl>
                     <Input 
                       type="date" 
-                      value={value instanceof Date ? value.toISOString().split('T')[0] : value}
+                      value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : field.value as string}
                       onChange={(e) => {
-                        const date = new Date(e.target.value);
-                        onChange(date);
+                        field.onChange(new Date(e.target.value));
                       }}
-                      {...field} 
+                      onBlur={field.onBlur}
+                      ref={field.ref}
+                      name={field.name}
                     />
                   </FormControl>
                   <FormMessage />
