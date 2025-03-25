@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { CheckCircle, Clock, Calendar, Trash2, ChevronDown, ChevronRight, Plus, AlarmClock, Repeat, Pencil } from "lucide-react";
 import { format } from "date-fns";
 import { useState, useEffect } from "react";
+import { useToast } from "@/hooks/use-toast";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,7 +36,6 @@ import {
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { AddSubtaskDialog } from "@/components/add-subtask-dialog";
-import { useToast } from "@/hooks/use-toast";
 
 interface TaskListProps {
   tasks: Task[];
