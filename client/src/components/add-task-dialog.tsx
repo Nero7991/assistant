@@ -97,7 +97,6 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
         deadline: new Date(subtask.deadline).toISOString(),
       };
 
-
       const res = await fetch(`/api/tasks/${subtask.taskId}/subtasks`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -198,191 +197,188 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle>Add New Task</DialogTitle>
         </DialogHeader>
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(data => createMutation.mutate(data))} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="taskType"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Task Type</FormLabel>
-                  <Select
-                    value={field.value}
-                    onValueChange={(value) => {
-                      field.onChange(value);
-                      setSelectedType(value as keyof typeof TaskType);
-                    }}
-                  >
+
+        <div className="flex-1 overflow-y-auto pr-6 -mr-6">
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(data => createMutation.mutate(data))} className="space-y-4">
+              <FormField
+                control={form.control}
+                name="taskType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Task Type</FormLabel>
+                    <Select
+                      value={field.value}
+                      onValueChange={(value) => {
+                        field.onChange(value);
+                        setSelectedType(value as keyof typeof TaskType);
+                      }}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select task type" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value={TaskType.DAILY}>Daily Task</SelectItem>
+                        <SelectItem value={TaskType.PERSONAL_PROJECT}>Personal Project</SelectItem>
+                        <SelectItem value={TaskType.LONG_TERM_PROJECT}>Long-term Project</SelectItem>
+                        <SelectItem value={TaskType.LIFE_GOAL}>Life Goal</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="title"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Title</FormLabel>
                     <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select task type" />
-                      </SelectTrigger>
+                      <Input placeholder="Enter task title" {...field} />
                     </FormControl>
-                    <SelectContent>
-                      <SelectItem value={TaskType.DAILY}>Daily Task</SelectItem>
-                      <SelectItem value={TaskType.PERSONAL_PROJECT}>Personal Project</SelectItem>
-                      <SelectItem value={TaskType.LONG_TERM_PROJECT}>Long-term Project</SelectItem>
-                      <SelectItem value={TaskType.LIFE_GOAL}>Life Goal</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            <FormField
-              control={form.control}
-              name="title"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Title</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Enter task title" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Description</FormLabel>
+                    <FormControl>
+                      <Textarea placeholder="Enter task description" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            <FormField
-              control={form.control}
-              name="description"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Description</FormLabel>
-                  <FormControl>
-                    <Textarea placeholder="Enter task description" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+              <FormField
+                control={form.control}
+                name="estimatedDuration"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Estimated Duration</FormLabel>
+                    <FormControl>
+                      <Input placeholder={getDurationPlaceholder()} {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </form>
+          </Form>
 
-            <FormField
-              control={form.control}
-              name="estimatedDuration"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Estimated Duration</FormLabel>
-                  <FormControl>
-                    <Input placeholder={getDurationPlaceholder()} {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={createMutation.isPending}>
-                {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {needsSuggestions(form.getValues().taskType) ? "Suggest Subtasks" : "Create Task"}
-              </Button>
-            </div>
-          </form>
-        </Form>
-
-        {suggestions && (
-          <div className="mt-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold">Suggested Subtasks</h3>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleAddNewSubtask}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Subtask
-              </Button>
-            </div>
-
-            <div className="space-y-3 max-h-[40vh] overflow-y-auto">
-              {suggestions.subtasks.map((subtask, index) => (
-                <div key={index} className="space-y-2 p-3 border rounded-lg">
-                  {editingSubtask === index ? (
-                    <div className="space-y-2">
-                      <Input
-                        value={subtask.title}
-                        onChange={(e) => handleEditSubtask(index, { title: e.target.value })}
-                        placeholder="Subtask title"
-                      />
-                      <Textarea
-                        value={subtask.description}
-                        onChange={(e) => handleEditSubtask(index, { description: e.target.value })}
-                        placeholder="Subtask description"
-                      />
-                      <div className="flex gap-2">
-                        <Input
-                          value={subtask.estimatedDuration}
-                          onChange={(e) => handleEditSubtask(index, { estimatedDuration: e.target.value })}
-                          placeholder="Duration (e.g., 2h)"
-                        />
-                        <Input
-                          type="date"
-                          value={subtask.deadline}
-                          onChange={(e) => handleEditSubtask(index, { deadline: e.target.value })}
-                        />
-                      </div>
-                      <Button size="sm" onClick={() => setEditingSubtask(null)}>
-                        Save Changes
-                      </Button>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex items-start justify-between">
-                        <h4 className="font-medium">{subtask.title}</h4>
-                        <div className="flex gap-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setEditingSubtask(index)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleRemoveSubtask(index)}
-                          >
-                            <X className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                      <p className="text-sm text-muted-foreground">{subtask.description}</p>
-                      <div className="flex items-center gap-2 text-sm">
-                        <span>Duration: {subtask.estimatedDuration}</span>
-                        <span>•</span>
-                        <span>Deadline: {subtask.deadline}</span>
-                      </div>
-                    </>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            <div className="space-y-2">
-              <p className="text-sm">Total Duration: {suggestions.estimatedTotalDuration}</p>
-              <p className="text-sm">Suggested Deadline: {suggestions.suggestedDeadline}</p>
-            </div>
-
-            {suggestions.tips.length > 0 && (
-              <div className="space-y-2">
-                <h4 className="font-semibold">Tips</h4>
-                <ul className="list-disc list-inside space-y-1">
-                  {suggestions.tips.map((tip, index) => (
-                    <li key={index} className="text-sm">{tip}</li>
-                  ))}
-                </ul>
+          {suggestions && (
+            <div className="mt-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold">Suggested Subtasks</h3>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAddNewSubtask}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Subtask
+                </Button>
               </div>
-            )}
 
-            <div className="flex justify-end gap-2">
+              <div className="space-y-3 max-h-[40vh] overflow-y-auto pr-2">
+                {suggestions.subtasks.map((subtask, index) => (
+                  <div key={index} className="space-y-2 p-3 border rounded-lg">
+                    {editingSubtask === index ? (
+                      <div className="space-y-2">
+                        <Input
+                          value={subtask.title}
+                          onChange={(e) => handleEditSubtask(index, { title: e.target.value })}
+                          placeholder="Subtask title"
+                        />
+                        <Textarea
+                          value={subtask.description}
+                          onChange={(e) => handleEditSubtask(index, { description: e.target.value })}
+                          placeholder="Subtask description"
+                        />
+                        <div className="flex gap-2">
+                          <Input
+                            value={subtask.estimatedDuration}
+                            onChange={(e) => handleEditSubtask(index, { estimatedDuration: e.target.value })}
+                            placeholder="Duration (e.g., 2h)"
+                          />
+                          <Input
+                            type="date"
+                            value={subtask.deadline}
+                            onChange={(e) => handleEditSubtask(index, { deadline: e.target.value })}
+                          />
+                        </div>
+                        <Button size="sm" onClick={() => setEditingSubtask(null)}>
+                          Save Changes
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-start justify-between">
+                          <h4 className="font-medium">{subtask.title}</h4>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setEditingSubtask(index)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleRemoveSubtask(index)}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                        <p className="text-sm text-muted-foreground">{subtask.description}</p>
+                        <div className="flex items-center gap-2 text-sm">
+                          <span>Duration: {subtask.estimatedDuration}</span>
+                          <span>•</span>
+                          <span>Deadline: {subtask.deadline}</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-2 pt-4">
+                <p className="text-sm">Total Duration: {suggestions.estimatedTotalDuration}</p>
+                <p className="text-sm">Suggested Deadline: {suggestions.suggestedDeadline}</p>
+              </div>
+
+              {suggestions.tips.length > 0 && (
+                <div className="space-y-2">
+                  <h4 className="font-semibold">Tips</h4>
+                  <ul className="list-disc list-inside space-y-1">
+                    {suggestions.tips.map((tip, index) => (
+                      <li key={index} className="text-sm">{tip}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 pt-4 mt-4 border-t">
+          {suggestions ? (
+            <>
               <Button variant="outline" onClick={() => {
                 setSuggestions(null);
                 setMainTask(null);
@@ -392,9 +388,23 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
               <Button onClick={handleSaveSuggestions}>
                 Save with Subtasks
               </Button>
-            </div>
-          </div>
-        )}
+            </>
+          ) : (
+            <>
+              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+                Cancel
+              </Button>
+              <Button 
+                type="submit" 
+                disabled={createMutation.isPending}
+                onClick={form.handleSubmit(data => createMutation.mutate(data))}
+              >
+                {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {needsSuggestions(form.getValues().taskType) ? "Suggest Subtasks" : "Create Task"}
+              </Button>
+            </>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );
