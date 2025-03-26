@@ -8,8 +8,8 @@
  */
 
 import fetch from 'node-fetch';
-// Use localhost when testing locally, or the Replit URL when in Replit
-const BASE_URL = 'https://workspace.56ba138a-14c5-450c-9faa-bcec29f1b8f0.repl.co';
+// Use localhost for testing within Replit
+const BASE_URL = 'http://localhost:5000';
 
 // Test scenarios matching specific user phone numbers
 const testScenarios = [
