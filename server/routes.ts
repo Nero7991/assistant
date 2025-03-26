@@ -80,6 +80,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Start the message scheduler
   messageScheduler.start();
 
+  // User Settings Endpoint
+  app.patch("/api/user", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      // Extract only the fields we want to allow updating
+      const { 
+        contactPreference, 
+        phoneNumber, 
+        email, 
+        isPhoneVerified, 
+        isEmailVerified,
+        allowEmailNotifications,
+        allowPhoneNotifications,
+        preferredMessageTime,
+        timeZone
+      } = req.body;
+      
+      // Build the update object with only defined values
+      const updateData: Record<string, any> = {};
+      if (contactPreference !== undefined) updateData.contactPreference = contactPreference;
+      if (phoneNumber !== undefined) updateData.phoneNumber = phoneNumber;
+      if (email !== undefined) updateData.email = email;
+      if (isPhoneVerified !== undefined) updateData.isPhoneVerified = isPhoneVerified;
+      if (isEmailVerified !== undefined) updateData.isEmailVerified = isEmailVerified;
+      if (allowEmailNotifications !== undefined) updateData.allowEmailNotifications = allowEmailNotifications;
+      if (allowPhoneNotifications !== undefined) updateData.allowPhoneNotifications = allowPhoneNotifications;
+      if (preferredMessageTime !== undefined) updateData.preferredMessageTime = preferredMessageTime;
+      if (timeZone !== undefined) updateData.timeZone = timeZone;
+      
+      // Apply the update
+      const updatedUser = await storage.updateUser({
+        ...req.user,
+        ...updateData
+      });
+      
+      res.json(updatedUser);
+    } catch (error) {
+      console.error("Error updating user:", error);
+      res.status(500).json({ error: "Failed to update user settings" });
+    }
+  });
+
   // Known User Facts Endpoints
   app.get("/api/known-facts", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
