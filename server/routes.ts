@@ -35,7 +35,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           userId: req.user.id
         });
       } catch (error) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({ error: error instanceof Error ? error.message : 'An unknown error occurred' });
       }
     });
 
@@ -71,7 +71,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error("Error in simulate-whatsapp endpoint:", error);
         res.status(500).json({
           error: "Failed to process simulated message",
-          details: error.message
+          details: error instanceof Error ? error.message : 'An unknown error occurred'
         });
       }
     });
@@ -292,10 +292,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     const parsed = insertGoalSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).send(parsed.error);
 
+    // Ensure deadline is null rather than undefined if not provided
     const goal = await storage.createGoal({
       ...parsed.data,
       userId: req.user.id,
-      completed: false
+      completed: false,
+      deadline: parsed.data.deadline || null
     });
     res.status(201).json(goal);
   });
