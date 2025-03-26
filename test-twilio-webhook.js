@@ -9,9 +9,7 @@
 
 import fetch from 'node-fetch';
 // Use localhost when testing locally, or the Replit URL when in Replit
-const BASE_URL = process.env.REPL_SLUG 
-  ? `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co` 
-  : 'http://localhost:5000';
+const BASE_URL = 'https://workspace.56ba138a-14c5-450c-9faa-bcec29f1b8f0.repl.co';
 
 // Test scenarios matching specific user phone numbers
 const testScenarios = [
