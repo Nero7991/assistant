@@ -3,7 +3,7 @@ import createMemoryStore from "memorystore";
 import { User, Goal, CheckIn, Task, KnownUserFact, InsertKnownUserFact, InsertTask, Subtask, InsertSubtask } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc } from "drizzle-orm";
-import { users, goals, checkIns, contactVerifications, knownUserFacts, tasks, subtasks } from "@shared/schema";
+import { users, goals, checkIns, contactVerifications, knownUserFacts, tasks, subtasks, messageSchedules } from "@shared/schema";
 import type { User, Goal, CheckIn, Task, KnownUserFact, InsertKnownUserFact, InsertTask } from "@shared/schema";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";

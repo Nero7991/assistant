@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Brain, Menu, LogOut } from "lucide-react";
+import { Brain, Menu, LogOut, Settings } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import {
@@ -7,6 +7,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 

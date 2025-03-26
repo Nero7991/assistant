@@ -10,6 +10,7 @@ import HomePage from "@/pages/home-page";
 import AuthPage from "@/pages/auth-page";
 import TasksPage from "@/pages/tasks-page";
 import FactsPage from "@/pages/facts-page";
+import AccountPage from "@/pages/account-page";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -37,6 +38,14 @@ function Router() {
         component={() => (
           <AppLayout>
             <FactsPage />
+          </AppLayout>
+        )} 
+      />
+      <ProtectedRoute 
+        path="/account" 
+        component={() => (
+          <AppLayout>
+            <AccountPage />
           </AppLayout>
         )} 
       />
