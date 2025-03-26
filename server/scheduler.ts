@@ -142,9 +142,9 @@ export class MessageScheduler {
   private async scheduleMorningMessage(user: {
     userId: number;
     username: string;
-    phoneNumber: string;
-    timeZone: string;
-    preferredTime: string;
+    phoneNumber: string | null;
+    timeZone: string | null;
+    preferredTime: string | null;
   }) {
     try {
       // Check if we already have a pending morning message for this user
@@ -165,14 +165,17 @@ export class MessageScheduler {
         return;
       }
       
-      // Parse the preferred time
-      const [hours, minutes] = user.preferredTime.split(":").map(Number);
+      // Parse the preferred time (default to 8:00 AM if not set)
+      const preferredTime = user.preferredTime || "08:00";
+      const [hours, minutes] = preferredTime.split(":").map(Number);
       const now = new Date();
       
       // Convert to user's local time zone to determine the next occurrence
       let userTime;
       try {
-        userTime = new Date(now.toLocaleString("en-US", { timeZone: user.timeZone }));
+        // Use UTC if the user hasn't set a timezone
+        const timeZone = user.timeZone || "UTC";
+        userTime = new Date(now.toLocaleString("en-US", { timeZone }));
       } catch (error) {
         console.error(`Invalid time zone for user ${user.userId}: ${user.timeZone}. Using UTC.`);
         userTime = new Date(now.toLocaleString("en-US", { timeZone: "UTC" }));

@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import twilio from "twilio";
-import { Task, User, KnownUserFact, MessageHistory, MessageSchedule, messageHistory, messageSchedules, users, tasks, subtasks, knownUserFacts } from "@shared/schema";
+import { Task, User, KnownUserFact, MessageHistory, MessageSchedule, messageHistory, messageSchedules, users, tasks, subtasks, knownUserFacts, TaskType, Subtask } from "@shared/schema";
 import { db } from "../db";
 import { eq, and, lte, desc, gt } from "drizzle-orm";
 import { storage } from "../storage";
@@ -95,13 +95,13 @@ export class MessagingService {
 
   async generateFollowUpMessage(context: MessageContext): Promise<string> {
     const lastSentMessage = context.previousMessages.find(msg => msg.type === 'morning_message' || msg.type === 'follow_up');
-    const metadata = context.previousMessages[0]?.metadata || {};
+    const metadata = context.previousMessages[0]?.metadata || {} as any;
     const responseType = metadata.sentiment?.type || 'neutral';
     
     const activeTasks = context.tasks.filter(task => task.status === "active");
     const todaysTasks = activeTasks.filter(task => {
       // Check if it's a daily task with scheduled time for today
-      return task.taskType === "DAILY" && task.scheduledTime;
+      return task.taskType === TaskType.DAILY && task.scheduledTime;
     });
 
     const prompt = `
@@ -160,7 +160,7 @@ export class MessagingService {
     const activeTasks = context.tasks.filter(task => task.status === "active");
 
     // Get subtasks for each active task
-    let subtasksByTask = {};
+    const subtasksByTask: Record<number, Subtask[]> = {};
     for (const task of activeTasks) {
       if (task.id) {
         const taskSubtasks = await storage.getSubtasks(task.id);
@@ -183,8 +183,8 @@ export class MessagingService {
       Subtasks by task:
       ${Object.entries(subtasksByTask).map(([taskId, subtasks]) => 
         `Task ID:${taskId} subtasks:
-        ${(subtasks as any[]).map(st => 
-          `  - ID:${st.id} | ${st.title} | Completed: ${st.completed}${st.scheduledTime ? ` | Scheduled at: ${st.scheduledTime}` : ''}${st.recurrencePattern && st.recurrencePattern !== 'none' ? ` | Recurring: ${st.recurrencePattern}` : ''}`
+        ${subtasks.map(st => 
+          `  - ID:${st.id} | ${st.title} | Completed: ${st.completedAt ? 'Yes' : 'No'}${st.scheduledTime ? ` | Scheduled at: ${st.scheduledTime}` : ''}${st.recurrencePattern && st.recurrencePattern !== 'none' ? ` | Recurring: ${st.recurrencePattern}` : ''}`
         ).join('\n')}`
       ).join('\n')}
       
@@ -320,7 +320,7 @@ export class MessagingService {
         content: response,
         type: 'response',
         status: 'received',
-        metadata: { sentiment },
+        metadata: { sentiment } as any, // Type assertion to fix compatibility
         createdAt: new Date()
       });
       
@@ -405,8 +405,9 @@ export class MessagingService {
                 userId,
                 title: update.title,
                 description: update.description || '',
-                taskType: 'DAILY',
+                taskType: TaskType.DAILY,
                 status: 'active',
+                estimatedDuration: "30 minutes", // Default reasonable duration
                 scheduledTime: update.scheduledTime,
                 recurrencePattern: update.recurrencePattern || 'none'
               });
