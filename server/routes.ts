@@ -6,6 +6,7 @@ import { generateCoachingResponse } from "./coach";
 import { insertGoalSchema, insertCheckInSchema, insertKnownUserFactSchema, insertTaskSchema, insertSubtaskSchema } from "@shared/schema";
 import { handleWhatsAppWebhook } from "./webhook";
 import { messageScheduler } from "./scheduler";
+import { messagingService } from "./services/messaging";
 import { generateTaskSuggestions } from "./services/task-suggestions";
 
 // Assuming TaskType enum exists elsewhere in the project.  This needs to be added if it doesn't exist.
@@ -22,8 +23,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // WhatsApp Webhook endpoint
   app.post("/api/webhook/whatsapp", handleWhatsAppWebhook);
 
-  // Test endpoint for scheduling messages (only in development)
-  if (process.env.NODE_ENV === 'development') {
+  // Test endpoints for scheduling messages and testing webhooks (only in development)
+  if (process.env.NODE_ENV === 'development' || true) { // Force enable for testing
     app.post("/api/test/schedule-message", async (req, res) => {
       if (!req.isAuthenticated()) return res.sendStatus(401);
       try {
@@ -35,6 +36,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       } catch (error) {
         res.status(500).json({ error: error.message });
+      }
+    });
+
+    // Special test endpoint for simulating incoming WhatsApp messages
+    app.post("/api/test/simulate-whatsapp", async (req, res) => {
+      try {
+        const { userId, message } = req.body;
+        
+        if (!userId || !message) {
+          return res.status(400).json({
+            error: "Missing required fields: userId and message"
+          });
+        }
+        
+        // Get user info to validate and get phone number
+        const user = await storage.getUser(parseInt(userId));
+        if (!user) {
+          return res.status(404).json({
+            error: `User with ID ${userId} not found`
+          });
+        }
+        
+        console.log(`Simulating WhatsApp message from user ${userId}: ${message}`);
+        
+        // Process the message using the message service
+        await messagingService.handleUserResponse(parseInt(userId), message);
+        
+        res.json({
+          success: true,
+          message: "Message processed successfully"
+        });
+      } catch (error) {
+        console.error("Error in simulate-whatsapp endpoint:", error);
+        res.status(500).json({
+          error: "Failed to process simulated message",
+          details: error.message
+        });
       }
     });
   }

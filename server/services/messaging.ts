@@ -353,7 +353,7 @@ export class MessagingService {
             content: responseResult.message,
             type: 'coach_response',
             status: 'sent',
-            metadata: { scheduleUpdates: responseResult.scheduleUpdates },
+            metadata: { scheduleUpdates: responseResult.scheduleUpdates } as any,
             createdAt: new Date()
           });
         }
@@ -455,7 +455,7 @@ export class MessagingService {
       type: 'follow_up',
       scheduledFor,
       status: 'pending',
-      metadata: { responseType },
+      metadata: { responseType } as any,
       createdAt: new Date()
     });
     
