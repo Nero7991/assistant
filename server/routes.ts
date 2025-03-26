@@ -524,6 +524,85 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Reschedule day endpoint
+  app.post("/api/chat/reschedule-day", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const user = await storage.getUser(req.user.id);
+      const tasks = await storage.getTasks(req.user.id);
+      const facts = await storage.getKnownUserFacts(req.user.id);
+      const previousMessages = await db
+        .select()
+        .from(messageHistory)
+        .where(eq(messageHistory.userId, req.user.id))
+        .orderBy(desc(messageHistory.createdAt))
+        .limit(10);
+      
+      // Get current time for context
+      const currentTime = new Date();
+      
+      // Create context for the rescheduling message
+      const context = {
+        user: user!,
+        tasks,
+        facts,
+        previousMessages,
+        currentDateTime: currentTime.toLocaleString(),
+        messageType: 'reschedule' as const,
+      };
+      
+      // Generate the reschedule message using a similar approach to morning messages
+      // but focused on the current time of day and remaining tasks
+      const rescheduleMessage = await messagingService.generateRescheduleMessage(context);
+      
+      // Store the message in history
+      const messageId = await db.insert(messageHistory).values({
+        userId: req.user.id,
+        content: rescheduleMessage.message,
+        type: 'reschedule_message',
+        status: 'sent',
+        metadata: { scheduleUpdates: rescheduleMessage.scheduleUpdates } as any,
+        createdAt: new Date()
+      }).returning({ id: messageHistory.id });
+
+      // Schedule appropriate follow-ups based on the new schedule
+      if (rescheduleMessage.scheduleUpdates && rescheduleMessage.scheduleUpdates.length > 0) {
+        // Find the next task to schedule a follow-up for
+        const sortedUpdates = [...rescheduleMessage.scheduleUpdates].sort((a, b) => {
+          const timeA = a.scheduledTime ? new Date(a.scheduledTime).getTime() : Number.MAX_SAFE_INTEGER;
+          const timeB = b.scheduledTime ? new Date(b.scheduledTime).getTime() : Number.MAX_SAFE_INTEGER;
+          return timeA - timeB;
+        });
+        
+        // Find the next task that's scheduled after the current time
+        const nextTask = sortedUpdates.find(task => {
+          if (!task.scheduledTime) return false;
+          const taskTime = new Date(task.scheduledTime);
+          return taskTime.getTime() > currentTime.getTime();
+        });
+        
+        if (nextTask && nextTask.scheduledTime) {
+          const taskTime = new Date(nextTask.scheduledTime);
+          const delayMinutes = Math.max(1, Math.round((taskTime.getTime() - currentTime.getTime()) / 60000));
+          await messageScheduler.scheduleFollowUp(req.user.id, delayMinutes, { 
+            rescheduled: true,
+            taskId: nextTask.taskId
+          });
+        }
+      }
+      
+      res.json({
+        id: messageId[0].id,
+        content: rescheduleMessage.message,
+        scheduleUpdates: rescheduleMessage.scheduleUpdates || []
+      });
+    } catch (error) {
+      console.error("Error generating reschedule message:", error);
+      res.status(500).json({ error: "Failed to reschedule day" });
+    }
+  });
+
   // Chat test endpoints
   app.post("/api/test/chat/trigger", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);

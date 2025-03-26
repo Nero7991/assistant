@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Loader2, Send } from "lucide-react";
+import { Loader2, Send, Calendar } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { formatDistanceToNow } from "date-fns";
 
@@ -48,6 +48,31 @@ export default function ChatPage() {
     onError: (error: Error) => {
       toast({
         title: "Failed to send message",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+  
+  // Reschedule day mutation
+  const rescheduleDayMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/chat/reschedule-day", {});
+      return await res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Day rescheduled",
+        description: "Your day has been rescheduled. Check the chat for your new schedule.",
+      });
+      // Refetch messages after a short delay to ensure the new message is included
+      setTimeout(() => {
+        refetch();
+      }, 1000);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to reschedule day",
         description: error.message,
         variant: "destructive",
       });
@@ -114,9 +139,29 @@ export default function ChatPage() {
   
   return (
     <div className="container mx-auto p-4 h-full flex flex-col">
-      <h1 className="text-2xl font-bold mb-4">Chat with Your ADHD Coach</h1>
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-2xl font-bold">Chat with Your ADHD Coach</h1>
+        <Button
+          variant="outline"
+          onClick={() => rescheduleDayMutation.mutate()}
+          disabled={rescheduleDayMutation.isPending}
+          className="flex gap-2 items-center"
+        >
+          {rescheduleDayMutation.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Calendar className="h-4 w-4" />
+          )}
+          <span>Reschedule Day</span>
+        </Button>
+      </div>
       
       <Card className="flex-1 flex flex-col overflow-hidden p-0 mb-4">
+        {/* Chat header with info about scheduling */}
+        <div className="bg-muted/40 border-b px-4 py-2 text-sm text-muted-foreground">
+          <p>Need to adjust your schedule? Use the "Reschedule Day" button to create a new plan or send a message.</p>
+        </div>
+
         <div className="flex-1 overflow-y-auto p-4">
           {isLoading ? (
             <div className="space-y-4">
@@ -127,6 +172,14 @@ export default function ChatPage() {
             </div>
           ) : (
             renderMessages()
+          )}
+          {rescheduleDayMutation.isPending && (
+            <div className="flex justify-center py-2">
+              <div className="flex items-center gap-2 text-muted-foreground bg-muted px-3 py-1 rounded-full text-sm">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                <span>Rescheduling your day...</span>
+              </div>
+            </div>
           )}
           <div ref={messagesEndRef} />
         </div>
@@ -139,12 +192,12 @@ export default function ChatPage() {
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             placeholder="Type your message..."
-            disabled={sendMessageMutation.isPending}
+            disabled={sendMessageMutation.isPending || rescheduleDayMutation.isPending}
             className="flex-1"
           />
           <Button 
             type="submit"
-            disabled={sendMessageMutation.isPending || !message.trim()}
+            disabled={sendMessageMutation.isPending || rescheduleDayMutation.isPending || !message.trim()}
           >
             {sendMessageMutation.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />

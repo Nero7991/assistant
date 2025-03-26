@@ -18,7 +18,7 @@ interface MessageContext {
   facts: KnownUserFact[];
   previousMessages: MessageHistory[];
   currentDateTime: string;
-  messageType: 'morning' | 'follow_up' | 'response';
+  messageType: 'morning' | 'follow_up' | 'response' | 'reschedule';
   userResponse?: string;
 }
 
@@ -257,6 +257,103 @@ export class MessagingService {
     }
   }
 
+  async generateRescheduleMessage(context: MessageContext): Promise<{
+    message: string;
+    scheduleUpdates?: ScheduleUpdate[];
+  }> {
+    const activeTasks = context.tasks.filter(task => task.status === "active");
+    
+    // Get subtasks for each active task
+    const subtasksByTask: Record<number, Subtask[]> = {};
+    for (const task of activeTasks) {
+      if (task.id) {
+        const taskSubtasks = await storage.getSubtasks(task.id);
+        subtasksByTask[task.id] = taskSubtasks;
+      }
+    }
+
+    // Get current time to estimate what remains in the day
+    const currentTime = new Date(context.currentDateTime);
+    const hours = currentTime.getHours();
+    const timeOfDay = hours < 12 ? "morning" : hours < 17 ? "afternoon" : "evening";
+    
+    const prompt = `
+      You are an ADHD coach and accountability partner helping ${context.user.username} reschedule their day.
+      Current date and time: ${context.currentDateTime} (${timeOfDay})
+      
+      Here's what you know about the user (use this to inform your tone, but don't explicitly mention these facts):
+      ${context.facts.map(fact => `- ${fact.category}: ${fact.content}`).join('\n')}
+      
+      Their current active tasks (with IDs you'll need for scheduling):
+      ${activeTasks.map(task => 
+        `- ID:${task.id} | ${task.title} | Type: ${task.taskType}${task.scheduledTime ? ` | Scheduled at: ${task.scheduledTime}` : ''}${task.recurrencePattern && task.recurrencePattern !== 'none' ? ` | Recurring: ${task.recurrencePattern}` : ''} | Description: ${task.description || 'No description'}`
+      ).join('\n')}
+      
+      Subtasks by task:
+      ${Object.entries(subtasksByTask).map(([taskId, subtasks]) => 
+        `Task ID:${taskId} subtasks:
+        ${subtasks.map(st => 
+          `  - ID:${st.id} | ${st.title} | Completed: ${st.completedAt ? 'Yes' : 'No'}${st.scheduledTime ? ` | Scheduled at: ${st.scheduledTime}` : ''}${st.recurrencePattern && st.recurrencePattern !== 'none' ? ` | Recurring: ${st.recurrencePattern}` : ''}`
+        ).join('\n')}`
+      ).join('\n')}
+
+      The user has asked to reschedule their day. Create a new schedule for them that:
+      1. Takes into account it's currently the ${timeOfDay} (${hours}:00)
+      2. Prioritizes tasks that are most time-sensitive
+      3. Spaces out tasks appropriately with breaks
+      4. Includes specific times for remaining tasks
+
+      IMPORTANT RULES:
+      - Be friendly but concise (max 800 characters)
+      - Format your message as a short greeting followed by a bullet list of scheduled tasks with times
+      - End with brief encouragement
+      - Be realistic about what can be done in the remaining day
+      - Only schedule tasks for today, not future days
+      
+      You MUST respond with a JSON object containing:
+      1. A message field with your friendly schedule message
+      2. A scheduleUpdates array with precise times for each task
+
+      Example of required response format:
+      {
+        "message": "Your friendly schedule message with bullets here",
+        "scheduleUpdates": [
+          {
+            "taskId": 123,
+            "action": "reschedule",
+            "scheduledTime": "15:30"
+          },
+          {
+            "taskId": 456,
+            "action": "reschedule",
+            "scheduledTime": "17:00"
+          }
+        ]
+      }
+    `;
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.7,
+      response_format: { type: "json_object" }
+    });
+
+    const content = response.choices[0].message.content;
+    if (!content) return { message: "I couldn't create a schedule for you right now. Please try again." };
+
+    try {
+      const parsed = JSON.parse(content);
+      return {
+        message: parsed.message,
+        scheduleUpdates: parsed.scheduleUpdates
+      };
+    } catch (error) {
+      console.error("Failed to parse LLM response as JSON:", error);
+      return { message: content };
+    }
+  }
+
   async generateMessage(context: MessageContext): Promise<string> {
     switch (context.messageType) {
       case 'morning':
@@ -266,6 +363,9 @@ export class MessagingService {
       case 'response':
         const result = await this.generateResponseMessage(context);
         return result.message;
+      case 'reschedule':
+        const rescheduleResult = await this.generateRescheduleMessage(context);
+        return rescheduleResult.message;
       default:
         return this.generateMorningMessage(context);
     }
