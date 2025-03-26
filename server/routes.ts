@@ -524,6 +524,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Test endpoints for message examples
+  app.get("/api/examples/morning-message", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const user = await storage.getUser(req.user.id);
+      const tasks = await storage.getTasks(req.user.id);
+      const facts = await storage.getKnownUserFacts(req.user.id);
+      const messages = await db
+        .select()
+        .from(messageHistory)
+        .where(eq(messageHistory.userId, req.user.id))
+        .orderBy(desc(messageHistory.createdAt))
+        .limit(10);
+      
+      const context = {
+        user: user!,
+        tasks,
+        facts,
+        previousMessages: messages,
+        currentDateTime: new Date().toLocaleString(),
+        messageType: 'morning' as const
+      };
+      
+      const message = await messagingService.generateMorningMessage(context);
+      res.json({ message });
+    } catch (error) {
+      console.error("Error generating example morning message:", error);
+      res.status(500).json({ error: "Failed to generate example message" });
+    }
+  });
+
+  app.get("/api/examples/follow-up-message", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const user = await storage.getUser(req.user.id);
+      const tasks = await storage.getTasks(req.user.id);
+      const facts = await storage.getKnownUserFacts(req.user.id);
+      const messages = await db
+        .select()
+        .from(messageHistory)
+        .where(eq(messageHistory.userId, req.user.id))
+        .orderBy(desc(messageHistory.createdAt))
+        .limit(10);
+      
+      const context = {
+        user: user!,
+        tasks,
+        facts,
+        previousMessages: messages,
+        currentDateTime: new Date().toLocaleString(),
+        messageType: 'follow_up' as const
+      };
+      
+      const message = await messagingService.generateFollowUpMessage(context);
+      res.json({ message });
+    } catch (error) {
+      console.error("Error generating example follow-up message:", error);
+      res.status(500).json({ error: "Failed to generate example message" });
+    }
+  });
+
   const httpServer = createServer(app);
 
   // Graceful shutdown
