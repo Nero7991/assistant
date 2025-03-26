@@ -3,13 +3,13 @@ import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { storage } from "./storage";
 import { generateCoachingResponse } from "./coach";
-import { insertGoalSchema, insertCheckInSchema, insertKnownUserFactSchema, insertTaskSchema, insertSubtaskSchema, messageHistory } from "@shared/schema";
+import { insertGoalSchema, insertCheckInSchema, insertKnownUserFactSchema, insertTaskSchema, insertSubtaskSchema, messageHistory, messageSchedules } from "@shared/schema";
 import { handleWhatsAppWebhook } from "./webhook";
 import { messageScheduler } from "./scheduler";
 import { messagingService } from "./services/messaging";
 import { generateTaskSuggestions } from "./services/task-suggestions";
 import { db } from "./db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 
 // Assuming TaskType enum exists elsewhere in the project.  This needs to be added if it doesn't exist.
 enum TaskType {
@@ -35,6 +35,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
           message: "Test message scheduled",
           scheduledFor: scheduledTime,
           userId: req.user.id
+        });
+      } catch (error) {
+        res.status(500).json({ error: error instanceof Error ? error.message : 'An unknown error occurred' });
+      }
+    });
+    
+    // Test endpoint to verify duplicate follow-up prevention
+    app.post("/api/test/duplicate-followups", async (req, res) => {
+      if (!req.isAuthenticated()) return res.sendStatus(401);
+      try {
+        // Attempt to schedule multiple follow-ups for the same user
+        const results = [];
+        
+        // First attempt - should succeed
+        await messagingService.scheduleFollowUp(req.user.id, 'neutral');
+        results.push("First follow-up scheduled");
+        
+        // Second attempt - should be prevented by our duplicate check
+        await messagingService.scheduleFollowUp(req.user.id, 'positive');
+        results.push("Second follow-up attempted");
+        
+        // Third attempt - should also be prevented
+        await messagingService.scheduleFollowUp(req.user.id, 'negative');
+        results.push("Third follow-up attempted");
+        
+        // Check the database to see what was actually scheduled
+        const pendingMessages = await db
+          .select()
+          .from(messageSchedules)
+          .where(
+            and(
+              eq(messageSchedules.userId, req.user.id),
+              eq(messageSchedules.type, 'follow_up'),
+              eq(messageSchedules.status, 'pending')
+            )
+          );
+        
+        res.json({
+          message: "Test completed successfully",
+          results,
+          scheduledFollowUps: pendingMessages.length,
+          pendingMessages
         });
       } catch (error) {
         res.status(500).json({ error: error instanceof Error ? error.message : 'An unknown error occurred' });
