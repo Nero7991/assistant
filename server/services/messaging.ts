@@ -50,7 +50,7 @@ export class MessagingService {
     }
 
     const prompt = `
-      As an ADHD coach and accountability partner, create a motivating morning message for ${context.user.username}.
+      As an ADHD coach and accountability partner, create a concise, motivating morning message for ${context.user.username}.
       Current date and time: ${context.currentDateTime}
 
       Context about the user:
@@ -71,17 +71,14 @@ export class MessagingService {
       ${context.previousMessages.map(msg => `- ${msg.type}: ${msg.content.substring(0, 100)}${msg.content.length > 100 ? '...' : ''}`).join('\n')}
 
       Create a friendly, encouraging morning message that:
-      1. Acknowledges their ADHD characteristics based on their personal facts
-      2. Suggests a plan for today with a specific schedule that includes:
-         - 2-3 highest priority tasks with specific times to do them
-         - Breaks between tasks
-         - Any recurring daily tasks or medications at their scheduled times
+      1. Briefly acknowledges their ADHD characteristics based on their personal facts
+      2. Suggests a plan for today with a specific schedule that includes 2-3 highest priority tasks with times
       3. Ask if they want to adjust the schedule or priorities
-      4. Offers a specific strategy or tip related to one of their known challenges
-      5. Be conversational and use encouraging language
+      4. Offers a quick strategy related to one of their known challenges
+      5. Be conversational but KEEP IT BRIEF (under 1000 characters total)
 
-      Format the response as a WhatsApp message with clear sections, numbering, and helpful emojis.
-      Remember this is a morning planning message to help them organize their day.
+      Format the response with minimal text, clear sections, and just a few helpful emojis.
+      IMPORTANT: BE CONCISE. This message should be short enough to read quickly on a phone.
     `;
 
     const response = await openai.chat.completions.create({
@@ -105,7 +102,7 @@ export class MessagingService {
     });
 
     const prompt = `
-      As an ADHD coach and accountability partner, create a follow-up message for ${context.user.username}.
+      As an ADHD coach and accountability partner, create a concise follow-up message for ${context.user.username}.
       Current date and time: ${context.currentDateTime}
       
       Context about the user:
@@ -121,15 +118,14 @@ export class MessagingService {
       
       Last message sentiment: ${responseType}
       
-      Create a supportive follow-up message that:
-      1. Acknowledges how they're doing based on previous messages and sentiment
-      2. Asks about progress on specific tasks that should be completed by now
-      3. Offers encouragement and perhaps a specific strategy to overcome any challenges
-      4. For a negative sentiment, be more supportive and offer more specific help
-      5. For a positive sentiment, celebrate progress and maintain momentum
-      6. Ask a specific question that requires a response
+      Create a brief, supportive follow-up message that:
+      1. Quickly checks in on their progress with specific tasks
+      2. For negative sentiment: offers quick support and a simple strategy
+      3. For positive sentiment: gives brief encouragement
+      4. Asks ONE specific question that requires a response
       
-      Use a warm, friendly tone with appropriate emojis. Keep it concise but supportive.
+      Use a warm tone with minimal emojis. KEEP IT UNDER 500 CHARACTERS. 
+      This must be brief enough to read in a few seconds on a phone.
     `;
 
     const response = await openai.chat.completions.create({
@@ -273,12 +269,30 @@ export class MessagingService {
 
   async sendWhatsAppMessage(to: string, message: string): Promise<boolean> {
     try {
+      // Twilio WhatsApp has a 1600 character limit
+      const MAX_MESSAGE_LENGTH = 1500; // Keep a buffer
+      
+      // If message fits in a single message, send it
+      if (message.length <= MAX_MESSAGE_LENGTH) {
+        await twilioClient.messages.create({
+          body: message,
+          from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
+          to: `whatsapp:${to}`
+        });
+        console.log(`Successfully sent WhatsApp message to ${to}`);
+        return true;
+      }
+      
+      // Otherwise, truncate and indicate it was shortened
+      const truncatedMessage = message.substring(0, MAX_MESSAGE_LENGTH) + 
+        "\n\n[Message too long. Reply for more details]";
+      
       await twilioClient.messages.create({
-        body: message,
+        body: truncatedMessage,
         from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
         to: `whatsapp:${to}`
       });
-      console.log(`Successfully sent WhatsApp message to ${to}`);
+      console.log(`Successfully sent truncated WhatsApp message to ${to}`);
       return true;
     } catch (error) {
       console.error('Failed to send WhatsApp message:', error);
