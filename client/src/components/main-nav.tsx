@@ -75,6 +75,12 @@ export function MainNav() {
                     Account Settings
                   </DropdownMenuItem>
                 </Link>
+                <Link href="/test-messages">
+                  <DropdownMenuItem className="cursor-pointer">
+                    <MessageCircle className="h-4 w-4 mr-2" />
+                    Test Messages
+                  </DropdownMenuItem>
+                </Link>
               </>
             )}
           </DropdownMenuContent>
@@ -97,6 +103,12 @@ export function MainNav() {
                     <DropdownMenuItem className="cursor-pointer">
                       <Settings className="h-4 w-4 mr-2" />
                       Account Settings
+                    </DropdownMenuItem>
+                  </Link>
+                  <Link href="/test-messages">
+                    <DropdownMenuItem className="cursor-pointer">
+                      <MessageCircle className="h-4 w-4 mr-2" />
+                      Test Messages
                     </DropdownMenuItem>
                   </Link>
                   <DropdownMenuSeparator />

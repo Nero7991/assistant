@@ -12,6 +12,7 @@ import TasksPage from "@/pages/tasks-page";
 import FactsPage from "@/pages/facts-page";
 import AccountPage from "@/pages/account-page";
 import ChatPage from "@/pages/chat-page";
+import TestMessagesPage from "@/pages/test-messages-page";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -55,6 +56,14 @@ function Router() {
         component={() => (
           <AppLayout>
             <AccountPage />
+          </AppLayout>
+        )} 
+      />
+      <ProtectedRoute 
+        path="/test-messages" 
+        component={() => (
+          <AppLayout>
+            <TestMessagesPage />
           </AppLayout>
         )} 
       />
