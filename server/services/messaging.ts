@@ -70,19 +70,23 @@ export class MessagingService {
       Previous interactions (newest first, to understand recent context):
       ${context.previousMessages.map(msg => `- ${msg.type}: ${msg.content.substring(0, 100)}${msg.content.length > 100 ? '...' : ''}`).join('\n')}
 
-      Your message should follow this structure:
-      1. A simple, friendly greeting: "Hi [name], hope you slept well." or similar
-      2. A brief transition: "Let's see what we can achieve today."
-      3. Reference to recent progress or challenges if relevant (e.g., "Yesterday, we tried completing X, but couldn't finish it.")
-      4. A clear, bulleted schedule for today with 2-3 priority tasks and times
-      5. A simple closing question asking if they want to adjust anything
+      Your message must follow this structure:
+      1. Brief, friendly greeting (e.g., "Morning, [name]!")
+      2. 2-3 sentence introduction including a positive note
+      3. Today's schedule formatted as:
+         • Short bullet points with task names and times
+         • No more than 3-4 priority tasks with times
+         • Easy to scan visual format
+      4. End with a single simple question
 
-      IMPORTANT FORMATTING RULES:
-      - Keep the message under 800 characters total
+      IMPORTANT FORMATTING GUIDELINES:
+      - Keep the message under 600 characters total
+      - Write as if you're texting a friend
       - Use minimal text with clear, concise sentences
-      - Only include 1-2 emojis if appropriate
-      - Make it easy to read on a phone
-      - Focus on being helpful and encouraging, not overwhelming
+      - At most one emoji if appropriate
+      - Make it easy to read at a glance on a phone
+      - Sound encouraging but not overwhelming
+      - Focus on clarity and brevity above all
     `;
 
     const response = await openai.chat.completions.create({
