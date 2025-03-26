@@ -23,7 +23,7 @@ interface MessageContext {
 }
 
 interface ScheduleUpdate {
-  taskId: number;
+  taskId: number | string; // Can be numeric ID or task name string
   action: 'reschedule' | 'complete' | 'skip' | 'create';
   scheduledTime?: string;
   recurrencePattern?: string;
@@ -372,30 +372,53 @@ export class MessagingService {
     try {
       console.log(`Processing ${updates.length} schedule updates for user ${userId}`);
       
+      // Get all user tasks for lookup by name if needed
+      const userTasks = await storage.getTasks(userId);
+      
       for (const update of updates) {
+        // Handle task lookup by name if taskId is not a number
+        let taskId = typeof update.taskId === 'number' ? update.taskId : undefined;
+        
+        // If taskId is a string, try to find the task by title (case insensitive, partial match)
+        if (!taskId && typeof update.taskId === 'string') {
+          const taskName = update.taskId.toLowerCase();
+          const matchedTask = userTasks.find(task => 
+            task.title.toLowerCase().includes(taskName) || 
+            (task.description && task.description.toLowerCase().includes(taskName))
+          );
+          
+          if (matchedTask) {
+            taskId = matchedTask.id;
+            console.log(`Resolved task name "${update.taskId}" to task ID ${taskId}`);
+          } else {
+            console.log(`Could not find task matching name "${update.taskId}"`);
+            continue; // Skip this update since we can't find the task
+          }
+        }
+        
         switch (update.action) {
           case 'reschedule':
-            if (update.taskId) {
-              await storage.updateTask(update.taskId, {
+            if (taskId) {
+              await storage.updateTask(taskId, {
                 scheduledTime: update.scheduledTime,
                 recurrencePattern: update.recurrencePattern
               });
-              console.log(`Rescheduled task ${update.taskId} to ${update.scheduledTime}`);
+              console.log(`Rescheduled task ${taskId} to ${update.scheduledTime}`);
             }
             break;
             
           case 'complete':
-            if (update.taskId) {
-              await storage.completeTask(update.taskId);
-              console.log(`Marked task ${update.taskId} as complete`);
+            if (taskId) {
+              await storage.completeTask(taskId);
+              console.log(`Marked task ${taskId} as complete`);
             }
             break;
             
           case 'skip':
             // Skip a single occurrence but keep the recurring task
-            if (update.taskId) {
+            if (taskId) {
               // Just log it for now - we might want to add a "skipped" status or date tracking later
-              console.log(`User requested to skip task ${update.taskId} today`);
+              console.log(`User requested to skip task ${taskId} today`);
             }
             break;
             
