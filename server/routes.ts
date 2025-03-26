@@ -3,11 +3,13 @@ import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { storage } from "./storage";
 import { generateCoachingResponse } from "./coach";
-import { insertGoalSchema, insertCheckInSchema, insertKnownUserFactSchema, insertTaskSchema, insertSubtaskSchema } from "@shared/schema";
+import { insertGoalSchema, insertCheckInSchema, insertKnownUserFactSchema, insertTaskSchema, insertSubtaskSchema, messageHistory } from "@shared/schema";
 import { handleWhatsAppWebhook } from "./webhook";
 import { messageScheduler } from "./scheduler";
 import { messagingService } from "./services/messaging";
 import { generateTaskSuggestions } from "./services/task-suggestions";
+import { db } from "./db";
+import { eq, desc } from "drizzle-orm";
 
 // Assuming TaskType enum exists elsewhere in the project.  This needs to be added if it doesn't exist.
 enum TaskType {
@@ -388,6 +390,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
 
     res.status(201).json({ checkIn, coachingResponse });
+  });
+
+  // Message History endpoint
+  app.get("/api/message-history", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+      
+      // Get message history from the database
+      const messages = await db
+        .select()
+        .from(messageHistory)
+        .where(eq(messageHistory.userId, req.user.id))
+        .orderBy(desc(messageHistory.createdAt))
+        .limit(limit);
+      
+      res.json(messages);
+    } catch (error) {
+      console.error("Error fetching message history:", error);
+      res.status(500).json({ error: "Failed to fetch message history" });
+    }
   });
 
   const httpServer = createServer(app);

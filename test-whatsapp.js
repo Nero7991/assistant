@@ -6,7 +6,10 @@
 
 const fetch = require('node-fetch');
 const readline = require('readline');
-const BASE_URL = 'http://localhost:5000';
+// Use localhost when testing locally, or the Replit URL when in Replit
+const BASE_URL = process.env.REPL_SLUG 
+  ? `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co` 
+  : 'http://localhost:5000';
 
 // Create readline interface for user input
 const rl = readline.createInterface({

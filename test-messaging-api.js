@@ -5,8 +5,11 @@
  * To run this script: node test-messaging-api.js
  */
 
-const fetch = require('node-fetch');
-const BASE_URL = 'http://localhost:5000';
+import fetch from 'node-fetch';
+// Use localhost when testing locally, or the Replit URL when in Replit
+const BASE_URL = process.env.REPL_SLUG 
+  ? `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co` 
+  : 'http://localhost:5000';
 let sessionCookie = '';
 
 // Test user credentials
