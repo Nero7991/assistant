@@ -118,8 +118,32 @@ async function testScheduleApproval() {
 async function testScheduleChange() {
   console.log('\n🧪 SCENARIO 2: User requests schedule change');
   
+  // Step 0: First create an afternoon task for testing
+  console.log('Step 0: Creating afternoon task for testing...');
+  const taskResponse = await makeRequest('/api/tasks', 'POST', {
+    title: "Complete project report",
+    description: "Finish the quarterly project report with all metrics",
+    taskType: "daily_task",
+    deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // 1 week from now
+    status: "active",
+    scheduledTime: "2:00 PM",
+    recurrencePattern: "none",
+    estimatedDuration: "60 minutes"
+  });
+  
+  // Show tasks before request
+  console.log('Current tasks:');
+  const initialTasks = await makeRequest('/api/tasks', 'GET');
+  if (initialTasks && initialTasks.length > 0) {
+    initialTasks.forEach(task => {
+      console.log(`- ${task.title} (${task.status}) scheduled at ${task.scheduledTime || 'unscheduled'}`);
+    });
+  } else {
+    console.log('No tasks found');
+  }
+  
   // Step 1: Simulate a message requesting to free up the afternoon
-  console.log('Step 1: User requests to free up afternoon...');
+  console.log('\nStep 1: User requests to free up afternoon...');
   const changeResponse = await makeRequest('/api/test/simulate-whatsapp', 'POST', {
     userId: TEST_USER.id,
     message: "I need to free up my afternoon. I'm feeling bored and want some free time."
@@ -147,11 +171,22 @@ async function testScheduleChange() {
     }
   }
   
-  // Step 3: User insists on free time
-  console.log('Step 3: User insists on having free time...');
+  // Show tasks after initial request
+  console.log('\nTasks after freeing up afternoon:');
+  const updatedTasks = await makeRequest('/api/tasks', 'GET');
+  if (updatedTasks && updatedTasks.length > 0) {
+    updatedTasks.forEach(task => {
+      console.log(`- ${task.title} (${task.status}) scheduled at ${task.scheduledTime || 'unscheduled'}`);
+    });
+  } else {
+    console.log('No tasks found');
+  }
+  
+  // Step 3: User asks for confirmation
+  console.log('\nStep 3: User asks for confirmation...');
   const insistResponse = await makeRequest('/api/test/simulate-whatsapp', 'POST', {
     userId: TEST_USER.id,
-    message: "No really, I need the whole afternoon free. Please reschedule all my afternoon tasks to tomorrow."
+    message: "Thanks! Is my afternoon completely free now?"
   });
   
   console.log('Coach response status:', insistResponse.success ? 'Success' : 'Failed');
