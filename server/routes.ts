@@ -27,6 +27,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Test endpoints for scheduling messages and testing webhooks (only in development)
   if (process.env.NODE_ENV === 'development' || true) { // Force enable for testing
+    // Endpoint to clear pending messages (for testing)
+    app.post("/api/test/clear-pending-messages", async (req, res) => {
+      if (!req.isAuthenticated()) return res.sendStatus(401);
+      try {
+        // Delete all pending follow-up messages for the current user
+        const deleteResult = await db
+          .delete(messageSchedules)
+          .where(
+            and(
+              eq(messageSchedules.userId, req.user.id),
+              eq(messageSchedules.status, 'pending')
+            )
+          )
+          .returning();
+          
+        res.json({
+          message: "Pending messages cleared",
+          userId: req.user.id,
+          messagesDeleted: deleteResult.length,
+          deletedMessages: deleteResult
+        });
+      } catch (error) {
+        res.status(500).json({ error: error instanceof Error ? error.message : 'An unknown error occurred' });
+      }
+    });
+    
     app.post("/api/test/schedule-message", async (req, res) => {
       if (!req.isAuthenticated()) return res.sendStatus(401);
       try {

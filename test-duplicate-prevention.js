@@ -63,20 +63,29 @@ async function testDuplicatePrevention() {
   const result = await makeRequest('/api/test/duplicate-followups', 'POST');
   console.log('📊 Test results:', JSON.stringify(result, null, 2));
   
-  if (result.scheduledFollowUps === 1) {
+  // After clearing previous messages, we should only have exactly 1 message scheduled
+  // by the test endpoint (the first one, and the other two attempts should be prevented)
+  if (result.pendingMessages.length === 1) {
     console.log('✅ SUCCESS: Only one follow-up was scheduled despite multiple attempts!');
   } else {
     console.log('❌ FAIL: Multiple follow-ups were scheduled, fix not working properly.');
+    console.log(`   Expected: 1, Actual: ${result.pendingMessages.length}`);
   }
   
   return result;
 }
 
-// Clean up any pending follow-ups for future tests
+// Clear pending messages before testing
 async function clearPendingFollowUps() {
-  // This would typically use an admin API to clear test data
-  // For our test purposes, we don't need this now, but it would be useful for repeated testing
-  console.log('\n🧹 Note: You may want to manually clear pending follow-ups for future tests');
+  console.log('\n🧹 Clearing pending follow-up messages...');
+  try {
+    const result = await makeRequest('/api/test/clear-pending-messages', 'POST');
+    console.log(`✅ Cleared ${result.messagesDeleted} pending messages`);
+    return result;
+  } catch (error) {
+    console.error('❌ Failed to clear pending messages:', error);
+    throw error;
+  }
 }
 
 // Main test function
@@ -87,10 +96,13 @@ async function runTests() {
     // Login to get a session
     await login();
     
+    // Clear any existing pending messages first
+    await clearPendingFollowUps();
+    
     // Test the duplicate prevention logic
     await testDuplicatePrevention();
     
-    // Clean up (if needed)
+    // Clean up after testing
     await clearPendingFollowUps();
     
     console.log('\n🎉 All tests completed!');
