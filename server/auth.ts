@@ -138,9 +138,18 @@ export function setupAuth(app: Express) {
     new LocalStrategy(async (username, password, done) => {
       try {
         const user = await storage.getUserByUsername(username);
+        
+        // Check if user exists, password matches, and account is active
         if (!user || !(await comparePasswords(password, user.password))) {
           return done(null, false);
         }
+        
+        // Check if account is active (if isActive is undefined, we assume it's active)
+        if (user.isActive === false) {
+          console.log(`Login attempt from deactivated account: ${username}`);
+          return done(null, false, { message: 'Account has been deactivated' });
+        }
+        
         return done(null, user);
       } catch (error) {
         return done(error);
@@ -157,6 +166,13 @@ export function setupAuth(app: Express) {
     try {
       console.log("Deserializing user:", id);
       const user = await storage.getUser(id);
+      
+      // If user doesn't exist or is deactivated, return null
+      if (!user || user.isActive === false) {
+        console.log(`Attempted to deserialize inactive/missing user: ${id}`);
+        return done(null, null);
+      }
+      
       done(null, user);
     } catch (error) {
       done(error);

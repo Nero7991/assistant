@@ -192,6 +192,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to update user settings" });
     }
   });
+  
+  // User Deactivation Endpoint
+  app.post("/api/user/deactivate", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      await storage.deactivateUser(req.user.id);
+      
+      // Logout the user after deactivation
+      req.logout((err) => {
+        if (err) {
+          console.error("Error logging out after deactivation:", err);
+          return res.status(500).json({ error: "Account deactivated but session logout failed" });
+        }
+        res.status(200).json({ message: "Account successfully deactivated" });
+      });
+    } catch (error) {
+      console.error("Error deactivating user account:", error);
+      res.status(500).json({ error: "Failed to deactivate account" });
+    }
+  });
 
   // Known User Facts Endpoints
   app.get("/api/known-facts", async (req, res) => {
