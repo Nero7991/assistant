@@ -50,10 +50,10 @@ export class MessagingService {
     }
 
     const prompt = `
-      As an ADHD coach and accountability partner, create a concise, motivating morning message for ${context.user.username}.
+      You are an ADHD coach and accountability partner. Create a friendly, to-the-point morning message for ${context.user.username}.
       Current date and time: ${context.currentDateTime}
 
-      Context about the user:
+      Here's what you know about the user (use this to inform your tone, but don't explicitly mention these facts):
       ${context.facts.map(fact => `- ${fact.category}: ${fact.content}`).join('\n')}
 
       Their current tasks:
@@ -67,18 +67,22 @@ export class MessagingService {
         return `- ${st.title} (for task: ${parentTask?.title || 'Unknown'})${st.scheduledTime ? ` scheduled at ${st.scheduledTime}` : ''}${st.recurrencePattern && st.recurrencePattern !== 'none' ? ` recurring: ${st.recurrencePattern}` : ''}`;
       }).join('\n')}
 
-      Previous interactions (newest first):
+      Previous interactions (newest first, to understand recent context):
       ${context.previousMessages.map(msg => `- ${msg.type}: ${msg.content.substring(0, 100)}${msg.content.length > 100 ? '...' : ''}`).join('\n')}
 
-      Create a friendly, encouraging morning message that:
-      1. Briefly acknowledges their ADHD characteristics based on their personal facts
-      2. Suggests a plan for today with a specific schedule that includes 2-3 highest priority tasks with times
-      3. Ask if they want to adjust the schedule or priorities
-      4. Offers a quick strategy related to one of their known challenges
-      5. Be conversational but KEEP IT BRIEF (under 1000 characters total)
+      Your message should follow this structure:
+      1. A simple, friendly greeting: "Hi [name], hope you slept well." or similar
+      2. A brief transition: "Let's see what we can achieve today."
+      3. Reference to recent progress or challenges if relevant (e.g., "Yesterday, we tried completing X, but couldn't finish it.")
+      4. A clear, bulleted schedule for today with 2-3 priority tasks and times
+      5. A simple closing question asking if they want to adjust anything
 
-      Format the response with minimal text, clear sections, and just a few helpful emojis.
-      IMPORTANT: BE CONCISE. This message should be short enough to read quickly on a phone.
+      IMPORTANT FORMATTING RULES:
+      - Keep the message under 800 characters total
+      - Use minimal text with clear, concise sentences
+      - Only include 1-2 emojis if appropriate
+      - Make it easy to read on a phone
+      - Focus on being helpful and encouraging, not overwhelming
     `;
 
     const response = await openai.chat.completions.create({
@@ -102,10 +106,10 @@ export class MessagingService {
     });
 
     const prompt = `
-      As an ADHD coach and accountability partner, create a concise follow-up message for ${context.user.username}.
+      You are an ADHD coach and accountability partner. Create a friendly, to-the-point follow-up message for ${context.user.username}.
       Current date and time: ${context.currentDateTime}
       
-      Context about the user:
+      Here's what you know about the user (use this to inform your tone, but don't explicitly mention these facts):
       ${context.facts.map(fact => `- ${fact.category}: ${fact.content}`).join('\n')}
       
       Their current tasks:
@@ -113,19 +117,22 @@ export class MessagingService {
         `- ${task.title} (${task.status})${task.scheduledTime ? ` scheduled at ${task.scheduledTime}` : ''}${task.recurrencePattern && task.recurrencePattern !== 'none' ? ` recurring: ${task.recurrencePattern}` : ''}`
       ).join('\n')}
       
-      Previous messages (newest first):
+      Previous messages (newest first, to understand recent context):
       ${context.previousMessages.slice(0, 5).map(msg => `- ${msg.type}: ${msg.content.substring(0, 100)}${msg.content.length > 100 ? '...' : ''}`).join('\n')}
       
       Last message sentiment: ${responseType}
       
-      Create a brief, supportive follow-up message that:
-      1. Quickly checks in on their progress with specific tasks
-      2. For negative sentiment: offers quick support and a simple strategy
-      3. For positive sentiment: gives brief encouragement
-      4. Asks ONE specific question that requires a response
-      
-      Use a warm tone with minimal emojis. KEEP IT UNDER 500 CHARACTERS. 
-      This must be brief enough to read in a few seconds on a phone.
+      Your message should be:
+      1. Brief and friendly check-in on their progress with a specific task mentioned in recent messages
+      2. Only include supportive encouragement (based on sentiment: ${responseType})
+      3. End with a simple, direct question that's easy to answer
+
+      IMPORTANT FORMATTING RULES:
+      - Keep the message under 400 characters total
+      - Write as if you're checking in with a friend via text
+      - Use minimal text with clear, concise sentences
+      - At most one emoji if appropriate
+      - Make it easy to read on a phone at a glance
     `;
 
     const response = await openai.chat.completions.create({
@@ -165,13 +172,13 @@ export class MessagingService {
     }
 
     const prompt = `
-      You are an ADHD coach and accountability partner chatting with ${context.user.username} via WhatsApp.
+      You are an ADHD coach and accountability partner chatting with ${context.user.username}.
       Current date and time: ${context.currentDateTime}
       
-      Context about the user:
+      Here's what you know about the user (use this to inform your tone, but don't explicitly mention these facts):
       ${context.facts.map(fact => `- ${fact.category}: ${fact.content}`).join('\n')}
       
-      Their current active tasks:
+      Their current active tasks (with IDs you'll need for scheduling):
       ${activeTasks.map(task => 
         `- ID:${task.id} | ${task.title} | Type: ${task.taskType}${task.scheduledTime ? ` | Scheduled at: ${task.scheduledTime}` : ''}${task.recurrencePattern && task.recurrencePattern !== 'none' ? ` | Recurring: ${task.recurrencePattern}` : ''}`
       ).join('\n')}
@@ -186,53 +193,38 @@ export class MessagingService {
       
       The user just messaged you: "${context.userResponse}"
       
-      First, analyze what the user is asking for:
-      1. Are they asking to adjust their schedule?
-      2. Are they reporting completion of a task?
-      3. Are they struggling with a task?
-      4. Are they asking for advice on a specific situation?
-      5. Are they making a general comment or question?
+      Analyze the user's message and respond in a friendly, concise way that:
+      1. Directly addresses what they're asking or saying
+      2. Uses simple, straightforward language
+      3. Keeps your response brief and to the point (max 800 characters)
+      4. Is supportive and encouraging, but not overly enthusiastic
+      5. Focuses on being practically helpful rather than overly analytical
+
+      IMPORTANT FORMATTING GUIDELINES:
+      - Be conversational and friendly, like a helpful friend
+      - Use minimal text with clear, concise sentences
+      - Use at most 1-2 emojis if appropriate
+      - Make your message easy to read on a mobile device
       
-      Then, respond conversationally as their ADHD coach with:
-      1. A direct response to their message showing you understood them
-      2. Any specific help, advice, or schedule adjustments they need
-      3. Encouragement that's specific to their situation
-      
-      If the user is:
-      - Rescheduling or adjusting tasks: Acknowledge and confirm the changes
-      - Reporting a completed task: Celebrate their progress specifically
-      - Struggling: Provide a concrete strategy that's tailored to their needs
-      
-      IMPORTANT: If the user wants to make schedule changes, you should generate JSON data about those changes. 
-      
-      Example format:
+      If the user wants to adjust their schedule, you MUST format your response as a JSON object with these fields:
       {
-        "message": "Your conversational response here",
+        "message": "Your friendly, concise response here",
         "scheduleUpdates": [
           {
-            "taskId": 123,
-            "action": "reschedule",
-            "scheduledTime": "14:30",
-            "recurrencePattern": "daily"
-          },
-          {
-            "taskId": 456,
-            "action": "complete"
+            "taskId": 123,  // Use actual task ID from the task list
+            "action": "reschedule" or "complete" or "skip",
+            "scheduledTime": "14:30",  // Only for reschedule action
+            "recurrencePattern": "daily"  // Optional for reschedule action
           }
         ]
       }
       
-      IMPORTANT: For special cases where the user wants to adjust multiple tasks:
-      1. If they want to free up their afternoon or reschedule all afternoon tasks:
-         - Use "all_afternoon_tasks" as the taskId
-         - Example: {"taskId": "all_afternoon_tasks", "action": "reschedule", "scheduledTime": "tomorrow"}
+      For special schedule changes:
+      - For afternoon tasks: use "all_afternoon_tasks" as the taskId
+      - For all today's tasks: use "all_today_tasks" as the taskId
       
-      2. If they want to reschedule all tasks for today:
-         - Use "all_today_tasks" as the taskId
-         
-      ONLY include the scheduleUpdates field if the user is specifically asking to change their schedule or mark tasks as complete.
-      For specific tasks, reference them by their actual IDs from the task list provided to you.
-      Default to no schedule changes unless explicitly requested.
+      ONLY include scheduleUpdates if the user specifically requests schedule changes.
+      For regular responses with no schedule changes, your response should be JSON with only the message field.
     `;
 
     const response = await openai.chat.completions.create({
