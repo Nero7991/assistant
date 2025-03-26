@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Brain, Menu, LogOut, Settings } from "lucide-react";
+import { Brain, Menu, LogOut, Settings, MessageCircle } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { label: "Dashboard", href: "/" },
+  { label: "Chat", href: "/chat", icon: <MessageCircle className="h-4 w-4 mr-2" /> },
   { label: "Tasks & Goals", href: "/tasks" },
   { label: "Facts", href: "/facts" },
 ];

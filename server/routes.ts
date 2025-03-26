@@ -486,7 +486,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     
     try {
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
       
       // Get message history from the database
       const messages = await db
@@ -500,6 +500,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching message history:", error);
       res.status(500).json({ error: "Failed to fetch message history" });
+    }
+  });
+
+  // Web Chat Message endpoint - for sending messages from the web UI
+  app.post("/api/chat/send", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const { message } = req.body;
+      
+      if (!message || typeof message !== 'string') {
+        return res.status(400).json({ error: "Message is required" });
+      }
+      
+      // Process the message using the same service that handles WhatsApp messages
+      await messagingService.handleUserResponse(req.user.id, message);
+      
+      res.status(200).json({ success: true });
+    } catch (error) {
+      console.error("Error sending chat message:", error);
+      res.status(500).json({ error: "Failed to process chat message" });
     }
   });
 
