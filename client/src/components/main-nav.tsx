@@ -64,6 +64,17 @@ export function MainNav() {
                 </DropdownMenuItem>
               </Link>
             ))}
+            {user && (
+              <>
+                <DropdownMenuSeparator />
+                <Link href="/account">
+                  <DropdownMenuItem className="cursor-pointer">
+                    <Settings className="h-4 w-4 mr-2" />
+                    Account Settings
+                  </DropdownMenuItem>
+                </Link>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -71,18 +82,32 @@ export function MainNav() {
         <div className="flex items-center gap-4 ml-auto">
           {user && (
             <>
-              <span className="text-sm text-muted-foreground hidden md:block">
-                {user.username}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => logoutMutation.mutate()}
-                disabled={logoutMutation.isPending}
-              >
-                <LogOut className="h-4 w-4 mr-2" />
-                Sign Out
-              </Button>
+              {/* User Dropdown Menu */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="secondary" size="sm" className="flex items-center gap-2">
+                    <span className="text-sm hidden md:block">{user.username}</span>
+                    <Settings className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-[200px]">
+                  <Link href="/account">
+                    <DropdownMenuItem className="cursor-pointer">
+                      <Settings className="h-4 w-4 mr-2" />
+                      Account Settings
+                    </DropdownMenuItem>
+                  </Link>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem 
+                    className="cursor-pointer text-destructive"
+                    onClick={() => logoutMutation.mutate()}
+                    disabled={logoutMutation.isPending}
+                  >
+                    <LogOut className="h-4 w-4 mr-2" />
+                    Sign Out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           )}
         </div>
