@@ -524,11 +524,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Test endpoints for message examples
-  app.get("/api/examples/morning-message", async (req, res) => {
+  // Chat test endpoints
+  app.post("/api/test/chat/trigger", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     
     try {
+      const { timeOfDay } = req.body;
+      if (!timeOfDay || !['morning', 'afternoon', 'evening'].includes(timeOfDay)) {
+        return res.status(400).json({ error: "Invalid time of day. Use 'morning', 'afternoon', or 'evening'" });
+      }
+      
       const user = await storage.getUser(req.user.id);
       const tasks = await storage.getTasks(req.user.id);
       const facts = await storage.getKnownUserFacts(req.user.id);
@@ -538,52 +543,134 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(eq(messageHistory.userId, req.user.id))
         .orderBy(desc(messageHistory.createdAt))
         .limit(10);
+
+      // Use the appropriate timeOfDay context and adjust current time
+      let currentTime = new Date();
+      let messageType: 'morning' | 'follow_up' = 'follow_up';
+      
+      if (timeOfDay === 'morning') {
+        currentTime.setHours(8, 0, 0);
+        messageType = 'morning';
+      } else if (timeOfDay === 'afternoon') {
+        currentTime.setHours(13, 0, 0);
+      } else if (timeOfDay === 'evening') {
+        currentTime.setHours(18, 0, 0);
+      }
       
       const context = {
         user: user!,
         tasks,
         facts,
         previousMessages: messages,
-        currentDateTime: new Date().toLocaleString(),
-        messageType: 'morning' as const
+        currentDateTime: currentTime.toLocaleString(),
+        messageType
       };
       
-      const message = await messagingService.generateMorningMessage(context);
-      res.json({ message });
+      let message;
+      if (messageType === 'morning') {
+        message = await messagingService.generateMorningMessage(context);
+      } else {
+        message = await messagingService.generateFollowUpMessage(context);
+      }
+      
+      // Store the test message in the message history
+      const messageId = await db.insert(messageHistory).values({
+        userId: req.user.id,
+        content: message,
+        type: messageType === 'morning' ? 'morning_message' : 'follow_up',
+        status: 'sent',
+        metadata: { test: true } as any,
+        createdAt: currentTime
+      }).returning({ id: messageHistory.id });
+
+      res.json({ 
+        id: messageId[0].id,
+        type: messageType === 'morning' ? 'morning_message' : 'follow_up',
+        direction: 'incoming',
+        content: message,
+        createdAt: currentTime.toISOString()
+      });
     } catch (error) {
-      console.error("Error generating example morning message:", error);
-      res.status(500).json({ error: "Failed to generate example message" });
+      console.error("Error generating test chat message:", error);
+      res.status(500).json({ error: "Failed to generate test message" });
     }
   });
 
-  app.get("/api/examples/follow-up-message", async (req, res) => {
+  app.post("/api/test/chat/respond", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     
     try {
+      const { message } = req.body;
+      
+      if (!message || typeof message !== 'string') {
+        return res.status(400).json({ error: "Message is required" });
+      }
+      
+      // Store the user's message in history
+      const userMessageId = await db.insert(messageHistory).values({
+        userId: req.user.id,
+        content: message,
+        type: 'response',
+        status: 'received',
+        metadata: { test: true } as any,
+        createdAt: new Date()
+      }).returning({ id: messageHistory.id });
+
+      // Get context data for generating a response
       const user = await storage.getUser(req.user.id);
       const tasks = await storage.getTasks(req.user.id);
       const facts = await storage.getKnownUserFacts(req.user.id);
-      const messages = await db
+      const previousMessages = await db
         .select()
         .from(messageHistory)
         .where(eq(messageHistory.userId, req.user.id))
         .orderBy(desc(messageHistory.createdAt))
         .limit(10);
       
-      const context = {
+      // Generate the coach's response
+      const responseContext = {
         user: user!,
         tasks,
         facts,
-        previousMessages: messages,
+        previousMessages,
         currentDateTime: new Date().toLocaleString(),
-        messageType: 'follow_up' as const
+        messageType: 'response' as const,
+        userResponse: message
       };
       
-      const message = await messagingService.generateFollowUpMessage(context);
-      res.json({ message });
+      const responseResult = await messagingService.generateResponseMessage(responseContext);
+      
+      // Store the response in history
+      const responseId = await db.insert(messageHistory).values({
+        userId: req.user.id,
+        content: responseResult.message,
+        type: 'coach_response',
+        status: 'sent',
+        metadata: { test: true, scheduleUpdates: responseResult.scheduleUpdates } as any,
+        createdAt: new Date()
+      }).returning({ id: messageHistory.id });
+
+      // Return both messages for the UI
+      res.json({
+        userMessage: {
+          id: userMessageId[0].id,
+          type: 'response',
+          direction: 'outgoing',
+          content: message,
+          createdAt: new Date().toISOString()
+        },
+        coachResponse: {
+          id: responseId[0].id,
+          type: 'coach_response',
+          direction: 'incoming',
+          content: responseResult.message,
+          createdAt: new Date().toISOString(),
+          hasScheduleUpdates: responseResult.scheduleUpdates && responseResult.scheduleUpdates.length > 0
+        }
+      });
     } catch (error) {
-      console.error("Error generating example follow-up message:", error);
-      res.status(500).json({ error: "Failed to generate example message" });
+      console.error("Error processing test chat response:", error);
+      res.status(500).json({ error: "Failed to process response" });
     }
   });
 
