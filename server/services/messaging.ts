@@ -222,8 +222,16 @@ export class MessagingService {
         ]
       }
       
+      IMPORTANT: For special cases where the user wants to adjust multiple tasks:
+      1. If they want to free up their afternoon or reschedule all afternoon tasks:
+         - Use "all_afternoon_tasks" as the taskId
+         - Example: {"taskId": "all_afternoon_tasks", "action": "reschedule", "scheduledTime": "tomorrow"}
+      
+      2. If they want to reschedule all tasks for today:
+         - Use "all_today_tasks" as the taskId
+         
       ONLY include the scheduleUpdates field if the user is specifically asking to change their schedule or mark tasks as complete.
-      Only reference tasks by their actual IDs from the task list provided to you.
+      For specific tasks, reference them by their actual IDs from the task list provided to you.
       Default to no schedule changes unless explicitly requested.
     `;
 
@@ -390,6 +398,60 @@ export class MessagingService {
       const userTasks = await storage.getTasks(userId);
       
       for (const update of updates) {
+        // Special case: Handle "all afternoon tasks" or "all tasks in afternoon"
+        if (typeof update.taskId === 'string' && 
+            (update.taskId.toLowerCase().includes('all') && 
+             update.taskId.toLowerCase().includes('afternoon'))) {
+          
+          console.log(`Processing special case for all afternoon tasks`);
+          
+          // Define afternoon as tasks scheduled between 12:00 and 17:00
+          const afternoonTasks = userTasks.filter(task => {
+            if (!task.scheduledTime) return false;
+            
+            try {
+              const scheduledTime = task.scheduledTime.toLowerCase();
+              
+              // Check for PM indicator
+              if (scheduledTime.includes('pm') && !scheduledTime.includes('evening')) {
+                return true;
+              }
+              
+              // Check for specific hours
+              if (scheduledTime.includes(':')) {
+                const hourStr = scheduledTime.split(':')[0];
+                const hour = parseInt(hourStr, 10);
+                return hour >= 12 && hour < 17;
+              }
+              
+              // Check for afternoon mention
+              return scheduledTime.includes('afternoon');
+            } catch (err) {
+              return false;
+            }
+          });
+          
+          console.log(`Found ${afternoonTasks.length} afternoon tasks to process`);
+          
+          if (afternoonTasks.length > 0) {
+            for (const task of afternoonTasks) {
+              if (update.action === 'reschedule') {
+                await storage.updateTask(task.id, {
+                  scheduledTime: update.scheduledTime || 'tomorrow',
+                  recurrencePattern: update.recurrencePattern
+                });
+                console.log(`Rescheduled afternoon task ${task.id}: ${task.title} to ${update.scheduledTime || 'tomorrow'}`);
+              } else if (update.action === 'complete') {
+                await storage.completeTask(task.id);
+                console.log(`Marked afternoon task ${task.id} as complete`);
+              }
+            }
+          }
+          
+          // Continue to next update after processing all afternoon tasks
+          continue;
+        }
+        
         // Handle task lookup by name if taskId is not a number
         let taskId = typeof update.taskId === 'number' ? update.taskId : undefined;
         
