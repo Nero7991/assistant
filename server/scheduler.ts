@@ -231,6 +231,23 @@ export class MessageScheduler {
    */
   async scheduleFollowUp(userId: number, delayMinutes: number, context: Record<string, any> = {}) {
     try {
+      // Check if the user already has a pending follow-up message
+      const pendingFollowUps = await db
+        .select()
+        .from(messageSchedules)
+        .where(
+          and(
+            eq(messageSchedules.userId, userId),
+            eq(messageSchedules.type, 'follow_up'),
+            eq(messageSchedules.status, 'pending')
+          )
+        );
+        
+      if (pendingFollowUps.length > 0) {
+        console.log(`User ${userId} already has a pending follow-up scheduled for ${pendingFollowUps[0].scheduledFor}`);
+        return;
+      }
+      
       // Get the user to verify they exist and have a phone number
       const [user] = await db.select().from(users).where(eq(users.id, userId));
       

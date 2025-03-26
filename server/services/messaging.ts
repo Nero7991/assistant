@@ -545,6 +545,23 @@ export class MessagingService {
   }
 
   async scheduleFollowUp(userId: number, responseType: 'positive' | 'negative' | 'neutral'): Promise<void> {
+    // Check if the user already has a pending follow-up message
+    const pendingFollowUps = await db
+      .select()
+      .from(messageSchedules)
+      .where(
+        and(
+          eq(messageSchedules.userId, userId),
+          eq(messageSchedules.type, 'follow_up'),
+          eq(messageSchedules.status, 'pending')
+        )
+      );
+      
+    if (pendingFollowUps.length > 0) {
+      console.log(`User ${userId} already has a pending follow-up scheduled for ${pendingFollowUps[0].scheduledFor}`);
+      return;
+    }
+    
     // Adjust timing based on sentiment - more urgent for negative responses
     const followUpDelay = responseType === 'negative' ? 30 : responseType === 'neutral' ? 60 : 120; // minutes
     const scheduledFor = new Date(Date.now() + followUpDelay * 60000);
