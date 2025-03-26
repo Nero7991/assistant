@@ -17,6 +17,7 @@ export interface IStorage {
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: { username: string; password: string; phoneNumber?: string; email: string; contactPreference?: string; isEmailVerified?: boolean; isPhoneVerified?: boolean; }): Promise<User>;
   updateUser(user: User): Promise<User>;
+  deactivateUser(userId: number): Promise<void>;
 
   // Known User Facts methods
   getKnownUserFacts(userId: number): Promise<KnownUserFact[]>;
@@ -110,6 +111,32 @@ export class DatabaseStorage implements IStorage {
       .where(eq(users.id, user.id))
       .returning();
     return updated;
+  }
+  
+  async deactivateUser(userId: number): Promise<void> {
+    // First, set the user as inactive
+    await db
+      .update(users)
+      .set({
+        isActive: false,
+        deactivatedAt: new Date()
+      })
+      .where(eq(users.id, userId));
+    
+    // Cancel all pending message schedules
+    await db
+      .update(messageSchedules)
+      .set({
+        status: 'cancelled'
+      })
+      .where(
+        and(
+          eq(messageSchedules.userId, userId),
+          eq(messageSchedules.status, 'pending')
+        )
+      );
+    
+    console.log(`User ${userId} deactivated successfully. All pending message schedules cancelled.`);
   }
 
   // Known User Facts methods

@@ -16,6 +16,8 @@ export const users = pgTable("users", {
   allowPhoneNotifications: boolean("allow_phone_notifications").notNull().default(false),
   preferredMessageTime: text("preferred_message_time"), // Format: "HH:mm"
   timeZone: text("time_zone"),
+  isActive: boolean("is_active").notNull().default(true),
+  deactivatedAt: timestamp("deactivated_at"),
 });
 
 export const goals = pgTable("goals", {
