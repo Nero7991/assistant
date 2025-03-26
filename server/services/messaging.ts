@@ -36,16 +36,16 @@ export class MessagingService {
     const activeTasks = context.tasks.filter(task => task.status === "active");
     const todaysTasks = activeTasks.filter(task => {
       // Check if it's a daily task with scheduled time
-      return task.taskType === "DAILY" && task.scheduledTime;
+      return task.taskType === TaskType.DAILY && task.scheduledTime;
     });
     
     // Get incomplete subtasks
-    let subtaskList = [];
+    const subtaskList: Subtask[] = [];
     for (const task of activeTasks) {
       if (task.id) {
         const taskSubtasks = await storage.getSubtasks(task.id);
-        const incompleteSubtasks = taskSubtasks.filter(st => !st.completed);
-        subtaskList = [...subtaskList, ...incompleteSubtasks];
+        const incompleteSubtasks = taskSubtasks.filter(st => !st.completedAt);
+        subtaskList.push(...incompleteSubtasks);
       }
     }
 
@@ -62,9 +62,10 @@ export class MessagingService {
       ).join('\n')}
 
       Active subtasks:
-      ${subtaskList.map(st => 
-        `- ${st.title} (for task: ${context.tasks.find(t => t.id === st.parentTaskId)?.title})${st.scheduledTime ? ` scheduled at ${st.scheduledTime}` : ''}${st.recurrencePattern && st.recurrencePattern !== 'none' ? ` recurring: ${st.recurrencePattern}` : ''}`
-      ).join('\n')}
+      ${subtaskList.map(st => {
+        const parentTask = context.tasks.find(t => t.id === st.parentTaskId);
+        return `- ${st.title} (for task: ${parentTask?.title || 'Unknown'})${st.scheduledTime ? ` scheduled at ${st.scheduledTime}` : ''}${st.recurrencePattern && st.recurrencePattern !== 'none' ? ` recurring: ${st.recurrencePattern}` : ''}`;
+      }).join('\n')}
 
       Previous interactions (newest first):
       ${context.previousMessages.map(msg => `- ${msg.type}: ${msg.content.substring(0, 100)}${msg.content.length > 100 ? '...' : ''}`).join('\n')}
