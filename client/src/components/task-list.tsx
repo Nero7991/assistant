@@ -337,6 +337,31 @@ export function TaskList({ tasks, type }: TaskListProps) {
                   }
                 </div>
               )}
+              
+              {/* Subtask progress indicator */}
+              {subtasksByTask[task.id]?.length > 0 && (
+                <div className="flex items-center gap-1">
+                  <div className="text-xs font-medium">
+                    {subtasksByTask[task.id].filter(subtask => subtask.status === 'completed').length} / {subtasksByTask[task.id].length} subtasks
+                  </div>
+                  <div className="w-16 h-2 bg-muted rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-primary rounded-full"
+                      style={{
+                        width: `${(subtasksByTask[task.id].filter(subtask => subtask.status === 'completed').length / subtasksByTask[task.id].length) * 100}%`
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+              
+              {/* Visual indicator for tasks with upcoming follow-ups - can check this in the future using the messageSchedules table */}
+              {task.status === 'in_progress' && (
+                <div className="flex items-center gap-1 text-primary">
+                  <AlarmClock className="w-4 h-4" />
+                  <span className="text-xs">Active task</span>
+                </div>
+              )}
             </div>
 
             {task.status !== 'completed' && (

@@ -78,6 +78,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
       } else {
         form.reset();
         onOpenChange(false);
+        // Invalidate all task-related queries including subtasks for complete refresh
         queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
         queryClient.invalidateQueries({ queryKey: ["/api/tasks/subtasks"] });
         toast({
@@ -134,6 +135,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
       setMainTask(null);
       form.reset();
       onOpenChange(false);
+      // Invalidate all task-related queries including subtasks for complete refresh
       queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/subtasks"] });
       toast({

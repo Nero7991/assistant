@@ -50,7 +50,9 @@ export function AddSubtaskDialog({ open, onOpenChange, taskId }: AddSubtaskDialo
       return res.json();
     },
     onSuccess: () => {
+      // Invalidate all subtask queries to ensure proper refresh
       queryClient.invalidateQueries({ queryKey: ["/api/tasks/subtasks"] });
+      // Using a partial key match to refresh all subtasks queries regardless of task type
       form.reset();
       onOpenChange(false);
       toast({

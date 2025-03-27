@@ -16,7 +16,8 @@ import {
   CheckCircle, 
   AlertCircle, 
   Loader2,
-  CalendarClock 
+  CalendarClock,
+  Sparkles
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
@@ -36,6 +37,8 @@ import {
 } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Label } from "@/components/ui/label";
 
 interface ScheduleItem {
   id: number;
@@ -238,6 +241,11 @@ export function DailyScheduleComponent({ onCreateNew }: DailyScheduleProps) {
     
     createFromLlmMutation.mutate(llmResponse);
   };
+  
+  const handleGenerateSchedule = () => {
+    setGeneratingSchedule(true);
+    generateScheduleMutation.mutate(customInstructions);
+  };
 
   // Helper to format time for display
   const formatTime = (timeStr: string) => {
@@ -278,10 +286,12 @@ export function DailyScheduleComponent({ onCreateNew }: DailyScheduleProps) {
             variant="outline" 
             onClick={() => setLlmResponseDialog(true)}
           >
-            Create From AI Response
+            <Sparkles className="mr-2 h-4 w-4" />
+            Create With AI
           </Button>
           <Button onClick={onCreateNew}>
-            Create New Schedule
+            <Calendar className="mr-2 h-4 w-4" />
+            Create Manually
           </Button>
         </div>
       </div>
@@ -295,7 +305,8 @@ export function DailyScheduleComponent({ onCreateNew }: DailyScheduleProps) {
             className="mt-4" 
             onClick={() => setLlmResponseDialog(true)}
           >
-            Create From AI Response
+            <Sparkles className="mr-2 h-4 w-4" />
+            Create With AI
           </Button>
         </div>
       ) : (
@@ -491,44 +502,107 @@ export function DailyScheduleComponent({ onCreateNew }: DailyScheduleProps) {
         </Dialog>
       )}
 
-      {/* LLM Response Dialog */}
+      {/* Schedule Creation Dialog */}
       <Dialog open={llmResponseDialog} onOpenChange={setLlmResponseDialog}>
         <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Create Schedule from AI Response</DialogTitle>
-            <DialogDescription>
-              Paste the AI response containing a schedule. The response should include the marker "{`FINAL_SCHEDULE_FOR_DAY:`}" followed by the schedule.
-            </DialogDescription>
-          </DialogHeader>
+          <Tabs defaultValue="generate">
+            <DialogHeader>
+              <div className="flex items-center justify-between">
+                <DialogTitle>Create Daily Schedule</DialogTitle>
+                <TabsList>
+                  <TabsTrigger value="generate">Generate with AI</TabsTrigger>
+                  <TabsTrigger value="paste">Paste AI Response</TabsTrigger>
+                </TabsList>
+              </div>
+            </DialogHeader>
 
-          <Textarea
-            placeholder="Paste the AI response containing the schedule here..."
-            className="min-h-[200px]"
-            value={llmResponse}
-            onChange={(e) => setLlmResponse(e.target.value)}
-          />
+            <TabsContent value="generate" className="space-y-4 py-4">
+              <div className="space-y-2">
+                <h3 className="text-lg font-medium">Generate a Schedule with AI</h3>
+                <p className="text-sm text-muted-foreground">
+                  The AI coach will create a schedule based on your tasks and personal preferences. 
+                  You can add custom instructions to personalize the schedule.
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="custom-instructions">Custom Instructions (Optional)</Label>
+                <Textarea
+                  id="custom-instructions"
+                  placeholder="E.g., I need more breaks in the afternoon, I want to focus on project X today, etc."
+                  className="min-h-[120px]"
+                  value={customInstructions}
+                  onChange={(e) => setCustomInstructions(e.target.value)}
+                />
+              </div>
+              
+              <DialogFooter>
+                <Button 
+                  variant="outline" 
+                  onClick={() => setLlmResponseDialog(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleGenerateSchedule}
+                  disabled={generateScheduleMutation.isPending || generatingSchedule}
+                >
+                  {generateScheduleMutation.isPending || generatingSchedule ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Generating Schedule
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="mr-2 h-4 w-4" />
+                      Generate Schedule
+                    </>
+                  )}
+                </Button>
+              </DialogFooter>
+            </TabsContent>
 
-          <DialogFooter>
-            <Button 
-              variant="outline" 
-              onClick={() => setLlmResponseDialog(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleLlmSubmit}
-              disabled={createFromLlmMutation.isPending}
-            >
-              {createFromLlmMutation.isPending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Creating Schedule
-                </>
-              ) : (
-                'Create Schedule'
-              )}
-            </Button>
-          </DialogFooter>
+            <TabsContent value="paste" className="space-y-4 py-4">
+              <div className="space-y-2">
+                <h3 className="text-lg font-medium">Paste an AI Response</h3>
+                <p className="text-sm text-muted-foreground">
+                  Paste the AI response containing a schedule. The response should include the marker "{`FINAL_SCHEDULE_FOR_DAY:`}" followed by the schedule details.
+                </p>
+              </div>
+              
+              <Textarea
+                placeholder="Paste the AI response containing the schedule here..."
+                className="min-h-[200px]"
+                value={llmResponse}
+                onChange={(e) => setLlmResponse(e.target.value)}
+              />
+
+              <DialogFooter>
+                <Button 
+                  variant="outline" 
+                  onClick={() => setLlmResponseDialog(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleLlmSubmit}
+                  disabled={createFromLlmMutation.isPending}
+                >
+                  {createFromLlmMutation.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Creating Schedule
+                    </>
+                  ) : (
+                    <>
+                      <Check className="mr-2 h-4 w-4" />
+                      Create Schedule
+                    </>
+                  )}
+                </Button>
+              </DialogFooter>
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
     </div>

@@ -1044,6 +1044,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Chat related endpoints
+  app.get("/api/messages", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      // Get message history for the current user
+      const messages = await db
+        .select()
+        .from(messageHistory)
+        .where(eq(messageHistory.userId, req.user.id))
+        .orderBy(desc(messageHistory.createdAt))
+        .limit(50);  // Limit to the most recent 50 messages
+      
+      // Transform the results to match the expected format in the chat UI
+      const transformedMessages = messages.map(msg => {
+        return {
+          id: msg.id,
+          content: msg.content,
+          sender: msg.type === 'user_message' ? 'user' : 'assistant',
+          timestamp: msg.createdAt.toISOString(),
+          metadata: msg.metadata || {}
+        };
+      });
+      
+      res.json(transformedMessages.reverse());  // Reverse to get chronological order
+    } catch (error) {
+      console.error("Error fetching message history:", error);
+      res.status(500).json({ message: "Failed to fetch message history" });
+    }
+  });
+
+  app.post("/api/messages", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    const { content } = req.body;
+    
+    if (!content || typeof content !== 'string') {
+      return res.status(400).json({ message: "Message content is required" });
+    }
+    
+    try {
+      // First, save the user's message to the history
+      const [userMessage] = await db
+        .insert(messageHistory)
+        .values({
+          userId: req.user.id,
+          content,
+          type: 'user_message',
+          status: 'received'
+          // createdAt will use the default value
+        })
+        .returning();
+      
+      // Generate a coaching response
+      const coachingResponse = await generateCoachingResponse(content);
+      const response = coachingResponse.message;
+      
+      // Save the assistant's response to the history
+      const [assistantMessage] = await db
+        .insert(messageHistory)
+        .values({
+          userId: req.user.id,
+          content: response,
+          type: 'response',
+          status: 'sent'
+          // createdAt will use the default value
+        })
+        .returning();
+      
+      // Return both messages in the expected format for the chat UI
+      res.status(201).json({
+        userMessage: {
+          id: userMessage.id,
+          content: userMessage.content,
+          sender: 'user',
+          timestamp: userMessage.createdAt.toISOString(),
+          metadata: userMessage.metadata || {}
+        },
+        assistantMessage: {
+          id: assistantMessage.id,
+          content: assistantMessage.content,
+          sender: 'assistant',
+          timestamp: assistantMessage.createdAt.toISOString(),
+          metadata: assistantMessage.metadata || {}
+        }
+      });
+    } catch (error) {
+      console.error("Error processing message:", error);
+      res.status(500).json({ message: "Failed to process message" });
+    }
+  });
+
   const httpServer = createServer(app);
 
   // Graceful shutdown
