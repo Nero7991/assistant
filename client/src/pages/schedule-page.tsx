@@ -168,69 +168,62 @@ export default function SchedulePage() {
             {scheduledTasks && scheduledTasks.length > 0 && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Scheduled Tasks</CardTitle>
+                  <CardTitle>Today's Schedule</CardTitle>
                   <CardDescription>
-                    Your planned activities for today
+                    Your planned activities organized by time
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <ScrollArea className="h-[320px] pr-4">
-                    <div className="space-y-4">
-                      {scheduledTasks.map((task: Task) => (
-                        <div key={task.id} className="flex items-start space-x-4 p-3 rounded-lg border">
-                          <div className="flex-shrink-0 mt-0.5">
-                            {task.completedAt ? (
-                              <div className="h-6 w-6 rounded-full bg-primary/20 flex items-center justify-center">
-                                <Check className="h-4 w-4 text-primary" />
+                    <div>
+                      {/* Group tasks by time periods */}
+                      {(() => {
+                        // Sort tasks by scheduled time
+                        const sortedTasks = [...scheduledTasks].sort((a, b) => {
+                          if (!a.scheduledTime) return 1;
+                          if (!b.scheduledTime) return -1;
+                          return new Date(a.scheduledTime).getTime() - new Date(b.scheduledTime).getTime();
+                        });
+                        
+                        // Setup time blocks
+                        const morningTasks = sortedTasks.filter(t => 
+                          t.scheduledTime && new Date(t.scheduledTime).getHours() < 12
+                        );
+                        const afternoonTasks = sortedTasks.filter(t => 
+                          t.scheduledTime && new Date(t.scheduledTime).getHours() >= 12 && new Date(t.scheduledTime).getHours() < 17
+                        );
+                        const eveningTasks = sortedTasks.filter(t => 
+                          t.scheduledTime && new Date(t.scheduledTime).getHours() >= 17
+                        );
+                        const unscheduledTasks = sortedTasks.filter(t => !t.scheduledTime);
+                        
+                        // Create a component for time block headers
+                        const TimeBlock = ({ title, tasks }: { title: string, tasks: Task[] }) => (
+                          tasks.length > 0 ? (
+                            <div className="mb-6">
+                              <div className="flex items-center space-x-2 mb-3">
+                                <div className="h-px flex-1 bg-border"></div>
+                                <span className="text-sm font-medium text-muted-foreground px-2">{title}</span>
+                                <div className="h-px flex-1 bg-border"></div>
                               </div>
-                            ) : (
-                              <div className="h-6 w-6 rounded-full border-2 border-muted" />
-                            )}
-                          </div>
-                          <div className="flex-1 space-y-1">
-                            <div className="flex items-center justify-between">
-                              <h4 className="font-medium">{task.title}</h4>
-                              {task.priority && (
-                                <Badge variant={
-                                  String(task.priority) === 'high' ? "destructive" : 
-                                  String(task.priority) === 'medium' ? "default" : 
-                                  "secondary"
-                                }>
-                                  {task.priority}
-                                </Badge>
-                              )}
+                              <div className="space-y-3">
+                                {tasks.map(task => renderTask(task))}
+                              </div>
                             </div>
-                            <p className="text-sm text-muted-foreground">{task.description}</p>
-                            {task.scheduledTime && (
-                              <div className="flex items-center text-xs text-muted-foreground mt-1">
-                                <Clock className="mr-1 h-3 w-3" />
-                                {format(new Date(task.scheduledTime), "h:mm a")}
-                              </div>
+                          ) : null
+                        );
+                        
+                        return (
+                          <>
+                            <TimeBlock title="Morning" tasks={morningTasks} />
+                            <TimeBlock title="Afternoon" tasks={afternoonTasks} />
+                            <TimeBlock title="Evening" tasks={eveningTasks} />
+                            {unscheduledTasks.length > 0 && (
+                              <TimeBlock title="Unscheduled" tasks={unscheduledTasks} />
                             )}
-                            {/* Show subtasks if available */}
-                            {scheduledSubtasks && 
-                             scheduledSubtasks[task.id!] && 
-                             scheduledSubtasks[task.id!].length > 0 && (
-                              <div className="mt-3 pt-2 border-t">
-                                <p className="text-xs font-medium mb-2">Subtasks:</p>
-                                <div className="space-y-2">
-                                  {scheduledSubtasks[task.id!].map((subtask: Subtask) => (
-                                    <div key={subtask.id} className="flex items-center text-sm">
-                                      <div className="h-4 w-4 mr-2 rounded-full border border-muted-foreground flex-shrink-0" />
-                                      <span>{subtask.title}</span>
-                                      {subtask.scheduledTime && (
-                                        <span className="ml-auto text-xs text-muted-foreground">
-                                          {format(new Date(subtask.scheduledTime), "h:mm a")}
-                                        </span>
-                                      )}
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
+                          </>
+                        );
+                      })()}
                     </div>
                   </ScrollArea>
                 </CardContent>
@@ -243,6 +236,88 @@ export default function SchedulePage() {
                 </CardFooter>
               </Card>
             )}
+            
+            {/* Function to render individual task */}
+            {(() => {
+              function renderTask(task: Task) {
+                return (
+                  <div key={task.id} className="flex items-start group hover:bg-accent/30 rounded-md p-2 transition-colors">
+                    <div className="flex-shrink-0 mt-0.5">
+                      {task.completedAt ? (
+                        <div className="h-5 w-5 rounded-full bg-primary/20 flex items-center justify-center">
+                          <Check className="h-3 w-3 text-primary" />
+                        </div>
+                      ) : (
+                        <div className="h-5 w-5 rounded-full border-2 border-muted group-hover:border-primary transition-colors" />
+                      )}
+                    </div>
+                    <div className="flex-1 ml-3 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <h4 className="font-medium">{task.title}</h4>
+                          {task.priority && (
+                            <Badge variant={
+                              String(task.priority) === 'high' ? "destructive" : 
+                              String(task.priority) === 'medium' ? "default" : 
+                              "outline"
+                            } className="ml-2 text-xs">
+                              {task.priority}
+                            </Badge>
+                          )}
+                        </div>
+                        {task.scheduledTime && (
+                          <span className="text-xs text-muted-foreground font-medium">
+                            {format(new Date(task.scheduledTime), "h:mm a")}
+                          </span>
+                        )}
+                      </div>
+                      
+                      {task.description && (
+                        <p className="text-sm text-muted-foreground line-clamp-2">{task.description}</p>
+                      )}
+                      
+                      {/* Show subtasks if available */}
+                      {scheduledSubtasks && 
+                       scheduledSubtasks[task.id!] && 
+                       scheduledSubtasks[task.id!].length > 0 && (
+                        <div className="mt-2">
+                          <div className="flex items-center justify-between mb-1">
+                            <p className="text-xs font-medium">Subtasks</p>
+                            <span className="text-xs text-muted-foreground">
+                              {scheduledSubtasks[task.id!].filter(st => st.completedAt).length}/{scheduledSubtasks[task.id!].length}
+                            </span>
+                          </div>
+                          <div className="grid gap-1">
+                            {scheduledSubtasks[task.id!].slice(0, 3).map((subtask: Subtask) => (
+                              <div key={subtask.id} className="flex items-center text-xs group">
+                                {subtask.completedAt ? (
+                                  <Check className="h-3 w-3 mr-2 text-primary" />
+                                ) : (
+                                  <div className="h-3 w-3 mr-2 rounded-full border border-muted-foreground flex-shrink-0" />
+                                )}
+                                <span className={subtask.completedAt ? "text-muted-foreground line-through" : ""}>{subtask.title}</span>
+                                {subtask.scheduledTime && (
+                                  <span className="ml-auto text-xs text-muted-foreground">
+                                    {format(new Date(subtask.scheduledTime), "h:mm a")}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                            {scheduledSubtasks[task.id!].length > 3 && (
+                              <div className="text-xs text-muted-foreground pl-5">
+                                +{scheduledSubtasks[task.id!].length - 3} more subtasks
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+              
+              return null; // This function is just for definition, not rendering
+            })()}
           </div>
 
           {/* Notifications section */}
@@ -251,7 +326,7 @@ export default function SchedulePage() {
               <CardHeader>
                 <CardTitle>
                   <div className="flex items-center">
-                    Notifications
+                    Upcoming Check-ins
                     {pendingNotifications && pendingNotifications.length > 0 && (
                       <Badge variant="secondary" className="ml-2">
                         {pendingNotifications.length}
@@ -260,48 +335,111 @@ export default function SchedulePage() {
                   </div>
                 </CardTitle>
                 <CardDescription>
-                  Upcoming check-ins and reminders
+                  Scheduled follow-ups and task reminders
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 {!pendingNotifications || pendingNotifications.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-8 text-center">
                     <Bell className="h-8 w-8 text-muted-foreground mb-4" />
-                    <p className="text-muted-foreground">No pending notifications</p>
+                    <p className="text-muted-foreground">No upcoming check-ins scheduled</p>
                   </div>
                 ) : (
                   <ScrollArea className="h-[400px]">
                     <div className="space-y-4">
-                      {pendingNotifications.map((notification: PendingNotification) => (
-                        <div key={notification.id} className="rounded-lg border p-3">
-                          <div className="flex items-start justify-between">
-                            <div className="flex items-center">
-                              <Bell className="h-4 w-4 mr-2 text-primary" />
-                              <span className="font-medium">{notification.messageType}</span>
+                      {pendingNotifications.map((notification: PendingNotification) => {
+                        // Find the associated task if it exists
+                        const relatedTask = notification.context?.taskId ? 
+                          scheduledTasks.find(t => t.id === notification.context?.taskId) : 
+                          undefined;
+                        
+                        // Get a readable type label
+                        const typeLabel = 
+                          notification.messageType === 'follow_up' ? 'Task Check-in' :
+                          notification.messageType === 'morning_message' ? 'Morning Schedule' :
+                          notification.messageType === 'reminder' ? 'Task Reminder' : 
+                          'Check-in';
+                          
+                        return (
+                          <div key={notification.id} className="rounded-lg border p-3">
+                            <div className="flex items-start justify-between">
+                              <div className="flex items-center">
+                                <Bell className="h-4 w-4 mr-2 text-primary" />
+                                <span className="font-medium">{typeLabel}</span>
+                              </div>
+                              <div className="flex flex-col items-end">
+                                <Badge variant={
+                                  formatDistanceToNow(new Date(notification.scheduledFor)).includes('minute') ? 
+                                  "destructive" : "outline"
+                                }>
+                                  {formatDistanceToNow(new Date(notification.scheduledFor), { addSuffix: true })}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground mt-1">
+                                  {format(new Date(notification.scheduledFor), "h:mm a")}
+                                </span>
+                              </div>
                             </div>
-                            <Badge variant="outline">
-                              {formatDistanceToNow(new Date(notification.scheduledFor), { addSuffix: true })}
-                            </Badge>
-                          </div>
-                          
-                          <Separator className="my-2" />
-                          
-                          <div className="text-sm text-muted-foreground">
-                            {notification.scheduledFor ? (
-                              <div className="flex items-center text-xs mt-1">
-                                <Clock className="mr-1 h-3 w-3" />
-                                {format(new Date(notification.scheduledFor), "h:mm a")}
-                              </div>
-                            ) : null}
                             
-                            {notification.context && notification.context.taskId && (
-                              <div className="mt-1 text-xs">
-                                Related to task ID: {notification.context.taskId}
-                              </div>
-                            )}
+                            <Separator className="my-2" />
+                            
+                            <div className="text-sm">
+                              {relatedTask ? (
+                                <div className="space-y-3">
+                                  <div className="flex items-start space-x-2">
+                                    <div className={`w-1 h-full rounded-full self-stretch ${
+                                      relatedTask.priority === 'high' ? 'bg-destructive' : 
+                                      relatedTask.priority === 'medium' ? 'bg-primary' : 
+                                      'bg-muted'
+                                    }`} />
+                                    <div className="flex-1">
+                                      <div className="font-medium">{relatedTask.title}</div>
+                                      {relatedTask.description && (
+                                        <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                                          {relatedTask.description}
+                                        </p>
+                                      )}
+                                      
+                                      {/* Show subtasks if available */}
+                                      {scheduledSubtasks && scheduledSubtasks[relatedTask.id!] && (
+                                        <div className="mt-2 space-y-1">
+                                          <p className="text-xs font-medium">Subtasks to check:</p>
+                                          <ul className="text-xs pl-4 space-y-1">
+                                            {scheduledSubtasks[relatedTask.id!]
+                                              .filter(st => !st.completedAt)
+                                              .slice(0, 3)
+                                              .map(subtask => (
+                                                <li key={subtask.id} className="list-disc text-muted-foreground">
+                                                  {subtask.title}
+                                                </li>
+                                              ))}
+                                            {scheduledSubtasks[relatedTask.id!].filter(st => !st.completedAt).length > 3 && (
+                                              <li className="text-muted-foreground">
+                                                +{scheduledSubtasks[relatedTask.id!].filter(st => !st.completedAt).length - 3} more
+                                              </li>
+                                            )}
+                                          </ul>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                  
+                                  {notification.context?.rescheduled && (
+                                    <div className="text-xs bg-muted/30 p-2 rounded">
+                                      <span className="font-medium">Note:</span> This is a rescheduled check-in
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="flex items-center justify-center py-2 text-muted-foreground">
+                                  {notification.messageType === 'morning_message' ? 
+                                    'Daily morning schedule check-in' : 
+                                    'General follow-up on your progress'}
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </ScrollArea>
                 )}
