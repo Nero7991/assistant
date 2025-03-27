@@ -188,61 +188,177 @@ export class MessagingService {
       }
     }
 
-    const prompt = `
-      You are an ADHD coach and accountability partner chatting with ${context.user.username}.
-      Current date and time: ${context.currentDateTime}
-      
-      Here's what you know about the user (use this to inform your tone, but don't explicitly mention these facts):
-      ${context.facts.map(fact => `- ${fact.category}: ${fact.content}`).join('\n')}
-      
-      Their current active tasks (with IDs you'll need for scheduling):
-      ${activeTasks.map(task => 
-        `- ID:${task.id} | ${task.title} | Type: ${task.taskType}${task.scheduledTime ? ` | Scheduled at: ${task.scheduledTime}` : ''}${task.recurrencePattern && task.recurrencePattern !== 'none' ? ` | Recurring: ${task.recurrencePattern}` : ''}`
-      ).join('\n')}
-      
-      Subtasks by task:
-      ${Object.entries(subtasksByTask).map(([taskId, subtasks]) => 
-        `Task ID:${taskId} subtasks:
-        ${subtasks.map(st => 
-          `  - ID:${st.id} | ${st.title} | Completed: ${st.completedAt ? 'Yes' : 'No'}${st.scheduledTime ? ` | Scheduled at: ${st.scheduledTime}` : ''}${st.recurrencePattern && st.recurrencePattern !== 'none' ? ` | Recurring: ${st.recurrencePattern}` : ''}`
-        ).join('\n')}`
-      ).join('\n')}
-      
-      The user just messaged you: "${context.userResponse}"
-      
-      Analyze the user's message and respond in a friendly, concise way that:
-      1. Directly addresses what they're asking or saying
-      2. Uses simple, straightforward language
-      3. Keeps your response brief and to the point (max 800 characters)
-      4. Is supportive and encouraging, but not overly enthusiastic
-      5. Focuses on being practically helpful rather than overly analytical
+    // Check for schedule-related requests - adding more comprehensive patterns
+    const isScheduleRequest = context.userResponse && (
+      /schedule|reschedule|plan|move|change time|different time|later|earlier|tomorrow|today|afternoon|morning|evening|free time|cancel|clear|free up|time off|no tasks|postpone|delay/i.test(context.userResponse)
+    );
+    
+    // Check specifically for requests to free up time or clear schedule
+    const isClearScheduleRequest = context.userResponse && (
+      /free|clear|cancel|want.*off|need.*break|evening.*free|free.*evening|no.*tasks|need.*rest|need.*time/i.test(context.userResponse)
+    );
+    
+    // Choose the appropriate prompt based on the type of request
+    let prompt: string;
+    
+    if (isClearScheduleRequest) {
+      // Special prompt for clearing or freeing up schedule
+      prompt = `
+        You are an ADHD coach and accountability partner chatting with ${context.user.username}.
+        Current date and time: ${context.currentDateTime}
+        
+        Here's what you know about the user (use this to inform your tone, but don't explicitly mention these facts):
+        ${context.facts.map(fact => `- ${fact.category}: ${fact.content}`).join('\n')}
+        
+        Their current active tasks (with IDs you'll need for scheduling):
+        ${activeTasks.map(task => 
+          `- ID:${task.id} | ${task.title} | Type: ${task.taskType}${task.scheduledTime ? ` | Scheduled at: ${task.scheduledTime}` : ''}${task.recurrencePattern && task.recurrencePattern !== 'none' ? ` | Recurring: ${task.recurrencePattern}` : ''}`
+        ).join('\n')}
+        
+        Subtasks by task:
+        ${Object.entries(subtasksByTask).map(([taskId, subtasks]) => 
+          `Task ID:${taskId} subtasks:
+          ${subtasks.map(st => 
+            `  - ID:${st.id} | ${st.title} | Completed: ${st.completedAt ? 'Yes' : 'No'}${st.scheduledTime ? ` | Scheduled at: ${st.scheduledTime}` : ''}${st.recurrencePattern && st.recurrencePattern !== 'none' ? ` | Recurring: ${st.recurrencePattern}` : ''}`
+          ).join('\n')}`
+        ).join('\n')}
+        
+        The user just messaged you: "${context.userResponse}"
+        
+        The user wants to free up time or clear their schedule. Create a specific schedule showing:
+        1. Any essential task they should still do (maximum 1 task, if needed)
+        2. Which time blocks will be completely free
+        3. Include task IDs and specific times for any task that remains
+        
+        YOUR RESPONSE MUST INCLUDE A SPECIFIC SCHEDULE IN THIS FORMAT:
+        "Here's a proposed schedule that gives you the free time you wanted:
+        
+        - 16:30: Quick task (ID: 123) - 15 minutes
+        - 17:00 onwards: Free time for yourself
+        
+        Does this schedule work for you?
+        
+        PROPOSED_SCHEDULE_AWAITING_CONFIRMATION"
+        
+        Always include the marker PROPOSED_SCHEDULE_AWAITING_CONFIRMATION at the end of your message.
+        
+        You MUST format your response as a JSON object with these fields:
+        {
+          "message": "Your friendly message with the specific schedule and confirmation marker",
+          "scheduleUpdates": [
+            {
+              "taskId": 123,  // Use actual task ID from the task list
+              "action": "reschedule", 
+              "scheduledTime": "16:30"
+            },
+            {
+              "taskId": 456,  // Another example task being rescheduled to tomorrow
+              "action": "reschedule",
+              "scheduledTime": "tomorrow at 10:00" 
+            }
+          ]
+        }
+      `;
+    } else if (isScheduleRequest) {
+      // Regular schedule request prompt with enhanced formatting requirements
+      prompt = `
+        You are an ADHD coach and accountability partner chatting with ${context.user.username}.
+        Current date and time: ${context.currentDateTime}
+        
+        Here's what you know about the user (use this to inform your tone, but don't explicitly mention these facts):
+        ${context.facts.map(fact => `- ${fact.category}: ${fact.content}`).join('\n')}
+        
+        Their current active tasks (with IDs you'll need for scheduling):
+        ${activeTasks.map(task => 
+          `- ID:${task.id} | ${task.title} | Type: ${task.taskType}${task.scheduledTime ? ` | Scheduled at: ${task.scheduledTime}` : ''}${task.recurrencePattern && task.recurrencePattern !== 'none' ? ` | Recurring: ${task.recurrencePattern}` : ''}`
+        ).join('\n')}
+        
+        Subtasks by task:
+        ${Object.entries(subtasksByTask).map(([taskId, subtasks]) => 
+          `Task ID:${taskId} subtasks:
+          ${subtasks.map(st => 
+            `  - ID:${st.id} | ${st.title} | Completed: ${st.completedAt ? 'Yes' : 'No'}${st.scheduledTime ? ` | Scheduled at: ${st.scheduledTime}` : ''}${st.recurrencePattern && st.recurrencePattern !== 'none' ? ` | Recurring: ${st.recurrencePattern}` : ''}`
+          ).join('\n')}`
+        ).join('\n')}
+        
+        The user just messaged you: "${context.userResponse}"
+        
+        This appears to be a scheduling request. Create a SPECIFIC SCHEDULE that addresses what they're asking for.
+        
+        YOUR RESPONSE MUST INCLUDE A SPECIFIC SCHEDULE IN THIS FORMAT:
+        "Here's a proposed schedule based on your request:
+        
+        - 16:30: Task one (ID: 123)
+        - 17:15: Short break
+        - 17:30: Task two (ID: 456)
+        
+        Does this schedule work for you?
+        
+        PROPOSED_SCHEDULE_AWAITING_CONFIRMATION"
+        
+        Always include the marker PROPOSED_SCHEDULE_AWAITING_CONFIRMATION at the end.
+        
+        You MUST format your response as a JSON object with these fields:
+        {
+          "message": "Your friendly message with the specific schedule and confirmation marker",
+          "scheduleUpdates": [
+            {
+              "taskId": 123,  // Use actual task ID from the task list
+              "action": "reschedule", 
+              "scheduledTime": "16:30"
+            },
+            {
+              "taskId": 456,  // Another example task 
+              "action": "reschedule",
+              "scheduledTime": "17:30"
+            }
+          ]
+        }
+      `;
+    } else {
+      // Standard prompt for regular conversations
+      prompt = `
+        You are an ADHD coach and accountability partner chatting with ${context.user.username}.
+        Current date and time: ${context.currentDateTime}
+        
+        Here's what you know about the user (use this to inform your tone, but don't explicitly mention these facts):
+        ${context.facts.map(fact => `- ${fact.category}: ${fact.content}`).join('\n')}
+        
+        Their current active tasks (with IDs you'll need for scheduling):
+        ${activeTasks.map(task => 
+          `- ID:${task.id} | ${task.title} | Type: ${task.taskType}${task.scheduledTime ? ` | Scheduled at: ${task.scheduledTime}` : ''}${task.recurrencePattern && task.recurrencePattern !== 'none' ? ` | Recurring: ${task.recurrencePattern}` : ''}`
+        ).join('\n')}
+        
+        Subtasks by task:
+        ${Object.entries(subtasksByTask).map(([taskId, subtasks]) => 
+          `Task ID:${taskId} subtasks:
+          ${subtasks.map(st => 
+            `  - ID:${st.id} | ${st.title} | Completed: ${st.completedAt ? 'Yes' : 'No'}${st.scheduledTime ? ` | Scheduled at: ${st.scheduledTime}` : ''}${st.recurrencePattern && st.recurrencePattern !== 'none' ? ` | Recurring: ${st.recurrencePattern}` : ''}`
+          ).join('\n')}`
+        ).join('\n')}
+        
+        The user just messaged you: "${context.userResponse}"
+        
+        Analyze the user's message and respond in a friendly, concise way that:
+        1. Directly addresses what they're asking or saying
+        2. Uses simple, straightforward language
+        3. Keeps your response brief and to the point (max 800 characters)
+        4. Is supportive and encouraging, but not overly enthusiastic
+        5. Focuses on being practically helpful rather than overly analytical
 
-      IMPORTANT FORMATTING GUIDELINES:
-      - Be conversational and friendly, like a helpful friend
-      - Use minimal text with clear, concise sentences
-      - Use at most 1-2 emojis if appropriate
-      - Make your message easy to read on a mobile device
-      
-      If the user wants to adjust their schedule, you MUST format your response as a JSON object with these fields:
-      {
-        "message": "Your friendly, concise response here",
-        "scheduleUpdates": [
-          {
-            "taskId": 123,  // Use actual task ID from the task list
-            "action": "reschedule" or "complete" or "skip",
-            "scheduledTime": "14:30",  // Only for reschedule action
-            "recurrencePattern": "daily"  // Optional for reschedule action
-          }
-        ]
-      }
-      
-      For special schedule changes:
-      - For afternoon tasks: use "all_afternoon_tasks" as the taskId
-      - For all today's tasks: use "all_today_tasks" as the taskId
-      
-      ONLY include scheduleUpdates if the user specifically requests schedule changes.
-      For regular responses with no schedule changes, your response should be JSON with only the message field.
-    `;
+        IMPORTANT FORMATTING GUIDELINES:
+        - Be conversational and friendly, like a helpful friend
+        - Use minimal text with clear, concise sentences
+        - Use at most 1-2 emojis if appropriate
+        - Make your message easy to read on a mobile device
+        
+        You MUST format your response as a JSON object with these fields:
+        {
+          "message": "Your friendly, concise response here",
+          "scheduleUpdates": []  // Include empty array since this isn't a scheduling request
+        }
+      `;
+    };
 
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
@@ -260,6 +376,13 @@ export class MessagingService {
 
     try {
       const parsed = JSON.parse(content);
+      
+      // For schedule requests, ensure the confirmation marker is present
+      if ((isScheduleRequest || isClearScheduleRequest) && 
+          !parsed.message.includes("PROPOSED_SCHEDULE_AWAITING_CONFIRMATION")) {
+        parsed.message += "\n\nPROPOSED_SCHEDULE_AWAITING_CONFIRMATION";
+      }
+      
       return {
         message: parsed.message,
         scheduleUpdates: parsed.scheduleUpdates
