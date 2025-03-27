@@ -124,7 +124,7 @@ export const messageHistory = pgTable("message_history", {
 export const messageSchedules = pgTable("message_schedules", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull(),
-  type: text("type").notNull(), // 'morning_message', 'follow_up'
+  type: text("type").notNull(), // 'morning_message', 'follow_up', 'reminder'
   scheduledFor: timestamp("scheduled_for").notNull(),
   sentAt: timestamp("sent_at"),
   status: text("status").notNull().default('pending'), // 'pending', 'sent', 'cancelled'
@@ -132,15 +132,80 @@ export const messageSchedules = pgTable("message_schedules", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Daily schedule table to store the confirmed schedules
+export const dailySchedules = pgTable("daily_schedules", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  date: timestamp("date").notNull(),
+  status: text("status").notNull().default('draft'), // 'draft', 'confirmed', 'completed'
+  originalContent: text("original_content").notNull(), // The original LLM response
+  formattedSchedule: jsonb("formatted_schedule"), // Parsed structured schedule data
+  confirmedAt: timestamp("confirmed_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Schedule item table for individual items in a daily schedule
+export const scheduleItems = pgTable("schedule_items", {
+  id: serial("id").primaryKey(),
+  scheduleId: integer("schedule_id").notNull().references(() => dailySchedules.id, { onDelete: 'cascade' }),
+  taskId: integer("task_id").references(() => tasks.id), // Optional link to a task
+  title: text("title").notNull(),
+  description: text("description"),
+  startTime: text("start_time").notNull(), // Format: "HH:mm"
+  endTime: text("end_time"), // Format: "HH:mm", optional for non-duration items
+  status: text("status").notNull().default('scheduled'), // 'scheduled', 'in_progress', 'completed', 'skipped'
+  notificationSent: boolean("notification_sent").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Schedule revision history table
+export const scheduleRevisions = pgTable("schedule_revisions", {
+  id: serial("id").primaryKey(),
+  scheduleId: integer("schedule_id").notNull().references(() => dailySchedules.id, { onDelete: 'cascade' }),
+  revisionType: text("revision_type").notNull(), // 'initial', 'user_edit', 'coach_edit'
+  changes: jsonb("changes").notNull(), // Store the changes made in this revision
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 
 export const tasksRelations = relations(tasks, ({ many }) => ({
   subtasks: many(subtasks),
+  scheduleItems: many(scheduleItems),
 }));
 
 export const subtasksRelations = relations(subtasks, ({ one }) => ({
   parentTask: one(tasks, {
     fields: [subtasks.parentTaskId],
     references: [tasks.id],
+  }),
+}));
+
+export const dailySchedulesRelations = relations(dailySchedules, ({ one, many }) => ({
+  user: one(users, {
+    fields: [dailySchedules.userId],
+    references: [users.id],
+  }),
+  items: many(scheduleItems),
+  revisions: many(scheduleRevisions),
+}));
+
+export const scheduleItemsRelations = relations(scheduleItems, ({ one }) => ({
+  schedule: one(dailySchedules, {
+    fields: [scheduleItems.scheduleId],
+    references: [dailySchedules.id],
+  }),
+  task: one(tasks, {
+    fields: [scheduleItems.taskId],
+    references: [tasks.id],
+  }),
+}));
+
+export const scheduleRevisionsRelations = relations(scheduleRevisions, ({ one }) => ({
+  schedule: one(dailySchedules, {
+    fields: [scheduleRevisions.scheduleId],
+    references: [dailySchedules.id],
   }),
 }));
 
@@ -282,6 +347,43 @@ export type MessageSchedule = typeof messageSchedules.$inferSelect;
 export type InsertMessagingPreferences = z.infer<typeof insertMessagingPreferencesSchema>;
 export type Subtask = typeof subtasks.$inferSelect;
 export type InsertSubtask = z.infer<typeof insertSubtaskSchema>;
+
+// New schedule-related types
+export type DailySchedule = typeof dailySchedules.$inferSelect;
+export type ScheduleItem = typeof scheduleItems.$inferSelect;
+export type ScheduleRevision = typeof scheduleRevisions.$inferSelect;
+
+// Create insert schemas for schedule-related tables
+export const insertDailyScheduleSchema = createInsertSchema(dailySchedules)
+  .pick({
+    userId: true,
+    date: true,
+    status: true,
+    originalContent: true,
+    formattedSchedule: true,
+  });
+
+export const insertScheduleItemSchema = createInsertSchema(scheduleItems)
+  .pick({
+    scheduleId: true,
+    taskId: true,
+    title: true,
+    description: true,
+    startTime: true,
+    endTime: true,
+    status: true,
+  });
+
+export const insertScheduleRevisionSchema = createInsertSchema(scheduleRevisions)
+  .pick({
+    scheduleId: true,
+    revisionType: true,
+    changes: true,
+  });
+
+export type InsertDailySchedule = z.infer<typeof insertDailyScheduleSchema>;
+export type InsertScheduleItem = z.infer<typeof insertScheduleItemSchema>;
+export type InsertScheduleRevision = z.infer<typeof insertScheduleRevisionSchema>;
 
 // Add some example facts for the UI
 export const factExamples = {

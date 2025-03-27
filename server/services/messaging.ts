@@ -58,7 +58,7 @@ export class MessagingService {
 
       Their current tasks:
       ${context.tasks.map(task => 
-        `- ${task.title} (${task.status})${task.scheduledTime ? ` scheduled at ${task.scheduledTime}` : ''}${task.recurrencePattern && task.recurrencePattern !== 'none' ? ` recurring: ${task.recurrencePattern}` : ''}`
+        `- ID:${task.id} | ${task.title} (${task.status})${task.scheduledTime ? ` scheduled at ${task.scheduledTime}` : ''}${task.recurrencePattern && task.recurrencePattern !== 'none' ? ` recurring: ${task.recurrencePattern}` : ''}`
       ).join('\n')}
 
       Active subtasks:
@@ -73,14 +73,27 @@ export class MessagingService {
       Your message must follow this structure:
       1. Brief, friendly greeting (e.g., "Morning, [name]!")
       2. 2-3 sentence introduction including a positive note
-      3. Today's schedule formatted as:
-         • Short bullet points with task names and times
-         • No more than 3-4 priority tasks with times
-         • Easy to scan visual format
-      4. End with a single simple question
+      3. Today's suggested schedule formatted as:
+         • Short bullet points with task names and SPECIFIC times (e.g., "9:30 AM - Send project update")
+         • Include start times for all tasks, and optionally end times for longer tasks
+         • List tasks in chronological order throughout the day
+         • Include 5-8 priority tasks with specific times
+         • For each task with an ID, use the exact task title
+      4. End with a single simple question asking if they want to confirm this schedule
 
-      IMPORTANT FORMATTING GUIDELINES:
-      - Keep the message under 600 characters total
+      VERY IMPORTANT SCHEDULE FORMATTING:
+      After your message and question, you MUST include the following marker followed by the final schedule:
+      
+      FINAL_SCHEDULE_FOR_DAY:
+      8:00 AM - Morning routine
+      9:30 AM - Work on project X
+      12:00 PM - Lunch break
+      etc...
+      
+      Format this final schedule section with ONE task per line, with specific times in HH:MM AM/PM format.
+      This section will be parsed by the system to create notifications.
+
+      IMPORTANT MESSAGING GUIDELINES:
       - Write as if you're texting a friend
       - Use minimal text with clear, concise sentences
       - At most one emoji if appropriate
@@ -432,15 +445,9 @@ export class MessagingService {
       // Analyze sentiment
       const sentiment = await this.analyzeSentiment(response);
       
-      // Store the user's response in message history
-      await db.insert(messageHistory).values({
-        userId,
-        content: response,
-        type: 'response',
-        status: 'received',
-        metadata: { sentiment } as any, // Type assertion to fix compatibility
-        createdAt: new Date()
-      });
+      // Note: We're not storing the user's response here anymore as it's already stored
+      // in the /api/chat/send endpoint for web UI messages or in the webhook for WhatsApp
+      // For WhatsApp messages, we may need to store it here, but for web UI it's already done
       
       // Generate a response based on context
       const messageContext: MessageContext = {
@@ -460,21 +467,20 @@ export class MessagingService {
         await this.processScheduleUpdates(userId, responseResult.scheduleUpdates);
       }
       
-      // Send the response to the user
-      if (user.phoneNumber) {
-        const success = await this.sendWhatsAppMessage(user.phoneNumber, responseResult.message);
-        
-        if (success) {
-          // Store the sent message in history
-          await db.insert(messageHistory).values({
-            userId,
-            content: responseResult.message,
-            type: 'coach_response',
-            status: 'sent',
-            metadata: { scheduleUpdates: responseResult.scheduleUpdates } as any,
-            createdAt: new Date()
-          });
-        }
+      // Always store the coach's response in the message history
+      // This is needed for both the web UI and WhatsApp
+      const coachMessageInsert = await db.insert(messageHistory).values({
+        userId,
+        content: responseResult.message,
+        type: 'coach_response',
+        status: 'sent',
+        metadata: { scheduleUpdates: responseResult.scheduleUpdates } as any,
+        createdAt: new Date()
+      }).returning({ id: messageHistory.id });
+      
+      // For WhatsApp users, also send the message via WhatsApp
+      if (user.phoneNumber && user.contactPreference === 'whatsapp') {
+        await this.sendWhatsAppMessage(user.phoneNumber, responseResult.message);
       }
       
       // Schedule a follow-up based on sentiment if needed

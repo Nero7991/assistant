@@ -447,6 +447,170 @@ export async function registerRoutes(app: Express): Promise<Server> {
     await storage.deleteGoal(parseInt(req.params.id));
     res.sendStatus(204);
   });
+  
+  // Daily Schedule endpoints
+  app.get("/api/daily-schedules", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const schedules = await storage.getDailySchedules(req.user.id);
+      res.json(schedules);
+    } catch (error) {
+      console.error("Error fetching daily schedules:", error);
+      res.status(500).json({ error: "Failed to fetch daily schedules" });
+    }
+  });
+  
+  // Endpoint to create a new daily schedule from an LLM response
+  app.post("/api/daily-schedules/from-llm", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const { llmResponse } = req.body;
+      
+      if (!llmResponse || typeof llmResponse !== 'string') {
+        return res.status(400).json({ error: "LLM response is required" });
+      }
+      
+      // Import the schedule parser functions
+      const { parseScheduleFromLLMResponse, createDailyScheduleFromParsed } = await import('./services/schedule-parser');
+      
+      // Parse the schedule from the LLM response
+      const parsedSchedule = parseScheduleFromLLMResponse(llmResponse);
+      
+      if (!parsedSchedule) {
+        return res.status(400).json({ error: "No schedule found in the LLM response" });
+      }
+      
+      // Get the user's tasks for matching
+      const tasks = await storage.getTasks(req.user.id);
+      
+      // Create a daily schedule from the parsed schedule
+      const scheduleId = await createDailyScheduleFromParsed(req.user.id, parsedSchedule, tasks);
+      
+      res.status(201).json({ 
+        message: "Daily schedule created successfully", 
+        scheduleId,
+        parsedItems: parsedSchedule.scheduleItems.length
+      });
+    } catch (error) {
+      console.error("Error creating daily schedule from LLM response:", error);
+      res.status(500).json({ error: "Failed to create daily schedule" });
+    }
+  });
+  
+  // Generate a schedule using the AI coach
+  app.post("/api/daily-schedules/generate", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      // Import required functions and components
+      const { generateDailySchedule } = await import('./coach');
+      const { parseScheduleFromLLMResponse, createDailyScheduleFromParsed } = await import('./services/schedule-parser');
+      
+      // Get tasks and user facts
+      const tasks = await storage.getTasks(req.user.id);
+      const facts = await storage.getKnownUserFacts(req.user.id);
+      
+      // Optional custom instructions
+      const { customInstructions } = req.body;
+      
+      // Generate the schedule with the AI
+      const llmResponse = await generateDailySchedule(tasks, facts, customInstructions);
+      
+      // Parse the schedule from the LLM response
+      const parsedSchedule = parseScheduleFromLLMResponse(llmResponse);
+      
+      if (!parsedSchedule) {
+        return res.status(400).json({ 
+          error: "No schedule could be generated", 
+          llmResponse 
+        });
+      }
+      
+      // Create a daily schedule from the parsed schedule
+      const scheduleId = await createDailyScheduleFromParsed(req.user.id, parsedSchedule, tasks);
+      
+      res.status(201).json({
+        message: "Daily schedule generated successfully",
+        scheduleId,
+        parsedItems: parsedSchedule.scheduleItems.length,
+        llmResponse
+      });
+    } catch (error) {
+      console.error("Error generating daily schedule:", error);
+      res.status(500).json({ error: "Failed to generate daily schedule" });
+    }
+  });
+  
+  // Add back the removed route handlers
+  app.get("/api/daily-schedules/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const scheduleId = parseInt(req.params.id);
+      const schedule = await storage.getDailySchedule(scheduleId);
+      
+      if (!schedule) {
+        return res.status(404).json({ error: "Schedule not found" });
+      }
+      
+      res.json(schedule);
+    } catch (error) {
+      console.error("Error fetching daily schedule:", error);
+      res.status(500).json({ error: "Failed to fetch daily schedule" });
+    }
+  });
+  
+  app.get("/api/daily-schedules/:id/items", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const scheduleId = parseInt(req.params.id);
+      const items = await storage.getScheduleItems(scheduleId);
+      res.json(items);
+    } catch (error) {
+      console.error("Error fetching schedule items:", error);
+      res.status(500).json({ error: "Failed to fetch schedule items" });
+    }
+  });
+  
+  app.post("/api/daily-schedules/:id/confirm", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const scheduleId = parseInt(req.params.id);
+      const success = await storage.confirmDailySchedule(scheduleId);
+      
+      if (success) {
+        res.json({ message: "Schedule confirmed successfully" });
+      } else {
+        res.status(400).json({ error: "Failed to confirm schedule" });
+      }
+    } catch (error) {
+      console.error("Error confirming schedule:", error);
+      res.status(500).json({ error: "Failed to confirm schedule" });
+    }
+  });
+  
+  app.patch("/api/schedule-items/:id/status", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      const itemId = parseInt(req.params.id);
+      const { status } = req.body;
+      
+      if (!status || typeof status !== 'string') {
+        return res.status(400).json({ error: "Invalid status value" });
+      }
+      
+      const updatedItem = await storage.updateScheduleItemStatus(itemId, status);
+      res.json(updatedItem);
+    } catch (error) {
+      console.error("Error updating schedule item status:", error);
+      res.status(500).json({ error: "Failed to update schedule item status" });
+    }
+  });
 
   // Check-ins
   app.get("/api/checkins", async (req, res) => {
@@ -577,7 +741,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Message is required" });
       }
       
+      // First, store the user's message in the history with the correct type
+      // This is important for the chat UI to display outgoing messages correctly
+      await db.insert(messageHistory).values({
+        userId: req.user.id,
+        content: message,
+        type: 'user_message', // Use 'user_message' type to mark this as a message from the user
+        status: 'received',
+        createdAt: new Date()
+      });
+      
       // Process the message using the same service that handles WhatsApp messages
+      // This will generate a response and also store it in the message history
       await messagingService.handleUserResponse(req.user.id, message);
       
       res.status(200).json({ success: true });
@@ -735,6 +910,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error generating test chat message:", error);
       res.status(500).json({ error: "Failed to generate test message" });
+    }
+  });
+
+  // Message history endpoint for the chat UI
+  app.get("/api/message-history", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      // Fetch message history for the current user
+      const history = await db
+        .select({
+          id: messageHistory.id,
+          userId: messageHistory.userId,
+          content: messageHistory.content,
+          type: messageHistory.type,
+          status: messageHistory.status,
+          createdAt: messageHistory.createdAt,
+          metadata: messageHistory.metadata
+        })
+        .from(messageHistory)
+        .where(eq(messageHistory.userId, req.user.id))
+        .orderBy(desc(messageHistory.createdAt))
+        .limit(50); // Limit to the last 50 messages
+      
+      // Transform the results to match the expected format in the chat UI
+      const transformedHistory = history.map(msg => {
+        let direction: 'incoming' | 'outgoing';
+        
+        // Determine message direction based on type
+        // Outgoing messages are sent by the user
+        // Incoming messages are sent by the system
+        if (msg.type === 'user_message') {
+          direction = 'outgoing';
+        } else {
+          direction = 'incoming';
+        }
+        
+        return {
+          id: msg.id,
+          userId: msg.userId,
+          content: msg.content,
+          direction,
+          createdAt: msg.createdAt.toISOString(),
+          metadata: msg.metadata
+        };
+      });
+      
+      // Return the most recent messages first in the UI, but they'll be sorted
+      // properly for display in the ChatPage component
+      res.json(transformedHistory);
+    } catch (error) {
+      console.error("Error fetching message history:", error);
+      res.status(500).json({ error: "Failed to fetch message history" });
     }
   });
 

@@ -1,10 +1,16 @@
 import session from "express-session";
 import createMemoryStore from "memorystore";
-import { User, Goal, CheckIn, Task, KnownUserFact, InsertKnownUserFact, InsertTask, Subtask, InsertSubtask } from "@shared/schema";
+import { 
+  User, Goal, CheckIn, Task, KnownUserFact, InsertKnownUserFact, InsertTask, Subtask, InsertSubtask,
+  DailySchedule, ScheduleItem, ScheduleRevision, MessageSchedule,
+  InsertDailySchedule, InsertScheduleItem, InsertScheduleRevision
+} from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc } from "drizzle-orm";
-import { users, goals, checkIns, contactVerifications, knownUserFacts, tasks, subtasks, messageSchedules } from "@shared/schema";
-import type { User, Goal, CheckIn, Task, KnownUserFact, InsertKnownUserFact, InsertTask } from "@shared/schema";
+import { 
+  users, goals, checkIns, contactVerifications, knownUserFacts, tasks, subtasks, messageSchedules,
+  dailySchedules, scheduleItems, scheduleRevisions 
+} from "@shared/schema";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
 
@@ -69,6 +75,29 @@ export interface IStorage {
   completeSubtask(id: number): Promise<Subtask>;
   updateSubtask(id: number, updates: Partial<Subtask>): Promise<Subtask>;
   deleteSubtask(taskId: number, subtaskId: number): Promise<void>;
+  
+  // Schedule management methods
+  getDailySchedule(userId: number, date: Date): Promise<DailySchedule | undefined>;
+  getDailySchedules(userId: number, limit?: number): Promise<DailySchedule[]>;
+  createDailySchedule(schedule: InsertDailySchedule): Promise<DailySchedule>;
+  updateDailySchedule(id: number, updates: Partial<DailySchedule>): Promise<DailySchedule>;
+  confirmDailySchedule(id: number): Promise<DailySchedule>;
+  
+  // Schedule items methods
+  getScheduleItems(scheduleId: number): Promise<ScheduleItem[]>;
+  createScheduleItem(item: InsertScheduleItem): Promise<ScheduleItem>;
+  updateScheduleItem(id: number, updates: Partial<ScheduleItem>): Promise<ScheduleItem>;
+  completeScheduleItem(id: number): Promise<ScheduleItem>;
+  deleteScheduleItem(id: number): Promise<void>;
+  
+  // Schedule revision methods
+  getScheduleRevisions(scheduleId: number): Promise<ScheduleRevision[]>;
+  createScheduleRevision(revision: InsertScheduleRevision): Promise<ScheduleRevision>;
+  
+  // Notification methods for scheduled items
+  scheduleTaskNotification(taskId: number, scheduledTime: Date, context?: Record<string, any>): Promise<MessageSchedule>;
+  scheduleItemNotification(itemId: number, scheduledTime: Date): Promise<MessageSchedule>;
+  getUpcomingNotifications(userId: number): Promise<MessageSchedule[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -655,6 +684,168 @@ export class DatabaseStorage implements IStorage {
           eq(subtasks.id, subtaskId)
         )
       );
+  }
+
+  // Daily Schedule methods
+  async getDailySchedules(userId: number): Promise<typeof dailySchedules.$inferSelect[]> {
+    return db
+      .select()
+      .from(dailySchedules)
+      .where(eq(dailySchedules.userId, userId))
+      .orderBy(desc(dailySchedules.createdAt));
+  }
+
+  async getDailySchedule(scheduleId: number): Promise<typeof dailySchedules.$inferSelect | undefined> {
+    const [schedule] = await db
+      .select()
+      .from(dailySchedules)
+      .where(eq(dailySchedules.id, scheduleId));
+    return schedule;
+  }
+
+  async getScheduleItems(scheduleId: number): Promise<typeof scheduleItems.$inferSelect[]> {
+    return db
+      .select()
+      .from(scheduleItems)
+      .where(eq(scheduleItems.scheduleId, scheduleId))
+      .orderBy(scheduleItems.startTime);
+  }
+
+  async updateScheduleItemStatus(itemId: number, status: string): Promise<typeof scheduleItems.$inferSelect> {
+    const [updatedItem] = await db
+      .update(scheduleItems)
+      .set({
+        status,
+        updatedAt: new Date()
+      })
+      .where(eq(scheduleItems.id, itemId))
+      .returning();
+    return updatedItem;
+  }
+
+  async scheduleItemNotification(itemId: number, scheduledTime: Date): Promise<typeof messageSchedules.$inferSelect> {
+    try {
+      // Get the schedule item to access related information
+      const [item] = await db
+        .select()
+        .from(scheduleItems)
+        .where(eq(scheduleItems.id, itemId));
+      
+      if (!item) {
+        throw new Error(`Schedule item with ID ${itemId} not found`);
+      }
+      
+      // Get the parent schedule to get the user ID
+      const [schedule] = await db
+        .select()
+        .from(dailySchedules)
+        .where(eq(dailySchedules.id, item.scheduleId));
+      
+      if (!schedule) {
+        throw new Error(`Parent schedule with ID ${item.scheduleId} not found`);
+      }
+      
+      // Get the task if this schedule item is linked to a task
+      let taskTitle = item.title;
+      let taskDescription = item.description || '';
+      
+      if (item.taskId) {
+        const [task] = await db
+          .select()
+          .from(tasks)
+          .where(eq(tasks.id, item.taskId));
+        
+        if (task) {
+          taskTitle = task.title;
+          taskDescription = task.description || '';
+        }
+      }
+      
+      // Create metadata for the notification
+      const metadata = {
+        scheduleItemId: item.id,
+        scheduleId: item.scheduleId,
+        taskId: item.taskId,
+        title: taskTitle,
+        description: taskDescription,
+        startTime: item.startTime,
+        endTime: item.endTime
+      };
+      
+      // Schedule the notification
+      const [messageSchedule] = await db
+        .insert(messageSchedules)
+        .values({
+          userId: schedule.userId,
+          scheduledTime,
+          type: 'schedule_notification',
+          status: 'pending',
+          context: JSON.stringify(metadata)
+        })
+        .returning();
+      
+      // Update the schedule item to indicate that a notification has been scheduled
+      await db
+        .update(scheduleItems)
+        .set({
+          notificationSent: true,
+          updatedAt: new Date()
+        })
+        .where(eq(scheduleItems.id, item.id));
+      
+      return messageSchedule;
+    } catch (error) {
+      console.error("Error scheduling item notification:", error);
+      throw error;
+    }
+  }
+
+  async confirmDailySchedule(scheduleId: number): Promise<boolean> {
+    try {
+      // Update the schedule status
+      await db
+        .update(dailySchedules)
+        .set({
+          status: 'confirmed',
+          confirmedAt: new Date(),
+          updatedAt: new Date()
+        })
+        .where(eq(dailySchedules.id, scheduleId));
+      
+      // Get all items in this schedule
+      const items = await db
+        .select()
+        .from(scheduleItems)
+        .where(eq(scheduleItems.scheduleId, scheduleId));
+      
+      // Schedule notifications for each item
+      for (const item of items) {
+        // Parse the start time to a Date object
+        const timeMatch = item.startTime.match(/^(\d{1,2}):(\d{2})$/);
+        if (!timeMatch) continue;
+        
+        const hours = parseInt(timeMatch[1]);
+        const minutes = parseInt(timeMatch[2]);
+        
+        if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+          continue;
+        }
+        
+        // Create a Date object for today at the specified time
+        const scheduledTime = new Date();
+        scheduledTime.setHours(hours, minutes, 0, 0);
+        
+        // Only schedule notifications for future times
+        if (scheduledTime > new Date()) {
+          await this.scheduleItemNotification(item.id, scheduledTime);
+        }
+      }
+      
+      return true;
+    } catch (error) {
+      console.error("Error confirming daily schedule:", error);
+      return false;
+    }
   }
 }
 
