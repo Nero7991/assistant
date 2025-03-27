@@ -505,6 +505,30 @@ export class MessagingService {
         parsed.message += "\n\nPROPOSED_SCHEDULE_AWAITING_CONFIRMATION";
       }
       
+      // For schedule confirmations, ensure the final schedule marker is present
+      if (isScheduleConfirmation && 
+          parsed.scheduleUpdates && 
+          parsed.scheduleUpdates.length > 0 && 
+          !parsed.message.includes("The final schedule is as follows:")) {
+        
+        // Extract the schedule from the message to reformat it
+        let scheduleText = "";
+        for (const update of parsed.scheduleUpdates) {
+          const taskId = update.taskId;
+          const time = update.scheduledTime;
+          const task = activeTasks.find(t => t.id === taskId);
+          if (task && time) {
+            scheduleText += `- ${time}: ${task.title} (Task ID: ${taskId})\n`;
+          }
+        }
+        
+        // Find a good position to insert the schedule
+        const splitMessage = parsed.message.split("\n\n");
+        // Insert after the first paragraph
+        splitMessage.splice(1, 0, `The final schedule is as follows:\n\n${scheduleText}`);
+        parsed.message = splitMessage.join("\n\n");
+      }
+      
       return {
         message: parsed.message,
         scheduleUpdates: parsed.scheduleUpdates
