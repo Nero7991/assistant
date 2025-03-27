@@ -502,6 +502,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to fetch message history" });
     }
   });
+  
+  // Get scheduled messages and notifications
+  app.get("/api/schedule", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      // Get pending message schedules
+      const pendingSchedules = await db
+        .select()
+        .from(messageSchedules)
+        .where(
+          and(
+            eq(messageSchedules.userId, req.user.id),
+            eq(messageSchedules.status, 'pending')
+          )
+        )
+        .orderBy(messageSchedules.scheduledFor);
+      
+      // Get active tasks with scheduled times
+      const activeTasks = await storage.getTasks(req.user.id);
+      const scheduledTasks = activeTasks.filter(task => 
+        task.status === 'active' && task.scheduledTime
+      );
+      
+      // Get all subtasks for active tasks
+      const subtasksByTask: Record<number, any[]> = {};
+      for (const task of scheduledTasks) {
+        if (task.id) {
+          const subtasks = await storage.getSubtasks(task.id);
+          const scheduledSubtasks = subtasks.filter(st => 
+            !st.completedAt && st.scheduledTime
+          );
+          if (scheduledSubtasks.length > 0) {
+            subtasksByTask[task.id] = scheduledSubtasks;
+          }
+        }
+      }
+      
+      // Get the most recent schedule update from message history
+      const recentScheduleMessages = await db
+        .select()
+        .from(messageHistory)
+        .where(
+          and(
+            eq(messageHistory.userId, req.user.id),
+            eq(messageHistory.type, 'morning_message')
+          )
+        )
+        .orderBy(desc(messageHistory.createdAt))
+        .limit(1);
+      
+      // Return combined schedule data
+      res.json({
+        pendingNotifications: pendingSchedules,
+        scheduledTasks,
+        scheduledSubtasks: subtasksByTask,
+        lastScheduleUpdate: recentScheduleMessages[0] || null
+      });
+    } catch (error) {
+      console.error("Error fetching schedule data:", error);
+      res.status(500).json({ error: "Failed to fetch schedule data" });
+    }
+  });
 
   // Web Chat Message endpoint - for sending messages from the web UI
   app.post("/api/chat/send", async (req, res) => {
