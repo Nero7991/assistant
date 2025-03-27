@@ -505,11 +505,12 @@ export class MessagingService {
         parsed.message += "\n\nPROPOSED_SCHEDULE_AWAITING_CONFIRMATION";
       }
       
-      // For schedule confirmations, ensure the final schedule marker is present
-      if (isScheduleConfirmation && 
-          parsed.scheduleUpdates && 
+      // For any schedule-related response with updates, ensure the final schedule marker is present
+      if (parsed.scheduleUpdates && 
           parsed.scheduleUpdates.length > 0 && 
           !parsed.message.includes("The final schedule is as follows:")) {
+        
+        console.log("Adding schedule marker to response message");
         
         // Extract the schedule from the message to reformat it
         let scheduleText = "";
@@ -519,14 +520,36 @@ export class MessagingService {
           const task = activeTasks.find(t => t.id === taskId);
           if (task && time) {
             scheduleText += `- ${time}: ${task.title} (Task ID: ${taskId})\n`;
+          } else if (time) {
+            // If we don't have a matching task, just use the description from the update
+            scheduleText += `- ${time}: ${update.description || "Task"}\n`;
           }
         }
         
-        // Find a good position to insert the schedule
-        const splitMessage = parsed.message.split("\n\n");
-        // Insert after the first paragraph
-        splitMessage.splice(1, 0, `The final schedule is as follows:\n\n${scheduleText}`);
-        parsed.message = splitMessage.join("\n\n");
+        if (scheduleText) {
+          // Find a good position to insert the schedule
+          const splitMessage = parsed.message.split("\n\n");
+          
+          // Look for specific schedule-related phrases in the message
+          const scheduleIndicators = ["schedule", "plan for", "day looks", "day plan"];
+          let insertPosition = 1; // Default to after first paragraph
+          
+          for (let i = 0; i < splitMessage.length; i++) {
+            const paragraph = splitMessage[i].toLowerCase();
+            if (scheduleIndicators.some(indicator => paragraph.includes(indicator))) {
+              insertPosition = i + 1;
+              break;
+            }
+          }
+          
+          // Insert after the identified paragraph
+          splitMessage.splice(insertPosition, 0, `The final schedule is as follows:\n\n${scheduleText}`);
+          parsed.message = splitMessage.join("\n\n");
+          
+          console.log("Successfully added schedule marker");
+        } else {
+          console.log("No valid schedule items found to format");
+        }
       }
       
       return {
