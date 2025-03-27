@@ -169,8 +169,15 @@ export class MessagingService {
       throw new Error("User response is required for response generation");
     }
 
+    // Format past messages with timestamps to give better context
+    const formattedPreviousMessages = context.previousMessages.slice(0, 10).map(msg => {
+      const messageTime = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const messageType = msg.type === 'user_message' ? 'User' : 'Coach';
+      return `[${messageTime}] ${messageType}: ${msg.content}`;
+    }).reverse().join('\n\n');
+
     const conversationHistory = context.previousMessages.slice(0, 10).map(msg => {
-      if (msg.type === 'response') {
+      if (msg.type === 'user_message' || msg.type === 'system_request') {
         return { role: "user" as const, content: msg.content };
       } else {
         return { role: "assistant" as const, content: msg.content };
@@ -188,7 +195,15 @@ export class MessagingService {
       }
     }
 
-    // Check for schedule-related requests - adding more comprehensive patterns
+    // Check for phrases indicating the user is confirming a schedule
+    const isScheduleConfirmation = context.userResponse && (
+      /yes|confirm|accept|that works|looks good|sounds good|great|perfect|ok|okay|agreed|i like it|good/i.test(context.userResponse) &&
+      context.previousMessages.some(msg => 
+        msg.type === 'response' && 
+        msg.content.includes('PROPOSED_SCHEDULE_AWAITING_CONFIRMATION'))
+    );
+
+    // Check for schedule-related requests
     const isScheduleRequest = context.userResponse && (
       /schedule|reschedule|plan|move|change time|different time|later|earlier|tomorrow|today|afternoon|morning|evening|free time|cancel|clear|free up|time off|no tasks|postpone|delay/i.test(context.userResponse)
     );
@@ -201,7 +216,54 @@ export class MessagingService {
     // Choose the appropriate prompt based on the type of request
     let prompt: string;
     
-    if (isClearScheduleRequest) {
+    if (isScheduleConfirmation) {
+      // Prompt for when the user is confirming a previously proposed schedule
+      prompt = `
+        You are an ADHD coach and accountability partner chatting with ${context.user.username}.
+        Current date and time: ${context.currentDateTime}
+        
+        Here's what you know about the user (use this to inform your tone, but don't explicitly mention these facts):
+        ${context.facts.map(fact => `- ${fact.category}: ${fact.content}`).join('\n')}
+        
+        Their current active tasks (with IDs you'll need for scheduling):
+        ${activeTasks.map(task => 
+          `- ID:${task.id} | ${task.title} | Type: ${task.taskType}${task.scheduledTime ? ` | Scheduled at: ${task.scheduledTime}` : ''}${task.recurrencePattern && task.recurrencePattern !== 'none' ? ` | Recurring: ${task.recurrencePattern}` : ''}`
+        ).join('\n')}
+        
+        Recent conversation history:
+        ${formattedPreviousMessages}
+        
+        The user appears to be confirming a schedule you previously proposed. Since they have agreed to the schedule, you need to respond with final confirmation and include the special marker text "The final schedule is as follows" followed by the bullet points of the tasks that were in your previously proposed schedule.
+        
+        YOUR RESPONSE MUST INCLUDE THE EXACT PHRASE: "The final schedule is as follows" followed by the detailed schedule with task IDs.
+        
+        Example format:
+        "Great! I'm glad the schedule works for you. I'll set it up now.
+        
+        The final schedule is as follows:
+        - 16:30: Quick task (ID: 123) - 15 minutes
+        - 17:00 onwards: Free time for yourself"
+        
+        You MUST format your response as a JSON object with these fields:
+        {
+          "message": "Your confirmation message with the final schedule",
+          "scheduleUpdates": [
+            {
+              "taskId": 123,  // Use actual task ID from the task list
+              "action": "reschedule", 
+              "scheduledTime": "16:30"
+            },
+            {
+              "taskId": 456,  // Another example task being rescheduled to tomorrow
+              "action": "reschedule",
+              "scheduledTime": "tomorrow at 10:00" 
+            }
+          ]
+        }
+        
+        Include the exact same schedule updates that were in your previous message.
+      `;
+    } else if (isClearScheduleRequest) {
       // Special prompt for clearing or freeing up schedule
       prompt = `
         You are an ADHD coach and accountability partner chatting with ${context.user.username}.
@@ -215,13 +277,8 @@ export class MessagingService {
           `- ID:${task.id} | ${task.title} | Type: ${task.taskType}${task.scheduledTime ? ` | Scheduled at: ${task.scheduledTime}` : ''}${task.recurrencePattern && task.recurrencePattern !== 'none' ? ` | Recurring: ${task.recurrencePattern}` : ''}`
         ).join('\n')}
         
-        Subtasks by task:
-        ${Object.entries(subtasksByTask).map(([taskId, subtasks]) => 
-          `Task ID:${taskId} subtasks:
-          ${subtasks.map(st => 
-            `  - ID:${st.id} | ${st.title} | Completed: ${st.completedAt ? 'Yes' : 'No'}${st.scheduledTime ? ` | Scheduled at: ${st.scheduledTime}` : ''}${st.recurrencePattern && st.recurrencePattern !== 'none' ? ` | Recurring: ${st.recurrencePattern}` : ''}`
-          ).join('\n')}`
-        ).join('\n')}
+        Recent conversation history:
+        ${formattedPreviousMessages}
         
         The user just messaged you: "${context.userResponse}"
         
@@ -239,6 +296,9 @@ export class MessagingService {
         Does this schedule work for you?
         
         PROPOSED_SCHEDULE_AWAITING_CONFIRMATION"
+        
+        IMPORTANT: This is a PROPOSED schedule. The user needs to confirm it before it becomes final.
+        Only use the phrase "The final schedule is as follows" if the user has explicitly confirmed a schedule you proposed.
         
         Always include the marker PROPOSED_SCHEDULE_AWAITING_CONFIRMATION at the end of your message.
         
@@ -273,13 +333,8 @@ export class MessagingService {
           `- ID:${task.id} | ${task.title} | Type: ${task.taskType}${task.scheduledTime ? ` | Scheduled at: ${task.scheduledTime}` : ''}${task.recurrencePattern && task.recurrencePattern !== 'none' ? ` | Recurring: ${task.recurrencePattern}` : ''}`
         ).join('\n')}
         
-        Subtasks by task:
-        ${Object.entries(subtasksByTask).map(([taskId, subtasks]) => 
-          `Task ID:${taskId} subtasks:
-          ${subtasks.map(st => 
-            `  - ID:${st.id} | ${st.title} | Completed: ${st.completedAt ? 'Yes' : 'No'}${st.scheduledTime ? ` | Scheduled at: ${st.scheduledTime}` : ''}${st.recurrencePattern && st.recurrencePattern !== 'none' ? ` | Recurring: ${st.recurrencePattern}` : ''}`
-          ).join('\n')}`
-        ).join('\n')}
+        Recent conversation history:
+        ${formattedPreviousMessages}
         
         The user just messaged you: "${context.userResponse}"
         
@@ -295,6 +350,9 @@ export class MessagingService {
         Does this schedule work for you?
         
         PROPOSED_SCHEDULE_AWAITING_CONFIRMATION"
+        
+        IMPORTANT: This is a PROPOSED schedule. The user needs to confirm it before it becomes final.
+        Only use the phrase "The final schedule is as follows" if the user has explicitly confirmed a schedule you proposed.
         
         Always include the marker PROPOSED_SCHEDULE_AWAITING_CONFIRMATION at the end.
         
@@ -329,13 +387,8 @@ export class MessagingService {
           `- ID:${task.id} | ${task.title} | Type: ${task.taskType}${task.scheduledTime ? ` | Scheduled at: ${task.scheduledTime}` : ''}${task.recurrencePattern && task.recurrencePattern !== 'none' ? ` | Recurring: ${task.recurrencePattern}` : ''}`
         ).join('\n')}
         
-        Subtasks by task:
-        ${Object.entries(subtasksByTask).map(([taskId, subtasks]) => 
-          `Task ID:${taskId} subtasks:
-          ${subtasks.map(st => 
-            `  - ID:${st.id} | ${st.title} | Completed: ${st.completedAt ? 'Yes' : 'No'}${st.scheduledTime ? ` | Scheduled at: ${st.scheduledTime}` : ''}${st.recurrencePattern && st.recurrencePattern !== 'none' ? ` | Recurring: ${st.recurrencePattern}` : ''}`
-          ).join('\n')}`
-        ).join('\n')}
+        Recent conversation history:
+        ${formattedPreviousMessages}
         
         The user just messaged you: "${context.userResponse}"
         
@@ -351,6 +404,8 @@ export class MessagingService {
         - Use minimal text with clear, concise sentences
         - Use at most 1-2 emojis if appropriate
         - Make your message easy to read on a mobile device
+        
+        IMPORTANT: Only use the phrase "The final schedule is as follows" if the user has explicitly confirmed a schedule you proposed.
         
         You MUST format your response as a JSON object with these fields:
         {
@@ -413,6 +468,13 @@ export class MessagingService {
     const hours = currentTime.getHours();
     const timeOfDay = hours < 12 ? "morning" : hours < 17 ? "afternoon" : "evening";
     
+    // Format past messages with timestamps to give better context
+    const formattedPreviousMessages = context.previousMessages.slice(0, 10).map(msg => {
+      const messageTime = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const messageType = msg.type === 'user_message' ? 'User' : 'Coach';
+      return `[${messageTime}] ${messageType}: ${msg.content}`;
+    }).reverse().join('\n\n');
+    
     const prompt = `
       You are an ADHD coach and accountability partner helping ${context.user.username} reschedule their day.
       Current date and time: ${context.currentDateTime} (${timeOfDay})
@@ -432,6 +494,9 @@ export class MessagingService {
           `  - ID:${st.id} | ${st.title} | Completed: ${st.completedAt ? 'Yes' : 'No'}${st.scheduledTime ? ` | Scheduled at: ${st.scheduledTime}` : ''}${st.recurrencePattern && st.recurrencePattern !== 'none' ? ` | Recurring: ${st.recurrencePattern}` : ''}`
         ).join('\n')}`
       ).join('\n')}
+      
+      Recent conversation history:
+      ${formattedPreviousMessages}
 
       The user has asked to reschedule their day. Create a new schedule for them that:
       1. Takes into account it's currently the ${timeOfDay} (${hours}:00)
@@ -446,6 +511,9 @@ export class MessagingService {
       - Be realistic about what can be done in the remaining day
       - Only schedule tasks for today, not future days
       - Always include a clear question asking for confirmation, like "Does this schedule work for you?" or "Would you like to make any changes to this schedule?"
+      
+      IMPORTANT: This is a PROPOSED schedule. The user needs to confirm it before it becomes final.
+      Only use the phrase "The final schedule is as follows" if the user has explicitly confirmed a schedule you proposed.
       
       You MUST respond with a JSON object containing:
       1. A message field with your friendly schedule message including the bullet list and confirmation question
@@ -583,6 +651,7 @@ export class MessagingService {
       };
       
       let response: string;
+      let metadata: any = { systemInitiated: true, type: messageType };
       
       // Generate appropriate message based on type
       if (messageType === 'reschedule_request') {
@@ -590,9 +659,10 @@ export class MessagingService {
         const result = await this.generateRescheduleMessage(messagingContext);
         response = result.message;
         
-        // Process any schedule updates if they exist
+        // Store the schedule updates in metadata instead of processing them immediately
+        // They will only be processed after user confirmation
         if (result.scheduleUpdates && result.scheduleUpdates.length > 0) {
-          await this.processScheduleUpdates(userId, result.scheduleUpdates);
+          metadata.scheduleUpdates = result.scheduleUpdates;
         }
       } else if (messageType === 'morning_summary') {
         response = await this.generateMorningMessage(messagingContext);
@@ -611,7 +681,7 @@ export class MessagingService {
           content: response,
           type: 'response',
           status: 'sent',
-          metadata: { systemInitiated: true, type: messageType }
+          metadata: metadata
         });
       
       return response;
@@ -674,23 +744,47 @@ export class MessagingService {
           // User is confirming the schedule
           console.log(`User ${userId} confirmed schedule`);
           
-          // Process schedule updates that were stored in metadata
-          const metadata = lastAssistantMessage.metadata as { scheduleUpdates?: any[] };
+          // Generate a response based on context
+          const messageContext: MessageContext = {
+            user,
+            tasks: userTasks,
+            facts: userFacts,
+            previousMessages,
+            currentDateTime: new Date().toLocaleString(),
+            messageType: 'response',
+            userResponse: response
+          };
           
-          if (metadata && metadata.scheduleUpdates && metadata.scheduleUpdates.length > 0) {
-            await this.processScheduleUpdates(userId, metadata.scheduleUpdates);
+          // Get the LLM to generate a final schedule confirmation
+          responseResult = await this.generateResponseMessage(messageContext);
+          
+          // Check if the response contains the "final schedule" marker
+          if (responseResult.message.includes("The final schedule is as follows") && 
+              responseResult.scheduleUpdates && 
+              responseResult.scheduleUpdates.length > 0) {
             
-            // Prepare response with confirmation
-            responseResult = {
-              message: "Great! I've confirmed your schedule. The notifications will be sent at the scheduled times. Good luck with your tasks today!",
-              scheduleUpdates: []
-            };
+            console.log(`Processing final schedule with ${responseResult.scheduleUpdates.length} updates`);
+            // The LLM has provided a final schedule, process the updates
+            await this.processScheduleUpdates(userId, responseResult.scheduleUpdates);
           } else {
-            // Metadata is missing schedule updates
-            responseResult = {
-              message: "I wanted to confirm your schedule, but I couldn't find the schedule details. Let's try rescheduling again.",
-              scheduleUpdates: []
-            };
+            // Use the previous metadata if available as a fallback
+            const metadata = lastAssistantMessage.metadata as { scheduleUpdates?: any[] };
+            
+            if (metadata && metadata.scheduleUpdates && metadata.scheduleUpdates.length > 0) {
+              console.log(`Using metadata schedule with ${metadata.scheduleUpdates.length} updates`);
+              await this.processScheduleUpdates(userId, metadata.scheduleUpdates);
+              
+              // Append final schedule marker if not present
+              if (!responseResult.message.includes("The final schedule is as follows")) {
+                const scheduleText = metadata.scheduleUpdates
+                  .map(update => `- ${update.scheduledTime}: Task (ID: ${update.taskId})`)
+                  .join("\n");
+                
+                responseResult.message += `\n\nThe final schedule is as follows:\n${scheduleText}`;
+              }
+            } else {
+              console.log(`No schedule updates found in metadata`);
+            }
           }
         } else if (isRejecting) {
           // User is rejecting the schedule
@@ -703,6 +797,30 @@ export class MessagingService {
         } else {
           // User's message is not clearly confirming or rejecting, proceed with normal response
           console.log(`User ${userId} provided feedback that wasn't clear confirmation/rejection`);
+          
+          // Generate a response based on context
+          const messageContext: MessageContext = {
+            user,
+            tasks: userTasks,
+            facts: userFacts,
+            previousMessages,
+            currentDateTime: new Date().toLocaleString(),
+            messageType: 'response',
+            userResponse: response
+          };
+          
+          responseResult = await this.generateResponseMessage(messageContext);
+        }
+      } else {
+        // Check if the previous response contains the final schedule marker
+        const previousFinalScheduleMessage = previousMessages.find(msg => 
+          msg.type === 'response' && msg.content.includes('The final schedule is as follows')
+        );
+        
+        if (previousFinalScheduleMessage) {
+          console.log(`Found a previous final schedule confirmation`);
+          // The schedule has already been confirmed and processed
+          // This is just a follow-up message, handle it normally
           
           // Analyze sentiment
           const sentiment = await this.analyzeSentiment(response);
@@ -719,34 +837,44 @@ export class MessagingService {
           };
           
           responseResult = await this.generateResponseMessage(messageContext);
-        }
-      } else {
-        // Normal message flow (not part of schedule confirmation)
-        
-        // Analyze sentiment
-        const sentiment = await this.analyzeSentiment(response);
-        
-        // Generate a response based on context
-        const messageContext: MessageContext = {
-          user,
-          tasks: userTasks,
-          facts: userFacts,
-          previousMessages,
-          currentDateTime: new Date().toLocaleString(),
-          messageType: 'response',
-          userResponse: response
-        };
-        
-        responseResult = await this.generateResponseMessage(messageContext);
-        
-        // Apply schedule updates if provided
-        if (responseResult.scheduleUpdates && responseResult.scheduleUpdates.length > 0) {
-          await this.processScheduleUpdates(userId, responseResult.scheduleUpdates);
-        }
-        
-        // Schedule a follow-up based on sentiment if needed
-        if (sentiment.needsFollowUp) {
-          await this.scheduleFollowUp(userId, sentiment.type);
+          
+          // Schedule a follow-up based on sentiment if needed
+          if (sentiment.needsFollowUp) {
+            await this.scheduleFollowUp(userId, sentiment.type);
+          }
+        } else {
+          // Normal message flow (not part of schedule confirmation)
+          
+          // Analyze sentiment
+          const sentiment = await this.analyzeSentiment(response);
+          
+          // Generate a response based on context
+          const messageContext: MessageContext = {
+            user,
+            tasks: userTasks,
+            facts: userFacts,
+            previousMessages,
+            currentDateTime: new Date().toLocaleString(),
+            messageType: 'response',
+            userResponse: response
+          };
+          
+          responseResult = await this.generateResponseMessage(messageContext);
+          
+          // Check if the response contains the final schedule marker
+          if (responseResult.message.includes("The final schedule is as follows") && 
+              responseResult.scheduleUpdates && 
+              responseResult.scheduleUpdates.length > 0) {
+            
+            console.log(`Processing final schedule with ${responseResult.scheduleUpdates.length} updates`);
+            // Process the schedule updates
+            await this.processScheduleUpdates(userId, responseResult.scheduleUpdates);
+          }
+          
+          // Schedule a follow-up based on sentiment if needed
+          if (sentiment.needsFollowUp) {
+            await this.scheduleFollowUp(userId, sentiment.type);
+          }
         }
       }
       
