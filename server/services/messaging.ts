@@ -319,27 +319,29 @@ export class MessagingService {
       IMPORTANT RULES:
       - Be friendly but concise (max 800 characters)
       - Format your message as a short greeting followed by a bullet list of scheduled tasks with times
-      - End with brief encouragement
+      - End by asking if they want to confirm this schedule or make changes
       - Be realistic about what can be done in the remaining day
       - Only schedule tasks for today, not future days
+      - Always include a clear question asking for confirmation, like "Does this schedule work for you?" or "Would you like to make any changes to this schedule?"
       
       You MUST respond with a JSON object containing:
-      1. A message field with your friendly schedule message
+      1. A message field with your friendly schedule message including the bullet list and confirmation question
       2. A scheduleUpdates array with precise times for each task
+      3. A marker string that will be automatically detected: "PROPOSED_SCHEDULE_AWAITING_CONFIRMATION"
 
       Example of required response format:
       {
-        "message": "Your friendly schedule message with bullets here",
+        "message": "Here's a proposed schedule for your evening:\\n\\n- 19:30: Task A (Task ID: 123)\\n- 20:30: Short break\\n- 20:45: Task B (Task ID: 456)\\n\\nDoes this schedule work for you, or would you like to make any changes?\\n\\nPROPOSED_SCHEDULE_AWAITING_CONFIRMATION",
         "scheduleUpdates": [
           {
             "taskId": 123,
             "action": "reschedule",
-            "scheduledTime": "15:30"
+            "scheduledTime": "19:30"
           },
           {
             "taskId": 456,
             "action": "reschedule",
-            "scheduledTime": "17:00"
+            "scheduledTime": "20:45"
           }
         ]
       }
@@ -357,6 +359,11 @@ export class MessagingService {
 
     try {
       const parsed = JSON.parse(content);
+      // Ensure the message contains the confirmation marker
+      if (!parsed.message.includes("PROPOSED_SCHEDULE_AWAITING_CONFIRMATION")) {
+        parsed.message += "\n\nPROPOSED_SCHEDULE_AWAITING_CONFIRMATION";
+      }
+      
       return {
         message: parsed.message,
         scheduleUpdates: parsed.scheduleUpdates
@@ -516,29 +523,108 @@ export class MessagingService {
         .orderBy(desc(messageHistory.createdAt))
         .limit(10);
       
-      // Analyze sentiment
-      const sentiment = await this.analyzeSentiment(response);
+      // Check if we're in the middle of a schedule confirmation flow
+      // by looking for the marker in the last assistant message
+      const lastAssistantMessage = previousMessages.find(msg => 
+        msg.type === 'response' && msg.content.includes('PROPOSED_SCHEDULE_AWAITING_CONFIRMATION')
+      );
       
-      // Note: We're not storing the user's response here anymore as it's already stored
-      // in the /api/chat/send endpoint for web UI messages or in the webhook for WhatsApp
-      // For WhatsApp messages, we may need to store it here, but for web UI it's already done
+      let responseResult;
       
-      // Generate a response based on context
-      const messageContext: MessageContext = {
-        user,
-        tasks: userTasks,
-        facts: userFacts,
-        previousMessages,
-        currentDateTime: new Date().toLocaleString(),
-        messageType: 'response',
-        userResponse: response
-      };
-      
-      const responseResult = await this.generateResponseMessage(messageContext);
-      
-      // Apply schedule updates if provided
-      if (responseResult.scheduleUpdates && responseResult.scheduleUpdates.length > 0) {
-        await this.processScheduleUpdates(userId, responseResult.scheduleUpdates);
+      // If we're in a schedule confirmation flow, check if this message is confirming the schedule
+      if (lastAssistantMessage) {
+        const lowerResponse = response.toLowerCase();
+        
+        // Check if user is confirming the schedule with common confirmation phrases
+        const isConfirming = [
+          'yes', 'confirm', 'looks good', 'approve', 'accept', 'good', 'sure', 'ok', 'okay', 
+          'that works', 'sounds good', 'perfect', 'great', 'agreed', 'i like it'
+        ].some(phrase => lowerResponse.includes(phrase));
+        
+        // Check if user is rejecting the schedule with common rejection phrases
+        const isRejecting = [
+          'no', 'reject', 'change', 'doesn\'t work', 'does not work', 'modify', 'adjust',
+          'update', 'edit', 'revise', 'reschedule', 'i don\'t like', 'not good'
+        ].some(phrase => lowerResponse.includes(phrase));
+        
+        if (isConfirming) {
+          // User is confirming the schedule
+          console.log(`User ${userId} confirmed schedule`);
+          
+          // Process schedule updates that were stored in metadata
+          const metadata = lastAssistantMessage.metadata as { scheduleUpdates?: any[] };
+          
+          if (metadata && metadata.scheduleUpdates && metadata.scheduleUpdates.length > 0) {
+            await this.processScheduleUpdates(userId, metadata.scheduleUpdates);
+            
+            // Prepare response with confirmation
+            responseResult = {
+              message: "Great! I've confirmed your schedule. The notifications will be sent at the scheduled times. Good luck with your tasks today!",
+              scheduleUpdates: []
+            };
+          } else {
+            // Metadata is missing schedule updates
+            responseResult = {
+              message: "I wanted to confirm your schedule, but I couldn't find the schedule details. Let's try rescheduling again.",
+              scheduleUpdates: []
+            };
+          }
+        } else if (isRejecting) {
+          // User is rejecting the schedule
+          console.log(`User ${userId} rejected schedule`);
+          
+          responseResult = {
+            message: "Let's adjust your schedule. What changes would you like to make?",
+            scheduleUpdates: []
+          };
+        } else {
+          // User's message is not clearly confirming or rejecting, proceed with normal response
+          console.log(`User ${userId} provided feedback that wasn't clear confirmation/rejection`);
+          
+          // Analyze sentiment
+          const sentiment = await this.analyzeSentiment(response);
+          
+          // Generate a response based on context
+          const messageContext: MessageContext = {
+            user,
+            tasks: userTasks,
+            facts: userFacts,
+            previousMessages,
+            currentDateTime: new Date().toLocaleString(),
+            messageType: 'response',
+            userResponse: response
+          };
+          
+          responseResult = await this.generateResponseMessage(messageContext);
+        }
+      } else {
+        // Normal message flow (not part of schedule confirmation)
+        
+        // Analyze sentiment
+        const sentiment = await this.analyzeSentiment(response);
+        
+        // Generate a response based on context
+        const messageContext: MessageContext = {
+          user,
+          tasks: userTasks,
+          facts: userFacts,
+          previousMessages,
+          currentDateTime: new Date().toLocaleString(),
+          messageType: 'response',
+          userResponse: response
+        };
+        
+        responseResult = await this.generateResponseMessage(messageContext);
+        
+        // Apply schedule updates if provided
+        if (responseResult.scheduleUpdates && responseResult.scheduleUpdates.length > 0) {
+          await this.processScheduleUpdates(userId, responseResult.scheduleUpdates);
+        }
+        
+        // Schedule a follow-up based on sentiment if needed
+        if (sentiment.needsFollowUp) {
+          await this.scheduleFollowUp(userId, sentiment.type);
+        }
       }
       
       // Always store the coach's response in the message history
@@ -555,11 +641,6 @@ export class MessagingService {
       // For WhatsApp users, also send the message via WhatsApp
       if (user.phoneNumber && user.contactPreference === 'whatsapp') {
         await this.sendWhatsAppMessage(user.phoneNumber, responseResult.message);
-      }
-      
-      // Schedule a follow-up based on sentiment if needed
-      if (sentiment.needsFollowUp) {
-        await this.scheduleFollowUp(userId, sentiment.type);
       }
     } catch (error) {
       console.error(`Error handling user response for user ${userId}:`, error);

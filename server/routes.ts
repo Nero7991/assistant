@@ -1075,22 +1075,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     
     try {
-      // Create a system message requesting a schedule change
-      const systemRequest = "I need to reschedule my day. Could you help me optimize my schedule?";
-      
-      // Save this as a system-generated request to the message history
-      const [systemMessage] = await db
-        .insert(messageHistory)
-        .values({
-          userId: req.user.id,
-          content: systemRequest,
-          type: 'system_request',
-          status: 'received',
-          createdAt: new Date(),
-          metadata: { action: 'reschedule_day' }
-        })
-        .returning();
-      
       // Get user information needed for the messaging context
       const user = await storage.getUser(req.user.id);
       if (!user) {
@@ -1108,24 +1092,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .orderBy(desc(messageHistory.createdAt))
         .limit(10);
       
-      // Prepare messaging context
-      const messagingContext: MessageContext = {
-        user,
-        tasks,
-        facts,
-        previousMessages,
-        currentDateTime: new Date().toISOString(),
-        messageType: 'reschedule',
-        userResponse: systemRequest
-      };
+      // Check if the most recent message from the assistant contains a confirmation marker
+      // That would indicate we're in the midst of a schedule confirmation flow
+      const lastAssistantMessage = previousMessages.find(msg => 
+        msg.type === 'response' && msg.content.includes('PROPOSED_SCHEDULE_AWAITING_CONFIRMATION')
+      );
       
-      // Generate a new schedule
-      const result = await messagingService.generateRescheduleMessage(messagingContext);
-      const response = result.message;
+      let result;
+      let response;
+      let scheduleConfirmed = false;
       
-      // Process any schedule updates if they exist
-      if (result.scheduleUpdates && result.scheduleUpdates.length > 0) {
-        await messagingService.processScheduleUpdates(req.user.id, result.scheduleUpdates);
+      if (lastAssistantMessage && req.body.confirmation) {
+        // Handle explicit confirmation from frontend
+        const confirmationChoice = req.body.confirmation;
+        
+        if (confirmationChoice === 'confirm') {
+          // User confirmed the schedule - we can proceed with the schedule updates
+          // that are stored in the previous message metadata
+          const metadata = lastAssistantMessage.metadata as { scheduleUpdates?: any[] };
+          
+          if (metadata && metadata.scheduleUpdates && metadata.scheduleUpdates.length > 0) {
+            await messagingService.processScheduleUpdates(
+              req.user.id, 
+              metadata.scheduleUpdates
+            );
+            
+            response = "Great! I've confirmed your schedule. The notifications will be sent at the scheduled times. Good luck with your tasks today!";
+            scheduleConfirmed = true;
+          } else {
+            response = "I wanted to confirm your schedule, but I couldn't find the schedule details. Let's try rescheduling again.";
+          }
+        } else {
+          // User rejected the schedule - we need to generate a new one or handle their feedback
+          response = "Let's adjust your schedule. What changes would you like to make?";
+        }
+      } else {
+        // Create a system message requesting a schedule change
+        const systemRequest = "I need to reschedule my day. Could you help me optimize my schedule?";
+        
+        // Save this as a system-generated request to the message history
+        const [systemMessage] = await db
+          .insert(messageHistory)
+          .values({
+            userId: req.user.id,
+            content: systemRequest,
+            type: 'system_request',
+            status: 'received',
+            createdAt: new Date(),
+            metadata: { action: 'reschedule_day' }
+          })
+          .returning();
+        
+        // Prepare messaging context
+        const messagingContext: MessageContext = {
+          user,
+          tasks,
+          facts,
+          previousMessages,
+          currentDateTime: new Date().toISOString(),
+          messageType: 'reschedule',
+          userResponse: systemRequest
+        };
+        
+        // Generate a new schedule
+        result = await messagingService.generateRescheduleMessage(messagingContext);
+        response = result.message;
+        
+        // We don't process schedule updates yet - only store them in metadata
+        // They will be processed after the user confirms
       }
       
       // Save the response to the message history
@@ -1139,7 +1173,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           metadata: { 
             systemInitiated: true, 
             type: 'reschedule_request',
-            scheduleUpdates: result.scheduleUpdates
+            scheduleUpdates: result?.scheduleUpdates,
+            scheduleConfirmed: scheduleConfirmed
           }
         })
         .returning();
@@ -1153,7 +1188,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         metadata: assistantMessage.metadata || {}
       };
       
-      res.json({ systemMessage: transformedMessage });
+      res.json({ 
+        systemMessage: transformedMessage,
+        requiresConfirmation: response.includes('PROPOSED_SCHEDULE_AWAITING_CONFIRMATION')
+      });
     } catch (error) {
       console.error("Error processing reschedule request:", error);
       res.status(500).json({ message: "Failed to reschedule day" });
