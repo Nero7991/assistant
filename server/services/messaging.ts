@@ -72,12 +72,12 @@ export class MessagingService {
       ${context.previousMessages.map(msg => `- ${msg.type}: ${msg.content.substring(0, 100)}${msg.content.length > 100 ? '...' : ''}`).join('\n')}
 
       VERY IMPORTANT INSTRUCTION:
-      EXTREMELY IMPORTANT: When you're scheduling the user's day, you MUST always include the EXACT string "The final schedule is as follows:" followed by the schedule in your response. This marker string is essential and detected by the system to create notifications. Without this exact marker, the schedule won't be processed properly.
+      The system will automatically add a special marker to your response when creating the schedule. You DON'T need to add "The final schedule is as follows:" to your response - it will be added automatically in the right place. Just focus on creating a good schedule with appropriate times.
 
       Your message must follow this structure:
       1. Brief, friendly greeting (e.g., "Morning, [name]!")
       2. 2-3 sentence introduction including a positive note
-      3. Today's suggested schedule, introduced with "The final schedule is as follows:" and formatted as:
+      3. Today's suggested schedule formatted as:
          • Short bullet points with task names and SPECIFIC times (e.g., "9:30 AM - Send project update")
          • Include start times for all tasks, and optionally end times for longer tasks
          • List tasks in chronological order throughout the day
@@ -88,8 +88,6 @@ export class MessagingService {
       Example format:
       "Morning, ${context.user.username}! Hope you slept well. Let's make today productive but manageable.
 
-      The final schedule is as follows:
-
       - 8:00 AM: Morning routine
       - 9:30 AM: Work on project X (Task ID: 123)
       - 12:00 PM: Lunch break
@@ -98,6 +96,8 @@ export class MessagingService {
       - 5:00 PM: Wrap up and plan tomorrow
 
       How does this schedule look? Need any adjustments?"
+
+      DO NOT include "The final schedule is as follows:" in your response - the system will add it automatically.
 
       IMPORTANT MESSAGING GUIDELINES:
       - Write as if you're texting a friend
@@ -146,7 +146,7 @@ export class MessagingService {
       Last message sentiment: ${responseType}
       
       VERY IMPORTANT INSTRUCTION:
-      EXTREMELY IMPORTANT: If you're scheduling the user's day or tasks, you MUST always include the EXACT string "The final schedule is as follows:" followed by the schedule in your response. This marker string is essential and detected by the system to create notifications. Without this exact marker, the schedule won't be processed properly.
+      The system will automatically add schedule markers when needed. Do NOT include the phrase "The final schedule is as follows:" in your response - the system will add this marker only when appropriate.
       
       Your message should be:
       1. Brief and friendly check-in on their progress with a specific task mentioned in recent messages
@@ -459,7 +459,7 @@ export class MessagingService {
         The user just messaged you: "${context.userResponse}"
         
         VERY IMPORTANT INSTRUCTION:
-        EXTREMELY IMPORTANT: If you're scheduling the user's day or tasks, you MUST always include the EXACT string "The final schedule is as follows:" followed by the schedule in your response. This marker string is essential and detected by the system to create notifications. Without this exact marker, the schedule won't be processed properly.
+        The system will automatically add appropriate schedule markers when needed. Do NOT include the phrase "The final schedule is as follows:" in your response unless explicitly directed to do so for confirmed schedules.
         
         Analyze the user's message and respond in a friendly, concise way that:
         1. Directly addresses what they're asking or saying
@@ -505,50 +505,72 @@ export class MessagingService {
         parsed.message += "\n\nPROPOSED_SCHEDULE_AWAITING_CONFIRMATION";
       }
       
-      // For any schedule-related response with updates, ensure the final schedule marker is present
-      if (parsed.scheduleUpdates && 
-          parsed.scheduleUpdates.length > 0 && 
-          !parsed.message.includes("The final schedule is as follows:")) {
+      // For schedule-related responses with updates, check if this is a confirmation or proposal
+      if (parsed.scheduleUpdates && parsed.scheduleUpdates.length > 0) {
+        console.log("Processing message with schedule updates");
         
-        console.log("Adding schedule marker to response message");
+        // Determine if this is a PROPOSED schedule or a FINAL CONFIRMED schedule
+        const isProposedSchedule = parsed.message.includes("PROPOSED_SCHEDULE_AWAITING_CONFIRMATION") ||
+                                  context.messageType === 'reschedule' ||
+                                  isScheduleRequest;
         
-        // Extract the schedule from the message to reformat it
-        let scheduleText = "";
-        for (const update of parsed.scheduleUpdates) {
-          const taskId = update.taskId;
-          const time = update.scheduledTime;
-          const task = activeTasks.find(t => t.id === taskId);
-          if (task && time) {
-            scheduleText += `- ${time}: ${task.title} (Task ID: ${taskId})\n`;
-          } else if (time) {
-            // If we don't have a matching task, just use the description from the update
-            scheduleText += `- ${time}: ${update.description || "Task"}\n`;
-          }
-        }
+        const isConfirmedSchedule = context.messageType === 'schedule_confirmation_response' ||
+                                    isScheduleConfirmation ||
+                                    context.messageType === 'morning';
         
-        if (scheduleText) {
-          // Find a good position to insert the schedule
-          const splitMessage = parsed.message.split("\n\n");
+        console.log(`Message type: ${context.messageType}, isProposedSchedule: ${isProposedSchedule}, isConfirmedSchedule: ${isConfirmedSchedule}`);
+        
+        // Only add "The final schedule is as follows:" marker to confirmed schedules
+        // For proposed schedules, we don't want this marker to avoid triggering the schedule detection UI
+        if (isConfirmedSchedule && !parsed.message.includes("The final schedule is as follows:")) {
+          console.log("Adding final schedule marker to CONFIRMED schedule");
           
-          // Look for specific schedule-related phrases in the message
-          const scheduleIndicators = ["schedule", "plan for", "day looks", "day plan"];
-          let insertPosition = 1; // Default to after first paragraph
-          
-          for (let i = 0; i < splitMessage.length; i++) {
-            const paragraph = splitMessage[i].toLowerCase();
-            if (scheduleIndicators.some(indicator => paragraph.includes(indicator))) {
-              insertPosition = i + 1;
-              break;
+          // Extract the schedule from the message to reformat it
+          let scheduleText = "";
+          for (const update of parsed.scheduleUpdates) {
+            const taskId = update.taskId;
+            const time = update.scheduledTime;
+            const task = activeTasks.find(t => t.id === taskId);
+            if (task && time) {
+              scheduleText += `- ${time}: ${task.title} (Task ID: ${taskId})\n`;
+            } else if (time) {
+              // If we don't have a matching task, just use the description from the update
+              scheduleText += `- ${time}: ${update.description || "Task"}\n`;
             }
           }
           
-          // Insert after the identified paragraph
-          splitMessage.splice(insertPosition, 0, `The final schedule is as follows:\n\n${scheduleText}`);
-          parsed.message = splitMessage.join("\n\n");
+          if (scheduleText) {
+            // Find a good position to insert the schedule
+            const splitMessage = parsed.message.split("\n\n");
+            
+            // Look for specific schedule-related phrases in the message
+            const scheduleIndicators = ["schedule", "plan for", "day looks", "day plan"];
+            let insertPosition = 1; // Default to after first paragraph
+            
+            for (let i = 0; i < splitMessage.length; i++) {
+              const paragraph = splitMessage[i].toLowerCase();
+              if (scheduleIndicators.some(indicator => paragraph.includes(indicator))) {
+                insertPosition = i + 1;
+                break;
+              }
+            }
+            
+            // Insert after the identified paragraph
+            splitMessage.splice(insertPosition, 0, `The final schedule is as follows:\n\n${scheduleText}`);
+            parsed.message = splitMessage.join("\n\n");
+            
+            console.log("Successfully added final schedule marker");
+          } else {
+            console.log("No valid schedule items found to format");
+          }
+        } else if (isProposedSchedule) {
+          console.log("Skipping final schedule marker for PROPOSED schedule");
           
-          console.log("Successfully added schedule marker");
-        } else {
-          console.log("No valid schedule items found to format");
+          // Make sure we remove any instances of the final schedule marker that might have been added
+          if (parsed.message.includes("The final schedule is as follows:")) {
+            parsed.message = parsed.message.replace("The final schedule is as follows:", "Here's a proposed schedule:");
+            console.log("Replaced final schedule marker with proposed schedule text");
+          }
         }
       }
       
@@ -613,7 +635,7 @@ export class MessagingService {
       ${formattedPreviousMessages}
 
       VERY IMPORTANT INSTRUCTION:
-      EXTREMELY IMPORTANT: If you're scheduling the user's day or tasks, you MUST always include the EXACT string "The final schedule is as follows:" followed by the schedule in your response. This marker string is essential and detected by the system to create notifications. Without this exact marker, the schedule won't be processed properly.
+      This is a PROPOSED schedule that will require user confirmation. Do NOT include the final schedule marker ("The final schedule is as follows:") in your response. The system will add appropriate markers automatically after the user confirms the schedule.
 
       The user has asked to reschedule their day. Create a new schedule for them that:
       1. Takes into account it's currently the ${timeOfDay} (${hours}:00)
