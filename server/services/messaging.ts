@@ -663,6 +663,7 @@ export class MessagingService {
         // They will only be processed after user confirmation
         if (result.scheduleUpdates && result.scheduleUpdates.length > 0) {
           metadata.scheduleUpdates = result.scheduleUpdates;
+          console.log(`Storing ${result.scheduleUpdates.length} schedule updates in metadata for user confirmation`);
         }
       } else if (messageType === 'morning_summary') {
         response = await this.generateMorningMessage(messagingContext);
@@ -744,47 +745,53 @@ export class MessagingService {
           // User is confirming the schedule
           console.log(`User ${userId} confirmed schedule`);
           
-          // Generate a response based on context
-          const messageContext: MessageContext = {
-            user,
-            tasks: userTasks,
-            facts: userFacts,
-            previousMessages,
-            currentDateTime: new Date().toLocaleString(),
-            messageType: 'response',
-            userResponse: response
-          };
+          // Instead of relying on the LLM to generate the final schedule marker,
+          // we'll build a confirmation response directly with the appropriate marker
           
-          // Get the LLM to generate a final schedule confirmation
-          responseResult = await this.generateResponseMessage(messageContext);
+          // Get the schedule updates from the metadata of the last assistant message
+          const metadata = lastAssistantMessage.metadata as { scheduleUpdates?: any[] };
           
-          // Check if the response contains the "final schedule" marker
-          if (responseResult.message.includes("The final schedule is as follows") && 
-              responseResult.scheduleUpdates && 
-              responseResult.scheduleUpdates.length > 0) {
+          if (metadata && metadata.scheduleUpdates && metadata.scheduleUpdates.length > 0) {
+            console.log(`Using metadata schedule with ${metadata.scheduleUpdates.length} updates`);
             
-            console.log(`Processing final schedule with ${responseResult.scheduleUpdates.length} updates`);
-            // The LLM has provided a final schedule, process the updates
-            await this.processScheduleUpdates(userId, responseResult.scheduleUpdates);
+            // Apply the schedule updates immediately
+            await this.processScheduleUpdates(userId, metadata.scheduleUpdates);
+            
+            // Format the schedule text for the confirmation message
+            const scheduleText = metadata.scheduleUpdates
+              .map(update => {
+                const taskName = userTasks.find(t => t.id === update.taskId)?.title || `Task ID: ${update.taskId}`;
+                return `- ${update.scheduledTime}: ${taskName}`;
+              })
+              .join("\n");
+            
+            // Create a custom confirmation message with the final schedule marker
+            responseResult = {
+              message: `Great! I've scheduled these tasks for you.\n\nThe final schedule is as follows:\n${scheduleText}\n\nI'll send you reminders at the scheduled times. Good luck with your tasks!`,
+              scheduleUpdates: metadata.scheduleUpdates
+            };
+            
+            console.log(`Schedule confirmed and processed for user ${userId}`);
           } else {
-            // Use the previous metadata if available as a fallback
-            const metadata = lastAssistantMessage.metadata as { scheduleUpdates?: any[] };
+            // No schedule updates found in metadata, try to generate a response
+            console.log(`No schedule updates found in metadata, generating generic confirmation`);
             
-            if (metadata && metadata.scheduleUpdates && metadata.scheduleUpdates.length > 0) {
-              console.log(`Using metadata schedule with ${metadata.scheduleUpdates.length} updates`);
-              await this.processScheduleUpdates(userId, metadata.scheduleUpdates);
-              
-              // Append final schedule marker if not present
-              if (!responseResult.message.includes("The final schedule is as follows")) {
-                const scheduleText = metadata.scheduleUpdates
-                  .map(update => `- ${update.scheduledTime}: Task (ID: ${update.taskId})`)
-                  .join("\n");
-                
-                responseResult.message += `\n\nThe final schedule is as follows:\n${scheduleText}`;
-              }
-            } else {
-              console.log(`No schedule updates found in metadata`);
-            }
+            // Generate a response based on context
+            const messageContext: MessageContext = {
+              user,
+              tasks: userTasks,
+              facts: userFacts,
+              previousMessages,
+              currentDateTime: new Date().toLocaleString(),
+              messageType: 'response',
+              userResponse: response
+            };
+            
+            // Get the LLM to generate a fallback response
+            responseResult = await this.generateResponseMessage(messageContext);
+            
+            // Add a note about the missing schedule
+            responseResult.message = "I've tried to confirm your schedule, but I couldn't find the details. Let's try rescheduling again.";
           }
         } else if (isRejecting) {
           // User is rejecting the schedule
