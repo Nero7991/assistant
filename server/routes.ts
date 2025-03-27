@@ -141,6 +141,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
     });
+    
+    // Test endpoint specifically for testing schedule marker
+    // Note: This is a public endpoint for testing the marker
+    app.get("/api/messages/test-schedule-marker", async (req, res) => {
+      // Set content type explicitly to make sure we return JSON 
+      res.setHeader('Content-Type', 'application/json');
+      try {
+        console.log("Starting test-schedule-marker endpoint");
+        // Get a user (can be used without authentication for testing)
+        const user = await storage.getUser(2); // Using ID 2 for testing
+        if (!user) {
+          console.log("Test user not found");
+          return res.status(404).json({ error: "Test user not found" });
+        }
+        
+        console.log("Found test user:", user.id);
+        
+        // Get tasks for this user
+        const tasks = await storage.getTasks(user.id);
+        console.log(`Retrieved ${tasks.length} tasks for user`);
+        
+        // Get facts for this user
+        const facts = await storage.getKnownUserFacts(user.id);
+        console.log(`Retrieved ${facts.length} facts for user`);
+        
+        // Get message history
+        const messages = await db
+          .select()
+          .from(messageHistory)
+          .where(eq(messageHistory.userId, user.id))
+          .orderBy(desc(messageHistory.createdAt))
+          .limit(10);
+        
+        console.log(`Retrieved ${messages.length} message history items`);
+        
+        // Generate a message with the morning message format which should include the schedule marker
+        const messagingContext: MessageContext = {
+          user,
+          tasks,
+          facts,
+          previousMessages: messages,
+          currentDateTime: new Date().toISOString(),
+          messageType: 'morning'
+        };
+        
+        console.log("Generating test morning message...");
+        const message = await messagingService.generateMorningMessage(messagingContext);
+        console.log("Message generated successfully");
+        
+        // Check if the message includes the marker
+        const includesMarker = message.toLowerCase().includes("the final schedule is as follows:".toLowerCase());
+        console.log(`Schedule marker included: ${includesMarker}`);
+        
+        // Return just a simple response instead of the full message
+        res.status(200).json({
+          success: true,
+          includesMarker,
+          markerText: "The final schedule is as follows:",
+          messagePreview: message.substring(0, 100) + "..." // Just show a preview
+        });
+      } catch (error) {
+        console.error("Error testing schedule marker:", error);
+        res.status(500).json({
+          success: false,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    });
   }
 
   // Start the message scheduler

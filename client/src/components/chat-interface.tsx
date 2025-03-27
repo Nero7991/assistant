@@ -229,10 +229,15 @@ export function ChatInterface() {
                 
                 {/* Schedule detection for assistant messages */}
                 {msg.sender === 'assistant' && user && (
-                  <ScheduleDetection 
-                    messageContent={msg.content}
-                    userId={user.id}
-                  />
+                  <>
+                    {/* Add debug output to browser console */}
+                    {console.log(`Passing message ID:${msg.id} (${msg.content.length} chars) to ScheduleDetection`)}
+                    <ScheduleDetection 
+                      key={`schedule-detection-${msg.id}`} 
+                      messageContent={msg.content}
+                      userId={user.id}
+                    />
+                  </>
                 )}
                 
                 {/* Confirmation buttons for schedule */}

@@ -72,7 +72,7 @@ export class MessagingService {
       ${context.previousMessages.map(msg => `- ${msg.type}: ${msg.content.substring(0, 100)}${msg.content.length > 100 ? '...' : ''}`).join('\n')}
 
       VERY IMPORTANT INSTRUCTION:
-      When you're scheduling the user's day, you MUST include the exact string "The final schedule is as follows:" followed by the schedule in your response. This marker is detected by the system to create notifications.
+      EXTREMELY IMPORTANT: When you're scheduling the user's day, you MUST always include the EXACT string "The final schedule is as follows:" followed by the schedule in your response. This marker string is essential and detected by the system to create notifications. Without this exact marker, the schedule won't be processed properly.
 
       Your message must follow this structure:
       1. Brief, friendly greeting (e.g., "Morning, [name]!")
@@ -146,7 +146,7 @@ export class MessagingService {
       Last message sentiment: ${responseType}
       
       VERY IMPORTANT INSTRUCTION:
-      If you're scheduling the user's day or tasks, you MUST include the exact string "The final schedule is as follows:" followed by the schedule in your response. This marker is detected by the system to create notifications.
+      EXTREMELY IMPORTANT: If you're scheduling the user's day or tasks, you MUST always include the EXACT string "The final schedule is as follows:" followed by the schedule in your response. This marker string is essential and detected by the system to create notifications. Without this exact marker, the schedule won't be processed properly.
       
       Your message should be:
       1. Brief and friendly check-in on their progress with a specific task mentioned in recent messages
@@ -257,7 +257,7 @@ export class MessagingService {
         4. The user might also suggest specific modifications, which counts as a rejection + new request.
         
         If the user IS CONFIRMING the schedule:
-        - Your response MUST include the exact phrase "The final schedule is as follows:" followed by a list of the scheduled tasks
+        - Your response MUST include the EXACT phrase "The final schedule is as follows:" followed by a list of the scheduled tasks
         - Include task IDs and times in your response
         
         If the user IS NOT CONFIRMING (either rejecting or suggesting changes):
@@ -459,7 +459,7 @@ export class MessagingService {
         The user just messaged you: "${context.userResponse}"
         
         VERY IMPORTANT INSTRUCTION:
-        If you're scheduling the user's day or tasks, you MUST include the exact string "The final schedule is as follows:" followed by the schedule in your response. This marker is detected by the system to create notifications.
+        EXTREMELY IMPORTANT: If you're scheduling the user's day or tasks, you MUST always include the EXACT string "The final schedule is as follows:" followed by the schedule in your response. This marker string is essential and detected by the system to create notifications. Without this exact marker, the schedule won't be processed properly.
         
         Analyze the user's message and respond in a friendly, concise way that:
         1. Directly addresses what they're asking or saying
@@ -566,7 +566,7 @@ export class MessagingService {
       ${formattedPreviousMessages}
 
       VERY IMPORTANT INSTRUCTION:
-      If you're scheduling the user's day or tasks, you MUST include the exact string "The final schedule is as follows:" followed by the schedule in your response. This marker is detected by the system to create notifications.
+      EXTREMELY IMPORTANT: If you're scheduling the user's day or tasks, you MUST always include the EXACT string "The final schedule is as follows:" followed by the schedule in your response. This marker string is essential and detected by the system to create notifications. Without this exact marker, the schedule won't be processed properly.
 
       The user has asked to reschedule their day. Create a new schedule for them that:
       1. Takes into account it's currently the ${timeOfDay} (${hours}:00)

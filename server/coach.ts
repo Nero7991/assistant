@@ -32,7 +32,7 @@ Your task is to create a daily schedule that:
 5. Provides a realistic and achievable schedule
 6. Includes specific times for each activity in 24-hour format (e.g., "09:00 - 10:30")
 
-IMPORTANT: Your response MUST include a section with the marker "${SCHEDULE_MARKER}" followed by a schedule with each item on a separate line with a time specified. Example format:
+EXTREMELY IMPORTANT: Your response MUST ALWAYS include a section with the EXACT marker "${SCHEDULE_MARKER}" followed by a schedule with each item on a separate line with a time specified. This marker is essential and MUST appear exactly as written. Example format:
 
 ${SCHEDULE_MARKER}
 08:00 - 08:30 Morning routine
@@ -61,7 +61,12 @@ export async function generateCoachingResponse(
       response_format: { type: "json_object" }
     });
 
-    return JSON.parse(response.choices[0].message.content);
+    const content = response.choices[0].message.content;
+    if (!content) {
+      throw new Error("Empty response from OpenAI API");
+    }
+    
+    return JSON.parse(content);
   } catch (error) {
     console.error("OpenAI API error:", error);
     throw new Error("Failed to generate coaching response");
@@ -93,7 +98,7 @@ export async function generateDailySchedule(
             const bHasScheduledTime = !!b.scheduledTime;
             
             if (aHasDeadline !== bHasDeadline) return aHasDeadline ? -1 : 1;
-            if (aHasDeadline && bHasDeadline) {
+            if (aHasDeadline && bHasDeadline && a.deadline && b.deadline) {
               return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
             }
             if (aHasScheduledTime !== bHasScheduledTime) return aHasScheduledTime ? -1 : 1;
