@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Send, Loader2, Bot, UserCircle2 } from "lucide-react";
+import { Send, Loader2, Bot, UserCircle2, RefreshCw, Calendar } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
@@ -27,6 +27,38 @@ export function ChatInterface() {
       const res = await fetch("/api/messages");
       if (!res.ok) throw new Error("Failed to fetch chat history");
       return res.json();
+    }
+  });
+  
+  // Reschedule day mutation
+  const rescheduleDayMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/messages/reschedule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      if (!res.ok) throw new Error("Failed to reschedule day");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      // Add the assistant message to the local cache immediately
+      const currentMessages = queryClient.getQueryData<Message[]>(["/api/messages"]) || [];
+      queryClient.setQueryData(["/api/messages"], [
+        ...currentMessages,
+        data.systemMessage
+      ]);
+      
+      toast({
+        title: "Day Rescheduled",
+        description: "Your schedule has been updated.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error rescheduling day",
+        description: error.message,
+        variant: "destructive",
+      });
     }
   });
   
@@ -91,9 +123,25 @@ export function ChatInterface() {
   return (
     <div className="flex flex-col h-[calc(100vh-12rem)] border rounded-lg overflow-hidden bg-background">
       {/* Chat header */}
-      <div className="px-4 py-3 border-b flex items-center gap-2 bg-muted/30">
-        <Bot className="h-5 w-5 text-primary" />
-        <h3 className="font-semibold">ADHD Coach</h3>
+      <div className="px-4 py-3 border-b flex items-center justify-between bg-muted/30">
+        <div className="flex items-center gap-2">
+          <Bot className="h-5 w-5 text-primary" />
+          <h3 className="font-semibold">ADHD Coach</h3>
+        </div>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={() => rescheduleDayMutation.mutate()}
+          disabled={rescheduleDayMutation.isPending}
+          className="flex items-center gap-1"
+        >
+          {rescheduleDayMutation.isPending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <RefreshCw className="h-3.5 w-3.5" />
+          )}
+          <span>Reschedule Day</span>
+        </Button>
       </div>
       
       {/* Messages area */}

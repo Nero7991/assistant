@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { storage } from "./storage";
 import { generateCoachingResponse } from "./coach";
-import { insertGoalSchema, insertCheckInSchema, insertKnownUserFactSchema, insertTaskSchema, insertSubtaskSchema, messageHistory, messageSchedules } from "@shared/schema";
+import { insertGoalSchema, insertCheckInSchema, insertKnownUserFactSchema, insertTaskSchema, insertSubtaskSchema, messageHistory, messageSchedules, TaskType } from "@shared/schema";
 import { handleWhatsAppWebhook } from "./webhook";
 import { messageScheduler } from "./scheduler";
 import { messagingService } from "./services/messaging";
@@ -11,12 +11,8 @@ import { generateTaskSuggestions } from "./services/task-suggestions";
 import { db } from "./db";
 import { eq, desc, and } from "drizzle-orm";
 
-// Assuming TaskType enum exists elsewhere in the project.  This needs to be added if it doesn't exist.
-enum TaskType {
-  PERSONAL_PROJECT = 'personal_project',
-  LONG_TERM_PROJECT = 'long_term_project',
-  LIFE_GOAL = 'life_goal',
-}
+// Import interface and type definitions needed for chat functionality
+import type { MessageContext, ScheduleUpdate } from "./services/messaging";
 
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -1075,6 +1071,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.post("/api/messages/reschedule", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    try {
+      // Create a system message requesting a schedule change
+      const systemRequest = "I need to reschedule my day. Could you help me optimize my schedule?";
+      
+      // Save this as a system-generated request to the message history
+      const [systemMessage] = await db
+        .insert(messageHistory)
+        .values({
+          userId: req.user.id,
+          content: systemRequest,
+          type: 'system_request',
+          status: 'received',
+          createdAt: new Date(),
+          metadata: { action: 'reschedule_day' }
+        })
+        .returning();
+      
+      // Get user information needed for the messaging context
+      const user = await storage.getUser(req.user.id);
+      if (!user) {
+        throw new Error(`User not found: ${req.user.id}`);
+      }
+      
+      const tasks = await storage.getTasks(req.user.id);
+      const facts = await storage.getKnownUserFacts(req.user.id);
+      
+      // Get previous messages for context
+      const previousMessages = await db
+        .select()
+        .from(messageHistory)
+        .where(eq(messageHistory.userId, req.user.id))
+        .orderBy(desc(messageHistory.createdAt))
+        .limit(10);
+      
+      // Prepare messaging context
+      const messagingContext: MessageContext = {
+        user,
+        tasks,
+        facts,
+        previousMessages,
+        currentDateTime: new Date().toISOString(),
+        messageType: 'reschedule',
+        userResponse: systemRequest
+      };
+      
+      // Generate a new schedule
+      const result = await messagingService.generateRescheduleMessage(messagingContext);
+      const response = result.message;
+      
+      // Process any schedule updates if they exist
+      if (result.scheduleUpdates && result.scheduleUpdates.length > 0) {
+        await messagingService.processScheduleUpdates(req.user.id, result.scheduleUpdates);
+      }
+      
+      // Save the response to the message history
+      const [assistantMessage] = await db
+        .insert(messageHistory)
+        .values({
+          userId: req.user.id,
+          content: response,
+          type: 'response',
+          status: 'sent',
+          metadata: { 
+            systemInitiated: true, 
+            type: 'reschedule_request',
+            scheduleUpdates: result.scheduleUpdates
+          }
+        })
+        .returning();
+      
+      // Transform the system message to match the expected format in the chat UI
+      const transformedMessage = {
+        id: assistantMessage.id,
+        content: assistantMessage.content,
+        sender: 'assistant',
+        timestamp: assistantMessage.createdAt.toISOString(),
+        metadata: assistantMessage.metadata || {}
+      };
+      
+      res.json({ systemMessage: transformedMessage });
+    } catch (error) {
+      console.error("Error processing reschedule request:", error);
+      res.status(500).json({ message: "Failed to reschedule day" });
+    }
+  });
+  
   app.post("/api/messages", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     

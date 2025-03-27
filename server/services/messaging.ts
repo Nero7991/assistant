@@ -12,7 +12,7 @@ const twilioClient = twilio(
   process.env.TWILIO_AUTH_TOKEN
 );
 
-interface MessageContext {
+export interface MessageContext {
   user: User;
   tasks: Task[];
   facts: KnownUserFact[];
@@ -22,7 +22,7 @@ interface MessageContext {
   userResponse?: string;
 }
 
-interface ScheduleUpdate {
+export interface ScheduleUpdate {
   taskId: number | string; // Can be numeric ID or task name string
   action: 'reschedule' | 'complete' | 'skip' | 'create';
   scheduledTime?: string;
@@ -417,6 +417,80 @@ export class MessagingService {
     }
   }
 
+  async handleSystemMessage(
+    userId: number,
+    messageType: 'reschedule_request' | 'morning_summary' | 'task_suggestion',
+    context: Record<string, any> = {}
+  ): Promise<string> {
+    try {
+      // Get user information
+      const user = await storage.getUser(userId);
+      if (!user) {
+        throw new Error(`User with ID ${userId} not found`);
+      }
+      
+      // Get user tasks and known facts
+      const tasks = await storage.getTasks(userId);
+      const facts = await storage.getKnownUserFacts(userId);
+      
+      // Get previous messages for context
+      const previousMessages = await db
+        .select()
+        .from(messageHistory)
+        .where(eq(messageHistory.userId, userId))
+        .orderBy(desc(messageHistory.createdAt))
+        .limit(10);
+      
+      // Prepare messaging context
+      const messagingContext: MessageContext = {
+        user,
+        tasks,
+        facts,
+        previousMessages,
+        currentDateTime: new Date().toISOString(),
+        messageType: messageType === 'reschedule_request' ? 'reschedule' : 'response',
+        userResponse: context.userRequest || undefined
+      };
+      
+      let response: string;
+      
+      // Generate appropriate message based on type
+      if (messageType === 'reschedule_request') {
+        // Generate a new schedule
+        const result = await this.generateRescheduleMessage(messagingContext);
+        response = result.message;
+        
+        // Process any schedule updates if they exist
+        if (result.scheduleUpdates && result.scheduleUpdates.length > 0) {
+          await this.processScheduleUpdates(userId, result.scheduleUpdates);
+        }
+      } else if (messageType === 'morning_summary') {
+        response = await this.generateMorningMessage(messagingContext);
+      } else if (messageType === 'task_suggestion') {
+        // TODO: Implement task suggestion generation logic
+        response = "Here are some task suggestions to help you make progress.";
+      } else {
+        response = "I'm here to help! What would you like to do today?";
+      }
+      
+      // Save the assistant's response to message history
+      await db
+        .insert(messageHistory)
+        .values({
+          userId,
+          content: response,
+          type: 'response',
+          status: 'sent',
+          metadata: { systemInitiated: true, type: messageType }
+        });
+      
+      return response;
+    } catch (error) {
+      console.error(`Error handling system message (${messageType}) for user ${userId}:`, error);
+      return "Sorry, I encountered an error while processing your request. Please try again.";
+    }
+  }
+  
   async handleUserResponse(userId: number, response: string): Promise<void> {
     try {
       console.log(`Processing response from user ${userId}: "${response.substring(0, 50)}..."`);
@@ -492,7 +566,7 @@ export class MessagingService {
     }
   }
 
-  private async processScheduleUpdates(userId: number, updates: ScheduleUpdate[]): Promise<void> {
+  async processScheduleUpdates(userId: number, updates: ScheduleUpdate[]): Promise<void> {
     try {
       console.log(`Processing ${updates.length} schedule updates for user ${userId}`);
       
