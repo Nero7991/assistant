@@ -4,7 +4,7 @@ import { storage } from "../storage";
 import { eq } from "drizzle-orm";
 
 // Marker that signals the start of the final schedule in the LLM response
-export const SCHEDULE_MARKER = "FINAL_SCHEDULE_FOR_DAY:";
+export const SCHEDULE_MARKER = "The final schedule is as follows:";
 
 interface ScheduleItem {
   taskId?: number;       // Link to existing task or null for standalone items
@@ -26,14 +26,19 @@ interface ParsedSchedule {
  * @returns ParsedSchedule if a schedule was found, null otherwise
  */
 export function parseScheduleFromLLMResponse(llmResponse: string): ParsedSchedule | null {
-  // Check if response contains the schedule marker
-  const markerIndex = llmResponse.indexOf(SCHEDULE_MARKER);
+  // Check if response contains the schedule marker (case insensitive)
+  const lowerCaseResponse = llmResponse.toLowerCase();
+  const lowerCaseMarker = SCHEDULE_MARKER.toLowerCase();
+  const markerIndex = lowerCaseResponse.indexOf(lowerCaseMarker);
   if (markerIndex === -1) {
     return null;
   }
   
+  // Get the actual position in the original text
+  const actualMarkerIndex = llmResponse.indexOf(llmResponse.substring(markerIndex, markerIndex + SCHEDULE_MARKER.length));
+  
   // Extract the schedule part starting from the marker
-  const scheduleText = llmResponse.substring(markerIndex + SCHEDULE_MARKER.length).trim();
+  const scheduleText = llmResponse.substring(actualMarkerIndex + SCHEDULE_MARKER.length).trim();
   
   // Parse the schedule items
   const scheduleItems: ScheduleItem[] = [];

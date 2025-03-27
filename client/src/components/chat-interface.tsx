@@ -5,6 +5,8 @@ import { Send, Loader2, Bot, UserCircle2, RefreshCw, Calendar, ThumbsUp, ThumbsD
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
+import { ScheduleDetection } from "@/components/schedule-detection";
 
 interface Message {
   id: string;
@@ -20,6 +22,7 @@ export function ChatInterface() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { user } = useAuth();
   
   // Fetch chat history
   const { data: messages = [], isLoading: isLoadingMessages } = useQuery<Message[]>({
@@ -223,6 +226,14 @@ export function ChatInterface() {
                 )}
               >
                 <div className="whitespace-pre-wrap">{cleanMessageContent(msg.content)}</div>
+                
+                {/* Schedule detection for assistant messages */}
+                {msg.sender === 'assistant' && user && (
+                  <ScheduleDetection 
+                    messageContent={msg.content}
+                    userId={user.id}
+                  />
+                )}
                 
                 {/* Confirmation buttons for schedule */}
                 {pendingConfirmation === msg.id && (

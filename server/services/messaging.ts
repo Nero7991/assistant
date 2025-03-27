@@ -4,6 +4,7 @@ import { Task, User, KnownUserFact, MessageHistory, MessageSchedule, messageHist
 import { db } from "../db";
 import { eq, and, lte, desc, gt } from "drizzle-orm";
 import { storage } from "../storage";
+import { parseScheduleFromLLMResponse, createDailyScheduleFromParsed, confirmSchedule } from "./schedule-parser";
 
 // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -70,28 +71,33 @@ export class MessagingService {
       Previous interactions (newest first, to understand recent context):
       ${context.previousMessages.map(msg => `- ${msg.type}: ${msg.content.substring(0, 100)}${msg.content.length > 100 ? '...' : ''}`).join('\n')}
 
+      VERY IMPORTANT INSTRUCTION:
+      When you're scheduling the user's day, you MUST include the exact string "The final schedule is as follows:" followed by the schedule in your response. This marker is detected by the system to create notifications.
+
       Your message must follow this structure:
       1. Brief, friendly greeting (e.g., "Morning, [name]!")
       2. 2-3 sentence introduction including a positive note
-      3. Today's suggested schedule formatted as:
+      3. Today's suggested schedule, introduced with "The final schedule is as follows:" and formatted as:
          • Short bullet points with task names and SPECIFIC times (e.g., "9:30 AM - Send project update")
          • Include start times for all tasks, and optionally end times for longer tasks
          • List tasks in chronological order throughout the day
          • Include 5-8 priority tasks with specific times
-         • For each task with an ID, use the exact task title
-      4. End with a single simple question asking if they want to confirm this schedule
+         • For each task with an ID, use the exact task title and include the ID in parentheses
+      4. End with a single simple question asking if they need any changes
 
-      VERY IMPORTANT SCHEDULE FORMATTING:
-      After your message and question, you MUST include the following marker followed by the final schedule:
-      
-      FINAL_SCHEDULE_FOR_DAY:
-      8:00 AM - Morning routine
-      9:30 AM - Work on project X
-      12:00 PM - Lunch break
-      etc...
-      
-      Format this final schedule section with ONE task per line, with specific times in HH:MM AM/PM format.
-      This section will be parsed by the system to create notifications.
+      Example format:
+      "Morning, ${context.user.username}! Hope you slept well. Let's make today productive but manageable.
+
+      The final schedule is as follows:
+
+      - 8:00 AM: Morning routine
+      - 9:30 AM: Work on project X (Task ID: 123)
+      - 12:00 PM: Lunch break
+      - 1:00 PM: Team meeting (Task ID: 124)
+      - 3:00 PM: Deep work session (Task ID: 125)
+      - 5:00 PM: Wrap up and plan tomorrow
+
+      How does this schedule look? Need any adjustments?"
 
       IMPORTANT MESSAGING GUIDELINES:
       - Write as if you're texting a friend
@@ -131,13 +137,16 @@ export class MessagingService {
       
       Their current tasks:
       ${activeTasks.map(task => 
-        `- ${task.title} (${task.status})${task.scheduledTime ? ` scheduled at ${task.scheduledTime}` : ''}${task.recurrencePattern && task.recurrencePattern !== 'none' ? ` recurring: ${task.recurrencePattern}` : ''}`
+        `- ID:${task.id} | ${task.title} (${task.status})${task.scheduledTime ? ` scheduled at ${task.scheduledTime}` : ''}${task.recurrencePattern && task.recurrencePattern !== 'none' ? ` recurring: ${task.recurrencePattern}` : ''}`
       ).join('\n')}
       
       Previous messages (newest first, to understand recent context):
       ${context.previousMessages.slice(0, 5).map(msg => `- ${msg.type}: ${msg.content.substring(0, 100)}${msg.content.length > 100 ? '...' : ''}`).join('\n')}
       
       Last message sentiment: ${responseType}
+      
+      VERY IMPORTANT INSTRUCTION:
+      If you're scheduling the user's day or tasks, you MUST include the exact string "The final schedule is as follows:" followed by the schedule in your response. This marker is detected by the system to create notifications.
       
       Your message should be:
       1. Brief and friendly check-in on their progress with a specific task mentioned in recent messages
@@ -449,6 +458,9 @@ export class MessagingService {
         
         The user just messaged you: "${context.userResponse}"
         
+        VERY IMPORTANT INSTRUCTION:
+        If you're scheduling the user's day or tasks, you MUST include the exact string "The final schedule is as follows:" followed by the schedule in your response. This marker is detected by the system to create notifications.
+        
         Analyze the user's message and respond in a friendly, concise way that:
         1. Directly addresses what they're asking or saying
         2. Uses simple, straightforward language
@@ -461,8 +473,6 @@ export class MessagingService {
         - Use minimal text with clear, concise sentences
         - Use at most 1-2 emojis if appropriate
         - Make your message easy to read on a mobile device
-        
-        IMPORTANT: Only use the phrase "The final schedule is as follows" if the user has explicitly confirmed a schedule you proposed.
         
         You MUST format your response as a JSON object with these fields:
         {
@@ -555,6 +565,9 @@ export class MessagingService {
       Recent conversation history:
       ${formattedPreviousMessages}
 
+      VERY IMPORTANT INSTRUCTION:
+      If you're scheduling the user's day or tasks, you MUST include the exact string "The final schedule is as follows:" followed by the schedule in your response. This marker is detected by the system to create notifications.
+
       The user has asked to reschedule their day. Create a new schedule for them that:
       1. Takes into account it's currently the ${timeOfDay} (${hours}:00)
       2. Prioritizes tasks that are most time-sensitive
@@ -568,9 +581,6 @@ export class MessagingService {
       - Be realistic about what can be done in the remaining day
       - Only schedule tasks for today, not future days
       - Always include a clear question asking for confirmation, like "Does this schedule work for you?" or "Would you like to make any changes to this schedule?"
-      
-      IMPORTANT: This is a PROPOSED schedule. The user needs to confirm it before it becomes final.
-      Only use the phrase "The final schedule is as follows" if the user has explicitly confirmed a schedule you proposed.
       
       You MUST respond with a JSON object containing:
       1. A message field with your friendly schedule message including the bullet list and confirmation question
@@ -812,13 +822,26 @@ export class MessagingService {
           metadata?.scheduleUpdates || []
         );
         
-        // If the LLM determined this was a confirmation (by including the marker)
-        // then we need to process the schedule updates
-        if (responseResult.message.includes("The final schedule is as follows") && 
-            responseResult.scheduleUpdates && 
-            responseResult.scheduleUpdates.length > 0) {
+        // Check if the response contains a schedule using the schedule parser
+        const parsedSchedule = parseScheduleFromLLMResponse(responseResult.message);
+        if (parsedSchedule) {
+          console.log(`Detected schedule in message, creating daily schedule`);
           
-          console.log(`LLM detected confirmation, processing ${responseResult.scheduleUpdates.length} schedule updates`);
+          // Create a daily schedule from the parsed schedule
+          try {
+            const scheduleId = await createDailyScheduleFromParsed(userId, parsedSchedule, userTasks);
+            console.log(`Created new daily schedule with ID ${scheduleId}`);
+            
+            // Automatically confirm the schedule since the marker indicates a final schedule
+            await confirmSchedule(scheduleId, userId);
+            console.log(`Confirmed schedule with ID ${scheduleId}`);
+          } catch (error) {
+            console.error("Error creating schedule from parsed response:", error);
+          }
+        } 
+        // Also process any explicit schedule updates if they exist
+        else if (responseResult.scheduleUpdates && responseResult.scheduleUpdates.length > 0) {
+          console.log(`Processing ${responseResult.scheduleUpdates.length} schedule updates`);
           await this.processScheduleUpdates(userId, responseResult.scheduleUpdates);
         }
       } else {
@@ -871,13 +894,26 @@ export class MessagingService {
           
           responseResult = await this.generateResponseMessage(messageContext);
           
-          // Check if the response contains the final schedule marker
-          if (responseResult.message.includes("The final schedule is as follows") && 
-              responseResult.scheduleUpdates && 
-              responseResult.scheduleUpdates.length > 0) {
+          // Check if the response contains a schedule using the schedule parser
+          const parsedSchedule = parseScheduleFromLLMResponse(responseResult.message);
+          if (parsedSchedule) {
+            console.log(`Detected schedule in message, creating daily schedule`);
             
-            console.log(`Processing final schedule with ${responseResult.scheduleUpdates.length} updates`);
-            // Process the schedule updates
+            // Create a daily schedule from the parsed schedule
+            try {
+              const scheduleId = await createDailyScheduleFromParsed(userId, parsedSchedule, userTasks);
+              console.log(`Created new daily schedule with ID ${scheduleId}`);
+              
+              // Automatically confirm the schedule since the marker indicates a final schedule
+              await confirmSchedule(scheduleId, userId);
+              console.log(`Confirmed schedule with ID ${scheduleId}`);
+            } catch (error) {
+              console.error("Error creating schedule from parsed response:", error);
+            }
+          } 
+          // Also process any explicit schedule updates if they exist
+          else if (responseResult.scheduleUpdates && responseResult.scheduleUpdates.length > 0) {
+            console.log(`Processing ${responseResult.scheduleUpdates.length} schedule updates`);
             await this.processScheduleUpdates(userId, responseResult.scheduleUpdates);
           }
           
@@ -1182,6 +1218,24 @@ export class MessagingService {
             status: 'sent',
             createdAt: now
           });
+          
+          // Check if the message contains a schedule using the parser
+          const parsedSchedule = parseScheduleFromLLMResponse(message);
+          if (parsedSchedule) {
+            console.log(`Detected schedule in scheduled message, creating daily schedule`);
+            
+            try {
+              // Create a daily schedule from the parsed schedule
+              const scheduleId = await createDailyScheduleFromParsed(user.id, parsedSchedule, userTasks);
+              console.log(`Created new daily schedule with ID ${scheduleId}`);
+              
+              // Automatically confirm the schedule and create notifications
+              await confirmSchedule(scheduleId, user.id);
+              console.log(`Confirmed schedule with ID ${scheduleId}`);
+            } catch (error) {
+              console.error("Error creating schedule from parsed response:", error);
+            }
+          }
           
           console.log(`Successfully processed schedule ${schedule.id}`);
           
