@@ -18,7 +18,7 @@ export interface MessageContext {
   facts: KnownUserFact[];
   previousMessages: MessageHistory[];
   currentDateTime: string;
-  messageType: 'morning' | 'follow_up' | 'response' | 'reschedule';
+  messageType: 'morning' | 'follow_up' | 'response' | 'reschedule' | 'schedule_confirmation_response';
   userResponse?: string;
 }
 
@@ -161,7 +161,10 @@ export class MessagingService {
     return response.choices[0].message.content || "Unable to generate follow-up message";
   }
 
-  async generateResponseMessage(context: MessageContext): Promise<{
+  async generateResponseMessage(
+    context: MessageContext,
+    existingScheduleUpdates: ScheduleUpdate[] = []
+  ): Promise<{
     message: string;
     scheduleUpdates?: ScheduleUpdate[];
   }> {
@@ -195,6 +198,9 @@ export class MessagingService {
       }
     }
 
+    // Check if this is a special schedule confirmation response type
+    const isScheduleConfirmationResponse = context.messageType === ('schedule_confirmation_response' as any);
+    
     // Check for phrases indicating the user is confirming a schedule
     const isScheduleConfirmation = context.userResponse && (
       /yes|confirm|accept|that works|looks good|sounds good|great|perfect|ok|okay|agreed|i like it|good/i.test(context.userResponse) &&
@@ -216,7 +222,58 @@ export class MessagingService {
     // Choose the appropriate prompt based on the type of request
     let prompt: string;
     
-    if (isScheduleConfirmation) {
+    if (isScheduleConfirmationResponse) {
+      // Special prompt for when we're explicitly in a schedule confirmation flow
+      prompt = `
+        You are an ADHD coach and accountability partner chatting with ${context.user.username}.
+        Current date and time: ${context.currentDateTime}
+        
+        Here's what you know about the user (use this to inform your tone, but don't explicitly mention these facts):
+        ${context.facts.map(fact => `- ${fact.category}: ${fact.content}`).join('\n')}
+        
+        Their current active tasks (with IDs you'll need for scheduling):
+        ${activeTasks.map(task => 
+          `- ID:${task.id} | ${task.title} | Type: ${task.taskType}${task.scheduledTime ? ` | Scheduled at: ${task.scheduledTime}` : ''}${task.recurrencePattern && task.recurrencePattern !== 'none' ? ` | Recurring: ${task.recurrencePattern}` : ''}`
+        ).join('\n')}
+        
+        Recent conversation history:
+        ${formattedPreviousMessages}
+        
+        The user is responding to a schedule proposal with: "${context.userResponse}"
+        
+        VERY IMPORTANT INSTRUCTIONS:
+        1. Carefully analyze if the user is CONFIRMING or REJECTING the proposed schedule.
+        2. The user might confirm with phrases like "yes", "looks good", "that works", "great", or any other positive response.
+        3. The user might reject with phrases like "no", "change it", "that doesn't work", or any other negative response.
+        4. The user might also suggest specific modifications, which counts as a rejection + new request.
+        
+        If the user IS CONFIRMING the schedule:
+        - Your response MUST include the exact phrase "The final schedule is as follows:" followed by a list of the scheduled tasks
+        - Include task IDs and times in your response
+        
+        If the user IS NOT CONFIRMING (either rejecting or suggesting changes):
+        - Do NOT include the phrase "The final schedule is as follows"
+        - Ask follow-up questions to understand what changes they want
+        - Be supportive and understanding
+        
+        You MUST format your response as a JSON object with these fields:
+        {
+          "message": "Your response to the user's confirmation or rejection",
+          "scheduleUpdates": [  // Only include this array with data if the user is confirming
+            {
+              "taskId": 123,
+              "action": "reschedule", 
+              "scheduledTime": "16:30"
+            }
+          ]
+        }
+        
+        ${existingScheduleUpdates && existingScheduleUpdates.length > 0 ? 
+          `IMPORTANT: If the user is confirming, use these existing schedule updates in your response:
+          ${JSON.stringify(existingScheduleUpdates, null, 2)}` : 
+          'If there are no specific schedule updates available from past messages, make your best guess based on the conversation history.'}
+      `;
+    } else if (isScheduleConfirmation) {
       // Prompt for when the user is confirming a previously proposed schedule
       prompt = `
         You are an ADHD coach and accountability partner chatting with ${context.user.username}.
@@ -574,6 +631,9 @@ export class MessagingService {
       case 'response':
         const result = await this.generateResponseMessage(context);
         return result.message;
+      case 'schedule_confirmation_response':
+        const confirmResult = await this.generateResponseMessage(context);
+        return confirmResult.message;
       case 'reschedule':
         const rescheduleResult = await this.generateRescheduleMessage(context);
         return rescheduleResult.message;
@@ -725,98 +785,41 @@ export class MessagingService {
       
       let responseResult;
       
-      // If we're in a schedule confirmation flow, check if this message is confirming the schedule
+      // If we're in a schedule confirmation flow, we should let the LLM determine if
+      // the user is confirming or rejecting the schedule through natural language
       if (lastAssistantMessage) {
-        const lowerResponse = response.toLowerCase();
+        console.log(`In schedule confirmation flow for user ${userId}`);
         
-        // Check if user is confirming the schedule with common confirmation phrases
-        const isConfirming = [
-          'yes', 'confirm', 'looks good', 'approve', 'accept', 'good', 'sure', 'ok', 'okay', 
-          'that works', 'sounds good', 'perfect', 'great', 'agreed', 'i like it'
-        ].some(phrase => lowerResponse.includes(phrase));
+        // Get the schedule updates from the metadata of the last assistant message
+        const metadata = lastAssistantMessage.metadata as { scheduleUpdates?: any[] };
         
-        // Check if user is rejecting the schedule with common rejection phrases
-        const isRejecting = [
-          'no', 'reject', 'change', 'doesn\'t work', 'does not work', 'modify', 'adjust',
-          'update', 'edit', 'revise', 'reschedule', 'i don\'t like', 'not good'
-        ].some(phrase => lowerResponse.includes(phrase));
+        // Generate a response based on context - include an instruction in the prompt
+        // for the LLM to determine if this is a confirmation, and if so, include the marker
+        const messageContext: MessageContext = {
+          user,
+          tasks: userTasks,
+          facts: userFacts,
+          previousMessages,
+          currentDateTime: new Date().toLocaleString(),
+          messageType: 'schedule_confirmation_response' as any,
+          userResponse: response
+        };
         
-        if (isConfirming) {
-          // User is confirming the schedule
-          console.log(`User ${userId} confirmed schedule`);
+        // We need to provide the LLM with the proper context to make a determination
+        // It will detect confirmations in natural language and add the marker
+        responseResult = await this.generateResponseMessage(messageContext, 
+          // Pass schedule updates from metadata if available
+          metadata?.scheduleUpdates || []
+        );
+        
+        // If the LLM determined this was a confirmation (by including the marker)
+        // then we need to process the schedule updates
+        if (responseResult.message.includes("The final schedule is as follows") && 
+            responseResult.scheduleUpdates && 
+            responseResult.scheduleUpdates.length > 0) {
           
-          // Instead of relying on the LLM to generate the final schedule marker,
-          // we'll build a confirmation response directly with the appropriate marker
-          
-          // Get the schedule updates from the metadata of the last assistant message
-          const metadata = lastAssistantMessage.metadata as { scheduleUpdates?: any[] };
-          
-          if (metadata && metadata.scheduleUpdates && metadata.scheduleUpdates.length > 0) {
-            console.log(`Using metadata schedule with ${metadata.scheduleUpdates.length} updates`);
-            
-            // Apply the schedule updates immediately
-            await this.processScheduleUpdates(userId, metadata.scheduleUpdates);
-            
-            // Format the schedule text for the confirmation message
-            const scheduleText = metadata.scheduleUpdates
-              .map(update => {
-                const taskName = userTasks.find(t => t.id === update.taskId)?.title || `Task ID: ${update.taskId}`;
-                return `- ${update.scheduledTime}: ${taskName}`;
-              })
-              .join("\n");
-            
-            // Create a custom confirmation message with the final schedule marker
-            responseResult = {
-              message: `Great! I've scheduled these tasks for you.\n\nThe final schedule is as follows:\n${scheduleText}\n\nI'll send you reminders at the scheduled times. Good luck with your tasks!`,
-              scheduleUpdates: metadata.scheduleUpdates
-            };
-            
-            console.log(`Schedule confirmed and processed for user ${userId}`);
-          } else {
-            // No schedule updates found in metadata, try to generate a response
-            console.log(`No schedule updates found in metadata, generating generic confirmation`);
-            
-            // Generate a response based on context
-            const messageContext: MessageContext = {
-              user,
-              tasks: userTasks,
-              facts: userFacts,
-              previousMessages,
-              currentDateTime: new Date().toLocaleString(),
-              messageType: 'response',
-              userResponse: response
-            };
-            
-            // Get the LLM to generate a fallback response
-            responseResult = await this.generateResponseMessage(messageContext);
-            
-            // Add a note about the missing schedule
-            responseResult.message = "I've tried to confirm your schedule, but I couldn't find the details. Let's try rescheduling again.";
-          }
-        } else if (isRejecting) {
-          // User is rejecting the schedule
-          console.log(`User ${userId} rejected schedule`);
-          
-          responseResult = {
-            message: "Let's adjust your schedule. What changes would you like to make?",
-            scheduleUpdates: []
-          };
-        } else {
-          // User's message is not clearly confirming or rejecting, proceed with normal response
-          console.log(`User ${userId} provided feedback that wasn't clear confirmation/rejection`);
-          
-          // Generate a response based on context
-          const messageContext: MessageContext = {
-            user,
-            tasks: userTasks,
-            facts: userFacts,
-            previousMessages,
-            currentDateTime: new Date().toLocaleString(),
-            messageType: 'response',
-            userResponse: response
-          };
-          
-          responseResult = await this.generateResponseMessage(messageContext);
+          console.log(`LLM detected confirmation, processing ${responseResult.scheduleUpdates.length} schedule updates`);
+          await this.processScheduleUpdates(userId, responseResult.scheduleUpdates);
         }
       } else {
         // Check if the previous response contains the final schedule marker
