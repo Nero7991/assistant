@@ -140,6 +140,11 @@ export class MessagingService {
       - Focus on clarity and brevity above all
     `;
 
+    // DEBUG: Print the morning message prompt
+    console.log("\n===== MESSAGING DEBUG: MORNING MESSAGE PROMPT =====");
+    console.log(prompt);
+    console.log("========================================\n");
+    
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [{ role: "user", content: prompt }],
@@ -344,6 +349,15 @@ export class MessagingService {
       }
     `;
 
+    // DEBUG: Print the complete prompt being sent to the LLM
+    console.log("\n===== MESSAGING DEBUG: RESPONSE PROMPT =====");
+    console.log(prompt);
+    console.log("\n===== MESSAGING DEBUG: USER RESPONSE =====");
+    console.log(context.userResponse);
+    console.log("\n===== MESSAGING DEBUG: CONVERSATION HISTORY =====");
+    console.log(JSON.stringify(conversationHistory, null, 2));
+    console.log("========================================\n");
+    
     // Send the prompt to the LLM for processing
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
@@ -523,6 +537,11 @@ export class MessagingService {
         ]
       }
     `;
+
+    // DEBUG: Print the reschedule prompt
+    console.log("\n===== MESSAGING DEBUG: RESCHEDULE PROMPT =====");
+    console.log(prompt);
+    console.log("========================================\n");
 
     const response = await openai.chat.completions.create({
       model: "gpt-4o",

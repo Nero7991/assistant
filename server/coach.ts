@@ -130,6 +130,11 @@ export async function generateDailySchedule(
       promptContent += `\n\nAdditional instructions: ${customInstructions}`;
     }
     
+    // DEBUG: Print the complete prompt being sent to the LLM
+    console.log("\n===== COACH DEBUG: DAILY SCHEDULE PROMPT =====");
+    console.log(promptContent);
+    console.log("=====================================\n");
+    
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
