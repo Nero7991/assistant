@@ -1288,21 +1288,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         })
         .returning();
       
-      // Generate a coaching response
-      const coachingResponse = await generateCoachingResponse(content);
-      const response = coachingResponse.message;
+      // Process the message using the messaging service
+      console.log(`Using messagingService.handleUserResponse for user ${req.user.id} message: "${content.substring(0, 50)}..."`);
+      await messagingService.handleUserResponse(req.user.id, content);
       
-      // Save the assistant's response to the history
+      // Get the most recent message from the assistant (this was created by handleUserResponse)
       const [assistantMessage] = await db
-        .insert(messageHistory)
-        .values({
-          userId: req.user.id,
-          content: response,
-          type: 'response',
-          status: 'sent'
-          // createdAt will use the default value
-        })
-        .returning();
+        .select()
+        .from(messageHistory)
+        .where(
+          and(
+            eq(messageHistory.userId, req.user.id),
+            eq(messageHistory.type, 'coach_response')
+          )
+        )
+        .orderBy(desc(messageHistory.createdAt))
+        .limit(1);
       
       // Return both messages in the expected format for the chat UI
       res.status(201).json({

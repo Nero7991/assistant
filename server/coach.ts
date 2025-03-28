@@ -51,6 +51,16 @@ export async function generateCoachingResponse(
   actionItems: string[];
 }> {
   try {
+    // DEBUG: Print the coaching prompt and user message
+    console.log("\n===== COACHING DEBUG: PROMPT =====");
+    console.log("System prompt: ", COACHING_PROMPT);
+    console.log("User message: ", checkInContent);
+    console.log(`Previous responses: ${previousResponses?.length || 0}`);
+    if (previousResponses && previousResponses.length > 0) {
+      console.log("Previous responses:", previousResponses);
+    }
+    console.log("========================================\n");
+    
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
@@ -65,6 +75,11 @@ export async function generateCoachingResponse(
     if (!content) {
       throw new Error("Empty response from OpenAI API");
     }
+    
+    // DEBUG: Print the raw LLM response
+    console.log("\n===== COACHING DEBUG: RAW LLM RESPONSE =====");
+    console.log(content);
+    console.log("========================================\n");
     
     return JSON.parse(content);
   } catch (error) {
