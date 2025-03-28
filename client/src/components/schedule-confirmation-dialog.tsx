@@ -106,8 +106,8 @@ export function ScheduleConfirmationDialog({
                       <li key={index} className="flex items-start gap-3 p-2 border-b last:border-0">
                         <div className="flex flex-col items-center justify-center bg-muted rounded-md p-2 text-xs text-center min-w-[60px]">
                           <Clock className="h-4 w-4 mb-1" />
-                          <span>{item.startTime}</span>
-                          {item.endTime && (
+                          <span>{item.startTime && item.startTime !== "Invalid Date" ? item.startTime : "TBD"}</span>
+                          {item.endTime && item.endTime !== "Invalid Date" && (
                             <span>- {item.endTime}</span>
                           )}
                         </div>

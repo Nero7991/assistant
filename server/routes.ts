@@ -618,16 +618,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (scheduleId === -1) {
         // Return a simplified schedule object when in fallback mode
         console.log("Handling fallback mode request for schedule ID -1");
+        // Make sure all dates are properly formatted ISO strings
+        const now = new Date();
+        // Use the current date's midnight as the schedule date to ensure it's valid
+        const today = new Date(now);
+        today.setHours(0, 0, 0, 0);
+        
         return res.json({
           id: -1,
           userId: req.user.id,
-          date: new Date().toISOString(),
+          date: today.toISOString(),
           status: "confirmed",
           originalContent: "Fallback schedule",
           formattedSchedule: null,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          confirmedAt: new Date().toISOString()
+          createdAt: now.toISOString(),
+          updatedAt: now.toISOString(),
+          confirmedAt: now.toISOString()
         });
       }
       
@@ -662,9 +668,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Convert tasks to schedule items format
         const fakeScheduleItems = scheduledTasks.map((task, index) => {
-          const startTime = task.scheduledTime 
-            ? new Date(task.scheduledTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
-            : "00:00";
+          let startTime = "00:00";
+          
+          try {
+            // Attempt to format the time, fallback to current time if invalid
+            if (task.scheduledTime) {
+              const date = new Date(task.scheduledTime);
+              if (!isNaN(date.getTime())) {
+                startTime = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+              } else {
+                // Use current time as fallback
+                const now = new Date();
+                startTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+              }
+            }
+          } catch (e) {
+            console.error("Error formatting time:", e);
+            // Use current time as fallback
+            const now = new Date();
+            startTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+          }
           
           return {
             id: -1000 - index, // Use negative IDs for fake items
