@@ -1,0 +1,53 @@
+Error creating daily schedule: error: relation "daily_schedules" does not exist
+    at file:///home/runner/workspace/node_modules/@neondatabase/serverless/index.mjs:1345:74
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async NeonPreparedQuery.execute (/home/runner/workspace/node_modules/src/neon-serverless/session.ts:102:18)
+    at async createDailyScheduleFromParsed (/home/runner/workspace/server/services/schedule-parser.ts:169:27)
+    at async <anonymous> (/home/runner/workspace/server/routes.ts:553:26) {
+  length: 114,
+  severity: 'ERROR',
+  code: '42P01',
+  detail: undefined,
+  hint: undefined,
+  position: '13',
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'parse_relation.c',
+  line: '1449',
+  routine: 'parserOpenTable'
+}
+Error creating daily schedule from LLM response: error: relation "daily_schedules" does not exist
+    at file:///home/runner/workspace/node_modules/@neondatabase/serverless/index.mjs:1345:74
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async NeonPreparedQuery.execute (/home/runner/workspace/node_modules/src/neon-serverless/session.ts:102:18)
+    at async createDailyScheduleFromParsed (/home/runner/workspace/server/services/schedule-parser.ts:169:27)
+    at async <anonymous> (/home/runner/workspace/server/routes.ts:553:26) {
+  length: 114,
+  severity: 'ERROR',
+  code: '42P01',
+  detail: undefined,
+  hint: undefined,
+  position: '13',
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'parse_relation.c',
+  line: '1449',
+  routine: 'parserOpenTable'
+}
+6:21:04 PM [express] POST /api/daily-schedules/from-llm 500 in 103ms :: {"error":"Failed to create d…
+Deserializing user: 2
+6:21:11 PM [express] POST /api/messages/reschedule 200 in 2722ms :: {"systemMessage":{"id":229,"cont…
+Deserializing user: 2
+6:21:21 PM [express] POST /api/messages 201 in 2315ms :: {"userMessage":{"id":230,"content":"It does…

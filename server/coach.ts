@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { Task, KnownUserFact } from "@shared/schema";
-import { SCHEDULE_MARKER } from "./services/schedule-parser";
+import { SCHEDULE_MARKER } from "./services/schedule-parser-new";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 

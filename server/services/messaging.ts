@@ -4,7 +4,7 @@ import { Task, User, KnownUserFact, MessageHistory, MessageSchedule, messageHist
 import { db } from "../db";
 import { eq, and, lte, desc, gt } from "drizzle-orm";
 import { storage } from "../storage";
-import { parseScheduleFromLLMResponse, createDailyScheduleFromParsed, confirmSchedule } from "./schedule-parser";
+import { parseScheduleFromLLMResponse, createDailyScheduleFromParsed, confirmSchedule } from "./schedule-parser-new";
 
 // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });

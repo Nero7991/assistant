@@ -537,7 +537,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Import the schedule parser functions
-      const { parseScheduleFromLLMResponse, createDailyScheduleFromParsed } = await import('./services/schedule-parser');
+      const { parseScheduleFromLLMResponse, createDailyScheduleFromParsed } = await import('./services/schedule-parser-new');
       
       // Parse the schedule from the LLM response
       const parsedSchedule = parseScheduleFromLLMResponse(llmResponse);
@@ -570,7 +570,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // Import required functions and components
       const { generateDailySchedule } = await import('./coach');
-      const { parseScheduleFromLLMResponse, createDailyScheduleFromParsed } = await import('./services/schedule-parser');
+      const { parseScheduleFromLLMResponse, createDailyScheduleFromParsed } = await import('./services/schedule-parser-new');
       
       // Get tasks and user facts
       const tasks = await storage.getTasks(req.user.id);
