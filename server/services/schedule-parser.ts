@@ -256,7 +256,7 @@ export async function confirmSchedule(scheduleId: number, userId: number): Promi
             const scheduledTime = parseTimeToDate(task.scheduledTime);
             
             if (scheduledTime && scheduledTime > new Date() && task.id) {
-              await storage.scheduleTaskNotification(task.id, scheduledTime);
+              await storage.scheduleItemNotification(task.id, scheduledTime);
               console.log(`Scheduled notification for task ${task.id} at ${scheduledTime}`);
             }
           } catch (notifyError) {

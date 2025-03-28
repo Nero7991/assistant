@@ -373,6 +373,11 @@ export class MessagingService {
     const content = response.choices[0].message.content;
     if (!content)
       return { message: "I couldn't generate a response. Please try again." };
+    
+    // DEBUG: Print the raw LLM response
+    console.log("\n===== MESSAGING DEBUG: RAW LLM RESPONSE =====");
+    console.log(content);
+    console.log("========================================\n");
 
     try {
       const parsed = JSON.parse(content);
@@ -556,6 +561,11 @@ export class MessagingService {
         message:
           "I couldn't create a schedule for you right now. Please try again.",
       };
+      
+    // DEBUG: Print the raw reschedule response
+    console.log("\n===== MESSAGING DEBUG: RESCHEDULE RAW RESPONSE =====");
+    console.log(content);
+    console.log("========================================\n");
 
     try {
       const parsed = JSON.parse(content);
@@ -766,6 +776,17 @@ export class MessagingService {
         userResponse: response,
       };
 
+      // DEBUG: Print the messaging context before generating response
+      console.log("\n===== USER MESSAGE DEBUG: INCOMING MESSAGE =====");
+      console.log(`User ${userId} sent message: "${response}"`);
+      console.log("\n===== USER MESSAGE DEBUG: MESSAGE CONTEXT =====");
+      console.log(`User: ${messageContext.user.username}`);
+      console.log(`Tasks: ${messageContext.tasks.length} tasks`);
+      console.log(`Facts: ${messageContext.facts.length} facts`);
+      console.log(`Previous Messages: ${messageContext.previousMessages.length} messages`);
+      console.log(`Existing Schedule Updates: ${existingScheduleUpdates.length}`);
+      console.log("========================================\n");
+      
       // Generate the response using our unified approach
       const responseResult = await this.generateResponseMessage(
         messageContext,
