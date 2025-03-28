@@ -613,6 +613,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     try {
       const scheduleId = parseInt(req.params.id);
+      
+      // Special case for fallback mode with ID -1
+      if (scheduleId === -1) {
+        // Return a simplified schedule object when in fallback mode
+        console.log("Handling fallback mode request for schedule ID -1");
+        return res.json({
+          id: -1,
+          userId: req.user.id,
+          date: new Date().toISOString(),
+          status: "confirmed",
+          originalContent: "Fallback schedule",
+          formattedSchedule: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          confirmedAt: new Date().toISOString()
+        });
+      }
+      
       const schedule = await storage.getDailySchedule(scheduleId);
       
       if (!schedule) {
@@ -631,6 +649,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     try {
       const scheduleId = parseInt(req.params.id);
+      
+      // Special case for fallback mode with ID -1
+      if (scheduleId === -1) {
+        // Return scheduled tasks as schedule items in fallback mode
+        console.log("Handling fallback mode request for schedule items, ID -1");
+        
+        const tasks = await storage.getTasks(req.user.id);
+        const scheduledTasks = tasks.filter(task => 
+          task.status === 'active' && task.scheduledTime
+        );
+        
+        // Convert tasks to schedule items format
+        const fakeScheduleItems = scheduledTasks.map((task, index) => {
+          const startTime = task.scheduledTime 
+            ? new Date(task.scheduledTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+            : "00:00";
+          
+          return {
+            id: -1000 - index, // Use negative IDs for fake items
+            scheduleId: -1,
+            taskId: task.id,
+            title: task.title,
+            description: task.description,
+            startTime,
+            endTime: null,
+            status: task.completedAt ? 'completed' : 'pending',
+            completedAt: task.completedAt
+          };
+        });
+        
+        return res.json(fakeScheduleItems);
+      }
+      
       const items = await storage.getScheduleItems(scheduleId);
       res.json(items);
     } catch (error) {

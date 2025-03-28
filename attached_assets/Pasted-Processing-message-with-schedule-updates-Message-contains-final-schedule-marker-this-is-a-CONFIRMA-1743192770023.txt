@@ -1,0 +1,68 @@
+Processing message with schedule updates
+Message contains final schedule marker - this is a CONFIRMATION
+Detected confirmed schedule in response - processing it
+Parsed confirmed schedule, creating daily schedule
+Updated task 19 with start time 20:15
+Updated task 20 with start time 21:30
+Schedule tables don't exist yet - using fallback mode (tasks already updated)
+Created new daily schedule with ID -1
+Using fallback mode for schedule confirmation - tasks already updated, no notifications scheduled
+Confirmed schedule with ID -1
+Successfully sent WhatsApp message to +17323187616
+8:11:45 PM [express] POST /api/messages 201 in 4029ms :: {"userMessage":{"id":262,"content":"Okay le…
+Deserializing user: 2
+Updated task 19 with start time 20:15
+Updated task 20 with start time 21:30
+Schedule tables don't exist yet - using fallback mode (tasks already updated)
+8:11:46 PM [express] POST /api/daily-schedules/from-llm 201 in 178ms :: {"message":"Daily schedule c…
+Deserializing user: 2
+Error fetching daily schedule: error: relation "daily_schedules" does not exist
+    at file:///home/runner/workspace/node_modules/@neondatabase/serverless/index.mjs:1345:74
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async NeonPreparedQuery.execute (/home/runner/workspace/node_modules/src/neon-serverless/session.ts:102:18)
+    at async DatabaseStorage.getDailySchedule (/home/runner/workspace/server/storage.ts:699:24)
+    at async <anonymous> (/home/runner/workspace/server/routes.ts:616:24) {
+  length: 115,
+  severity: 'ERROR',
+  code: '42P01',
+  detail: undefined,
+  hint: undefined,
+  position: '133',
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'parse_relation.c',
+  line: '1449',
+  routine: 'parserOpenTable'
+}
+Deserializing user: 2
+Error fetching schedule items: error: relation "schedule_items" does not exist
+    at file:///home/runner/workspace/node_modules/@neondatabase/serverless/index.mjs:1345:74
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async NeonPreparedQuery.execute (/home/runner/workspace/node_modules/src/neon-serverless/session.ts:102:18)
+    at async <anonymous> (/home/runner/workspace/server/routes.ts:634:21) {
+  length: 114,
+  severity: 'ERROR',
+  code: '42P01',
+  detail: undefined,
+  hint: undefined,
+  position: '153',
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'parse_relation.c',
+  line: '1449',
+  routine: 'parserOpenTable'
+}
+8:11:46 PM [express] GET /api/daily-schedules/-1 500 in 140ms :: {"error":"Failed to fetch daily sch…
+8:11:46 PM [express] GET /api/daily-schedules/-1/items 500 in 198ms :: {"error":"Failed to fetch sch…
