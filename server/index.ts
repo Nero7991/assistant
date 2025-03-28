@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import cors from 'cors';
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { initDatabase } from './init-db';
 
 const app = express();
 
@@ -56,6 +57,9 @@ app.use((req, res, next) => {
 (async () => {
   // Set trust proxy to handle cookies properly behind reverse proxy
   app.set('trust proxy', 1);
+  
+  // Initialize database tables if they don't exist
+  await initDatabase();
 
   const server = await registerRoutes(app);
 

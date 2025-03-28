@@ -695,12 +695,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     try {
       const scheduleId = parseInt(req.params.id);
-      const success = await storage.confirmDailySchedule(scheduleId);
       
-      if (success) {
-        res.json({ message: "Schedule confirmed successfully" });
-      } else {
-        res.status(400).json({ error: "Failed to confirm schedule" });
+      try {
+        // First try using the new confirmSchedule function from the schedule-parser-new module
+        const { confirmSchedule } = await import('./services/schedule-parser-new');
+        const success = await confirmSchedule(scheduleId, req.user.id);
+        
+        if (success) {
+          res.json({ message: "Schedule confirmed successfully" });
+        } else {
+          res.status(400).json({ error: "Failed to confirm schedule" });
+        }
+      } catch (parserError) {
+        console.error("Error with new parser, falling back to storage method:", parserError);
+        
+        // Fallback to using the storage method
+        const success = await storage.confirmDailySchedule(scheduleId);
+        
+        if (success) {
+          res.json({ message: "Schedule confirmed successfully (fallback)" });
+        } else {
+          res.status(400).json({ error: "Failed to confirm schedule" });
+        }
       }
     } catch (error) {
       console.error("Error confirming schedule:", error);
