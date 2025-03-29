@@ -155,6 +155,9 @@ function matchScheduleItemsWithTasks(items: ScheduleItem[], tasks: Task[]): Sche
 
 /**
  * Create a new daily schedule and associated items from a parsed schedule
+ * Requires proper database tables to already exist for schedules
+ * Will update task times and then attempt to create schedule entries
+ * Will throw an error if schedule tables don't exist
  */
 export async function createDailyScheduleFromParsed(
   userId: number, 
@@ -206,15 +209,14 @@ export async function createDailyScheduleFromParsed(
       return newSchedule.id;
     } catch (error) {
       // Check if the error is due to missing tables
-      const dbError = error as Error; // Type assertion
-      if (dbError && dbError.message && 
-          typeof dbError.message === 'string' && 
-          dbError.message.includes('relation') && 
-          dbError.message.includes('does not exist')) {
+      if (error instanceof Error && 
+          error.message && 
+          error.message.includes('relation') && 
+          error.message.includes('does not exist')) {
         
-        console.log("Schedule tables don't exist yet, falling back to task updates only");
+        console.error("ERROR: Schedule tables don't exist - cannot create schedule without proper database tables");
         
-        // Instead of creating schedule entries, just update the tasks directly
+        // First update the task times since this still works
         for (const item of matchedItems) {
           if (item.taskId) {
             await storage.updateTask(item.taskId, {
@@ -224,10 +226,11 @@ export async function createDailyScheduleFromParsed(
           }
         }
         
-        // Return a placeholder ID since we couldn't create a real schedule
-        return -1;
+        // Throw an error to ensure we don't proceed without proper database tables
+        throw new Error("Schedule tables don't exist. Daily schedules require proper database tables for notifications.");
       } else {
-        // Rethrow any other errors
+        // For any other error, rethrow to ensure we don't proceed with invalid data
+        console.error("Error creating schedule tables:", error);
         throw error;
       }
     }
@@ -239,33 +242,16 @@ export async function createDailyScheduleFromParsed(
 
 /**
  * Confirm a schedule, which will schedule notifications for each item
+ * Requires proper database tables to be already created
+ * Will throw an error if tables don't exist or if using invalid schedule ID
  */
 export async function confirmSchedule(scheduleId: number, userId: number): Promise<boolean> {
   try {
-    // If we got a placeholder scheduleId (-1), it means we're in fallback mode and didn't create a real schedule
+    // If we got a placeholder scheduleId (-1), it means we're in fallback mode
+    // But we no longer support fallback mode
     if (scheduleId === -1) {
-      console.log("Using fallback mode for schedule confirmation - will only schedule task notifications");
-      
-      // Get all active tasks for this user
-      const userTasks = await storage.getTasks(userId);
-      
-      // Schedule notifications for tasks that have scheduling information
-      for (const task of userTasks) {
-        if (task.scheduledTime) {
-          try {
-            const scheduledTime = parseTimeToDate(task.scheduledTime);
-            
-            if (scheduledTime && scheduledTime > new Date() && task.id) {
-              await storage.scheduleItemNotification(task.id, scheduledTime);
-              console.log(`Scheduled notification for task ${task.id} at ${scheduledTime}`);
-            }
-          } catch (notifyError) {
-            console.error(`Error scheduling notification for task ${task.id}:`, notifyError);
-          }
-        }
-      }
-      
-      return true;
+      console.error("ERROR: Cannot confirm schedule with ID -1. Proper database tables are required for notifications.");
+      throw new Error("Schedule confirmation requires properly created schedule with database tables for notifications.");
     }
 
     try {
@@ -299,44 +285,22 @@ export async function confirmSchedule(scheduleId: number, userId: number): Promi
       return true;
     } catch (error) {
       // Check if the error is due to missing tables
-      const dbError = error as Error; // Type assertion
-      if (dbError && dbError.message && 
-          typeof dbError.message === 'string' && 
-          dbError.message.includes('relation') && 
-          dbError.message.includes('does not exist')) {
+      if (error instanceof Error && 
+          error.message && 
+          error.message.includes('relation') && 
+          error.message.includes('does not exist')) {
         
-        console.log("Schedule tables don't exist yet, falling back to task notifications only");
-        
-        // Use the fallback approach - schedule notifications for tasks
-        // Get all active tasks for this user
-        const userTasks = await storage.getTasks(userId);
-        
-        // Schedule notifications for tasks that have scheduling information
-        for (const task of userTasks) {
-          if (task.scheduledTime && task.id) {
-            try {
-              const scheduledTime = parseTimeToDate(task.scheduledTime);
-              
-              if (scheduledTime && scheduledTime > new Date()) {
-                // Just log the notification without trying to schedule it
-                // This is a graceful fallback when database tables don't exist
-                console.log(`Would schedule notification for task ${task.id} at ${scheduledTime}`);
-                // Not actually scheduling it since we have DB table issues
-              }
-            } catch (notifyError) {
-              console.error(`Error scheduling notification for task ${task.id}:`, notifyError);
-            }
-          }
-        }
-        
-        return true;
-      } else {
-        throw error;
+        console.error("ERROR: Schedule tables don't exist - cannot confirm schedule without proper database tables");
+        throw new Error("Schedule tables don't exist. Daily schedule confirmation requires proper database tables for notifications.");
       }
+      
+      // For any other error, rethrow
+      console.error("Error confirming schedule:", error);
+      throw error;
     }
   } catch (error) {
-    console.error("Error confirming schedule:", error);
-    return false;
+    console.error("Error in confirmSchedule:", error);
+    throw error;
   }
 }
 
