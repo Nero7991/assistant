@@ -614,26 +614,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const scheduleId = parseInt(req.params.id);
       
-      // Special case for fallback mode with ID -1
+      // We no longer support fallback mode with ID -1
       if (scheduleId === -1) {
-        // Return a simplified schedule object when in fallback mode
-        console.log("Handling fallback mode request for schedule ID -1");
-        // Make sure all dates are properly formatted ISO strings
-        const now = new Date();
-        // Use the current date's midnight as the schedule date to ensure it's valid
-        const today = new Date(now);
-        today.setHours(0, 0, 0, 0);
-        
-        return res.json({
-          id: -1,
-          userId: req.user.id,
-          date: today.toISOString(),
-          status: "confirmed",
-          originalContent: "Fallback schedule",
-          formattedSchedule: null,
-          createdAt: now.toISOString(),
-          updatedAt: now.toISOString(),
-          confirmedAt: now.toISOString()
+        console.error("ERROR: Schedule ID -1 requested - fallback mode no longer supported");
+        return res.status(400).json({ 
+          error: "Invalid schedule ID. Fallback mode not supported - database tables are required for proper scheduling." 
         });
       }
       
@@ -656,53 +641,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const scheduleId = parseInt(req.params.id);
       
-      // Special case for fallback mode with ID -1
+      // We no longer support fallback mode with ID -1
       if (scheduleId === -1) {
-        // Return scheduled tasks as schedule items in fallback mode
-        console.log("Handling fallback mode request for schedule items, ID -1");
-        
-        const tasks = await storage.getTasks(req.user.id);
-        const scheduledTasks = tasks.filter(task => 
-          task.status === 'active' && task.scheduledTime
-        );
-        
-        // Convert tasks to schedule items format
-        const fakeScheduleItems = scheduledTasks.map((task, index) => {
-          let startTime = "00:00";
-          
-          try {
-            // Attempt to format the time, fallback to current time if invalid
-            if (task.scheduledTime) {
-              const date = new Date(task.scheduledTime);
-              if (!isNaN(date.getTime())) {
-                startTime = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-              } else {
-                // Use current time as fallback
-                const now = new Date();
-                startTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-              }
-            }
-          } catch (e) {
-            console.error("Error formatting time:", e);
-            // Use current time as fallback
-            const now = new Date();
-            startTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-          }
-          
-          return {
-            id: -1000 - index, // Use negative IDs for fake items
-            scheduleId: -1,
-            taskId: task.id,
-            title: task.title,
-            description: task.description,
-            startTime,
-            endTime: null,
-            status: task.completedAt ? 'completed' : 'pending',
-            completedAt: task.completedAt
-          };
+        console.error("ERROR: Schedule items for ID -1 requested - fallback mode no longer supported");
+        return res.status(400).json({ 
+          error: "Invalid schedule ID. Fallback mode not supported - database tables are required for proper scheduling." 
         });
-        
-        return res.json(fakeScheduleItems);
       }
       
       const items = await storage.getScheduleItems(scheduleId);
@@ -719,8 +663,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const scheduleId = parseInt(req.params.id);
       
+      // We no longer support fallback mode with ID -1
+      if (scheduleId === -1) {
+        console.error("ERROR: Attempt to confirm schedule with ID -1 - fallback mode not supported");
+        return res.status(400).json({ 
+          error: "Invalid schedule ID. Fallback mode not supported - database tables are required for proper scheduling and notifications." 
+        });
+      }
+      
       try {
-        // First try using the new confirmSchedule function from the schedule-parser-new module
+        // Use the confirmSchedule function from the schedule-parser-new module
         const { confirmSchedule } = await import('./services/schedule-parser-new');
         const success = await confirmSchedule(scheduleId, req.user.id);
         
@@ -729,17 +681,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } else {
           res.status(400).json({ error: "Failed to confirm schedule" });
         }
-      } catch (parserError) {
-        console.error("Error with new parser, falling back to storage method:", parserError);
-        
-        // Fallback to using the storage method
-        const success = await storage.confirmDailySchedule(scheduleId);
-        
-        if (success) {
-          res.json({ message: "Schedule confirmed successfully (fallback)" });
-        } else {
-          res.status(400).json({ error: "Failed to confirm schedule" });
-        }
+      } catch (error) {
+        console.error("Error confirming schedule:", error);
+        res.status(500).json({ error: "Failed to confirm schedule: " + (error instanceof Error ? error.message : String(error)) });
       }
     } catch (error) {
       console.error("Error confirming schedule:", error);

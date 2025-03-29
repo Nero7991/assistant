@@ -155,7 +155,9 @@ function matchScheduleItemsWithTasks(items: ScheduleItem[], tasks: Task[]): Sche
 
 /**
  * Create a new daily schedule and associated items from a parsed schedule
- * Falls back to updating task times directly if schedule tables don't exist
+ * Requires proper database tables to already exist for schedules
+ * Will update task times and then attempt to create schedule entries
+ * Will throw an error if schedule tables don't exist
  */
 export async function createDailyScheduleFromParsed(
   userId: number, 
@@ -229,32 +231,34 @@ export async function createDailyScheduleFromParsed(
           error.message.includes('relation') && 
           error.message.includes('does not exist')) {
         
-        console.log("Schedule tables don't exist yet - using fallback mode (tasks already updated)");
-        // Return a placeholder ID since we couldn't create a real schedule
-        return -1;
+        console.error("ERROR: Schedule tables don't exist - cannot create schedule without proper database tables");
+        // Throw an error to ensure we don't proceed without proper database tables
+        throw new Error("Schedule tables don't exist. Daily schedules require proper database tables for notifications.");
       } else {
-        // For any other error, log it but don't rethrow since we've already updated tasks
-        console.error("Error creating schedule tables (non-fatal):", error);
-        return -1;
+        // For any other error, rethrow to ensure we don't proceed with invalid data
+        console.error("Error creating schedule tables:", error);
+        throw error;
       }
     }
   } catch (error) {
-    console.error("Error processing schedule:", error);
-    // Return a placeholder ID so the system doesn't crash
-    return -1;
+    console.error("ERROR: Error processing schedule:", error);
+    // No longer use fallback mode, throw the error
+    throw new Error("Error processing schedule: " + (error instanceof Error ? error.message : String(error)));
   }
 }
 
 /**
  * Confirm a schedule, which will schedule notifications for each item
- * Falls back to just returning success if tables don't exist
+ * Requires proper database tables to be already created
+ * Will throw an error if tables don't exist or if using invalid schedule ID
  */
 export async function confirmSchedule(scheduleId: number, userId: number): Promise<boolean> {
   try {
     // If we got a placeholder scheduleId (-1), it means we're in fallback mode
+    // But we no longer support fallback mode
     if (scheduleId === -1) {
-      console.log("Using fallback mode for schedule confirmation - tasks already updated, no notifications scheduled");
-      return true;
+      console.error("ERROR: Cannot confirm schedule with ID -1. Proper database tables are required for notifications.");
+      throw new Error("Schedule confirmation requires properly created schedule with database tables for notifications.");
     }
 
     // Try to update the schedule status and schedule notifications
@@ -271,14 +275,23 @@ export async function confirmSchedule(scheduleId: number, userId: number): Promi
       console.log(`Marked schedule ${scheduleId} as confirmed`);
       return true;
     } catch (error) {
-      // For any error, just log and proceed
-      console.error("Error confirming schedule (non-fatal):", error);
-      return true;
+      // Check if the error is due to missing tables
+      if (error instanceof Error && 
+          error.message && 
+          error.message.includes('relation') && 
+          error.message.includes('does not exist')) {
+        
+        console.error("ERROR: Schedule tables don't exist - cannot confirm schedule without proper database tables");
+        throw new Error("Schedule tables don't exist. Daily schedule confirmation requires proper database tables for notifications.");
+      }
+      
+      // For any other error, rethrow
+      console.error("Error confirming schedule:", error);
+      throw error;
     }
   } catch (error) {
     console.error("Error in confirmSchedule:", error);
-    // Return success anyway since we've already updated tasks
-    return true;
+    throw error;
   }
 }
 
