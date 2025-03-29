@@ -95,8 +95,7 @@ export default function SchedulePage() {
   
   const hasScheduleData = 
     pendingNotifications.length > 0 || 
-    scheduledTasks.length > 0 ||
-    lastScheduleUpdate !== null;
+    scheduledTasks.length > 0;
 
   return (
     <div className="container mx-auto py-6 space-y-6">
@@ -129,116 +128,9 @@ export default function SchedulePage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="md:col-span-2 space-y-6">
-            {/* Main schedule section */}
-            {lastScheduleUpdate && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Your Day Plan</CardTitle>
-                  <CardDescription>
-                    Created {lastScheduleUpdate.createdAt 
-                      ? formatDistanceToNow(new Date(lastScheduleUpdate.createdAt), { addSuffix: true }) 
-                      : "recently"}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ScrollArea className="h-[280px] pr-4">
-                    <div className="space-y-4">
-                      <div className="whitespace-pre-wrap">
-                        {lastScheduleUpdate.content}
-                      </div>
-                    </div>
-                  </ScrollArea>
-                </CardContent>
-                <CardFooter className="flex justify-between">
-                  <div className="text-sm text-muted-foreground">
-                    {lastScheduleUpdate.createdAt 
-                      ? format(new Date(lastScheduleUpdate.createdAt), "PPpp") 
-                      : ""}
-                  </div>
-                  <Button variant="ghost" size="sm" asChild>
-                    <Link href="/chat">
-                      View in Chat <ArrowRight className="ml-2 h-4 w-4" />
-                    </Link>
-                  </Button>
-                </CardFooter>
-              </Card>
-            )}
-
             {/* Tasks section */}
-            {scheduledTasks && scheduledTasks.length > 0 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Today's Schedule</CardTitle>
-                  <CardDescription>
-                    Your planned activities organized by time
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <ScrollArea className="h-[320px] pr-4">
-                    <div>
-                      {/* Group tasks by time periods */}
-                      {(() => {
-                        // Sort tasks by scheduled time
-                        const sortedTasks = [...scheduledTasks].sort((a, b) => {
-                          if (!a.scheduledTime) return 1;
-                          if (!b.scheduledTime) return -1;
-                          return new Date(a.scheduledTime).getTime() - new Date(b.scheduledTime).getTime();
-                        });
-                        
-                        // Setup time blocks
-                        const morningTasks = sortedTasks.filter(t => 
-                          t.scheduledTime && new Date(t.scheduledTime).getHours() < 12
-                        );
-                        const afternoonTasks = sortedTasks.filter(t => 
-                          t.scheduledTime && new Date(t.scheduledTime).getHours() >= 12 && new Date(t.scheduledTime).getHours() < 17
-                        );
-                        const eveningTasks = sortedTasks.filter(t => 
-                          t.scheduledTime && new Date(t.scheduledTime).getHours() >= 17
-                        );
-                        const unscheduledTasks = sortedTasks.filter(t => !t.scheduledTime);
-                        
-                        // Create a component for time block headers
-                        const TimeBlock = ({ title, tasks }: { title: string, tasks: Task[] }) => (
-                          tasks.length > 0 ? (
-                            <div className="mb-6">
-                              <div className="flex items-center space-x-2 mb-3">
-                                <div className="h-px flex-1 bg-border"></div>
-                                <span className="text-sm font-medium text-muted-foreground px-2">{title}</span>
-                                <div className="h-px flex-1 bg-border"></div>
-                              </div>
-                              <div className="space-y-3">
-                                {tasks.map(task => renderTask(task))}
-                              </div>
-                            </div>
-                          ) : null
-                        );
-                        
-                        return (
-                          <>
-                            <TimeBlock title="Morning" tasks={morningTasks} />
-                            <TimeBlock title="Afternoon" tasks={afternoonTasks} />
-                            <TimeBlock title="Evening" tasks={eveningTasks} />
-                            {unscheduledTasks.length > 0 && (
-                              <TimeBlock title="Unscheduled" tasks={unscheduledTasks} />
-                            )}
-                          </>
-                        );
-                      })()}
-                    </div>
-                  </ScrollArea>
-                </CardContent>
-                <CardFooter>
-                  <Button variant="outline" size="sm" asChild className="w-full">
-                    <Link href="/tasks">
-                      View All Tasks
-                    </Link>
-                  </Button>
-                </CardFooter>
-              </Card>
-            )}
-            
-            {/* Function to render individual task */}
-            {(() => {
+            {scheduledTasks && scheduledTasks.length > 0 && (() => {
+              // Function to render individual task
               function renderTask(task: Task) {
                 return (
                   <div key={task.id} className="flex items-start group hover:bg-accent/30 rounded-md p-2 transition-colors">
@@ -316,7 +208,77 @@ export default function SchedulePage() {
                 );
               }
               
-              return null; // This function is just for definition, not rendering
+              return (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Today's Schedule</CardTitle>
+                    <CardDescription>
+                      Your planned activities organized by time
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ScrollArea className="h-[320px] pr-4">
+                      <div>
+                        {/* Group tasks by time periods */}
+                        {(() => {
+                          // Sort tasks by scheduled time
+                          const sortedTasks = [...scheduledTasks].sort((a, b) => {
+                            if (!a.scheduledTime) return 1;
+                            if (!b.scheduledTime) return -1;
+                            return new Date(a.scheduledTime).getTime() - new Date(b.scheduledTime).getTime();
+                          });
+                          
+                          // Setup time blocks
+                          const morningTasks = sortedTasks.filter(t => 
+                            t.scheduledTime && new Date(t.scheduledTime).getHours() < 12
+                          );
+                          const afternoonTasks = sortedTasks.filter(t => 
+                            t.scheduledTime && new Date(t.scheduledTime).getHours() >= 12 && new Date(t.scheduledTime).getHours() < 17
+                          );
+                          const eveningTasks = sortedTasks.filter(t => 
+                            t.scheduledTime && new Date(t.scheduledTime).getHours() >= 17
+                          );
+                          const unscheduledTasks = sortedTasks.filter(t => !t.scheduledTime);
+                          
+                          // Create a component for time block headers
+                          const TimeBlock = ({ title, tasks }: { title: string, tasks: Task[] }) => (
+                            tasks.length > 0 ? (
+                              <div className="mb-6">
+                                <div className="flex items-center space-x-2 mb-3">
+                                  <div className="h-px flex-1 bg-border"></div>
+                                  <span className="text-sm font-medium text-muted-foreground px-2">{title}</span>
+                                  <div className="h-px flex-1 bg-border"></div>
+                                </div>
+                                <div className="space-y-3">
+                                  {tasks.map(task => renderTask(task))}
+                                </div>
+                              </div>
+                            ) : null
+                          );
+                          
+                          return (
+                            <>
+                              <TimeBlock title="Morning" tasks={morningTasks} />
+                              <TimeBlock title="Afternoon" tasks={afternoonTasks} />
+                              <TimeBlock title="Evening" tasks={eveningTasks} />
+                              {unscheduledTasks.length > 0 && (
+                                <TimeBlock title="Unscheduled" tasks={unscheduledTasks} />
+                              )}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </ScrollArea>
+                  </CardContent>
+                  <CardFooter>
+                    <Button variant="outline" size="sm" asChild className="w-full">
+                      <Link href="/tasks">
+                        View All Tasks
+                      </Link>
+                    </Button>
+                  </CardFooter>
+                </Card>
+              );
             })()}
           </div>
 
@@ -387,8 +349,8 @@ export default function SchedulePage() {
                                 <div className="space-y-3">
                                   <div className="flex items-start space-x-2">
                                     <div className={`w-1 h-full rounded-full self-stretch ${
-                                      relatedTask.priority === 'high' ? 'bg-destructive' : 
-                                      relatedTask.priority === 'medium' ? 'bg-primary' : 
+                                      String(relatedTask.priority) === 'high' ? 'bg-destructive' : 
+                                      String(relatedTask.priority) === 'medium' ? 'bg-primary' : 
                                       'bg-muted'
                                     }`} />
                                     <div className="flex-1">
