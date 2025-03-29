@@ -157,11 +157,20 @@ export default function SchedulePage() {
                             </Badge>
                           )}
                         </div>
-                        {task.scheduledTime && (
-                          <span className="text-xs text-muted-foreground font-medium">
-                            {format(new Date(task.scheduledTime), "h:mm a")}
-                          </span>
-                        )}
+                        {task.scheduledTime && (() => {
+                          // Parse time string like "08:00"
+                          const timeString = task.scheduledTime.includes(':') ? task.scheduledTime : `${task.scheduledTime}:00`;
+                          const [hours, minutes] = timeString.split(':').map(Number);
+                          
+                          const date = new Date();
+                          date.setHours(hours, minutes, 0);
+                          
+                          return (
+                            <span className="text-xs text-muted-foreground font-medium">
+                              {format(date, "h:mm a")}
+                            </span>
+                          );
+                        })()}
                       </div>
                       
                       {task.description && (
@@ -188,11 +197,20 @@ export default function SchedulePage() {
                                   <div className="h-3 w-3 mr-2 rounded-full border border-muted-foreground flex-shrink-0" />
                                 )}
                                 <span className={subtask.completedAt ? "text-muted-foreground line-through" : ""}>{subtask.title}</span>
-                                {subtask.scheduledTime && (
-                                  <span className="ml-auto text-xs text-muted-foreground">
-                                    {format(new Date(subtask.scheduledTime), "h:mm a")}
-                                  </span>
-                                )}
+                                {subtask.scheduledTime && (() => {
+                                  // Parse time string like "08:00"
+                                  const timeString = subtask.scheduledTime.includes(':') ? subtask.scheduledTime : `${subtask.scheduledTime}:00`;
+                                  const [hours, minutes] = timeString.split(':').map(Number);
+                                  
+                                  const date = new Date();
+                                  date.setHours(hours, minutes, 0);
+                                  
+                                  return (
+                                    <span className="ml-auto text-xs text-muted-foreground">
+                                      {format(date, "h:mm a")}
+                                    </span>
+                                  );
+                                })()}
                               </div>
                             ))}
                             {scheduledSubtasks[task.id!].length > 3 && (
@@ -225,18 +243,43 @@ export default function SchedulePage() {
                           const sortedTasks = [...scheduledTasks].sort((a, b) => {
                             if (!a.scheduledTime) return 1;
                             if (!b.scheduledTime) return -1;
-                            return new Date(a.scheduledTime).getTime() - new Date(b.scheduledTime).getTime();
+                            
+                            // Parse time strings like "08:00" into today's date
+                            const timeA = a.scheduledTime.includes(':') ? a.scheduledTime : `${a.scheduledTime}:00`;
+                            const timeB = b.scheduledTime.includes(':') ? b.scheduledTime : `${b.scheduledTime}:00`;
+                            
+                            const today = new Date();
+                            const [hoursA, minutesA] = timeA.split(':').map(Number);
+                            const [hoursB, minutesB] = timeB.split(':').map(Number);
+                            
+                            const dateA = new Date(today);
+                            dateA.setHours(hoursA, minutesA, 0);
+                            
+                            const dateB = new Date(today);
+                            dateB.setHours(hoursB, minutesB, 0);
+                            
+                            return dateA.getTime() - dateB.getTime();
                           });
+                          
+                          // Helper function to get hours from time string
+                          const getHoursFromTimeString = (timeStr: string | null | undefined) => {
+                            if (!timeStr) return 0;
+                            
+                            const timeString = timeStr.includes(':') ? timeStr : `${timeStr}:00`;
+                            const [hours] = timeString.split(':').map(Number);
+                            return hours;
+                          };
                           
                           // Setup time blocks
                           const morningTasks = sortedTasks.filter(t => 
-                            t.scheduledTime && new Date(t.scheduledTime).getHours() < 12
+                            t.scheduledTime && getHoursFromTimeString(t.scheduledTime) < 12
                           );
-                          const afternoonTasks = sortedTasks.filter(t => 
-                            t.scheduledTime && new Date(t.scheduledTime).getHours() >= 12 && new Date(t.scheduledTime).getHours() < 17
-                          );
+                          const afternoonTasks = sortedTasks.filter(t => {
+                            const hours = getHoursFromTimeString(t.scheduledTime);
+                            return t.scheduledTime && hours >= 12 && hours < 17;
+                          });
                           const eveningTasks = sortedTasks.filter(t => 
-                            t.scheduledTime && new Date(t.scheduledTime).getHours() >= 17
+                            t.scheduledTime && getHoursFromTimeString(t.scheduledTime) >= 17
                           );
                           const unscheduledTasks = sortedTasks.filter(t => !t.scheduledTime);
                           
