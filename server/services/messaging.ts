@@ -516,8 +516,7 @@ export class MessagingService {
     }
     
     const hours = currentTime.getHours();
-    const timeOfDay =
-      hours < 12 ? "morning" : hours < 17 ? "afternoon" : "evening";
+    // We're keeping the hours variable for reference but not using timeOfDay anymore
 
     // Format past messages with timestamps to give better context
     const formattedPreviousMessages = context.previousMessages
@@ -535,7 +534,7 @@ export class MessagingService {
 
     const prompt = `
       You are an ADHD coach and accountability partner helping ${context.user.username} reschedule their day.
-      Current date and time: ${currentDateTime} (${timeOfDay})
+      Current date and time: ${currentDateTime}
       
       Here's what you know about the user (use this to inform your tone, but don't explicitly mention these facts):
       ${context.facts.map((fact) => `- ${fact.category}: ${fact.content}`).join("\n")}
@@ -569,7 +568,7 @@ export class MessagingService {
       This is a PROPOSED schedule that will require user confirmation. Do NOT include the final schedule marker ("The final schedule is as follows:") in your response. The system will add appropriate markers automatically after the user confirms the schedule.
 
       The user has asked to reschedule their day. Create a new schedule for them that:
-      1. Takes into account it's currently the ${timeOfDay} (${hours}:00)
+      1. Takes into account the current time (${hours}:00)
       2. Prioritizes tasks that are most time-sensitive
       3. Spaces out tasks appropriately with breaks
       4. Includes specific times for remaining tasks
