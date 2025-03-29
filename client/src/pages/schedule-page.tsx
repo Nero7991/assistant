@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Link, useLocation } from "wouter";
 import { Task, Subtask } from "@shared/schema";
+import DailyScheduleComponent from "@/components/daily-schedule-component";
 
 // Define interfaces for the API response
 interface ScheduleData {
@@ -16,6 +17,35 @@ interface ScheduleData {
   scheduledTasks: Task[];
   scheduledSubtasks: Record<number, Subtask[]>;
   lastScheduleUpdate: MessageHistoryItem | null;
+  dailySchedule?: DailySchedule;
+  scheduleItems?: ScheduleItem[];
+}
+
+interface DailySchedule {
+  id: number;
+  userId: number;
+  date: string;
+  status: string;
+  originalContent: string;
+  formattedSchedule: any;
+  confirmedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface ScheduleItem {
+  id: number;
+  scheduleId: number;
+  taskId: number | null;
+  title: string;
+  description: string | null;
+  startTime: string;
+  endTime: string | null;
+  status: string;
+  notificationSent: boolean;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string | null;
 }
 
 interface PendingNotification {
@@ -90,12 +120,15 @@ export default function SchedulePage() {
     pendingNotifications = [], 
     scheduledTasks = [], 
     scheduledSubtasks = {}, 
-    lastScheduleUpdate = null 
+    lastScheduleUpdate = null,
+    dailySchedule = null,
+    scheduleItems = [] 
   } = data || {};
   
   const hasScheduleData = 
     pendingNotifications.length > 0 || 
-    scheduledTasks.length > 0;
+    scheduledTasks.length > 0 ||
+    (dailySchedule && scheduleItems.length > 0);
 
   return (
     <div className="container mx-auto py-6 space-y-6">
@@ -129,6 +162,15 @@ export default function SchedulePage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="md:col-span-2 space-y-6">
             {/* Tasks section */}
+            {/* Daily Schedule Display */}
+            {dailySchedule && scheduleItems.length > 0 && (
+              <DailyScheduleComponent 
+                dailySchedule={dailySchedule} 
+                scheduleItems={scheduleItems} 
+              />
+            )}
+            
+            {/* Scheduled Tasks Display */}
             {scheduledTasks && scheduledTasks.length > 0 && (() => {
               // Function to render individual task
               function renderTask(task: Task) {

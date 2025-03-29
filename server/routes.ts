@@ -3,13 +3,13 @@ import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { storage } from "./storage";
 import { generateCoachingResponse } from "./coach";
-import { insertGoalSchema, insertCheckInSchema, insertKnownUserFactSchema, insertTaskSchema, insertSubtaskSchema, messageHistory, messageSchedules, TaskType } from "@shared/schema";
+import { insertGoalSchema, insertCheckInSchema, insertKnownUserFactSchema, insertTaskSchema, insertSubtaskSchema, messageHistory, messageSchedules, TaskType, dailySchedules, scheduleItems } from "@shared/schema";
 import { handleWhatsAppWebhook } from "./webhook";
 import { messageScheduler } from "./scheduler";
 import { messagingService } from "./services/messaging";
 import { generateTaskSuggestions } from "./services/task-suggestions";
 import { db } from "./db";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, gte } from "drizzle-orm";
 
 // Import interface and type definitions needed for chat functionality
 import type { MessageContext, ScheduleUpdate } from "./services/messaging";
@@ -815,12 +815,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .orderBy(desc(messageHistory.createdAt))
         .limit(1);
       
+      // Get the latest daily schedule for today
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      let dailyScheduleData = null;
+      let scheduleItemsData: any[] = [];
+      
+      try {
+        // Get the latest confirmed daily schedule
+        const dailyScheduleResult = await db
+          .select()
+          .from(dailySchedules)
+          .where(
+            and(
+              eq(dailySchedules.userId, req.user.id),
+              gte(dailySchedules.date, today)
+            )
+          )
+          .orderBy(desc(dailySchedules.confirmedAt))
+          .limit(1);
+          
+        if (dailyScheduleResult.length > 0) {
+          dailyScheduleData = dailyScheduleResult[0];
+          
+          // Get schedule items for this schedule
+          scheduleItemsData = await db
+            .select()
+            .from(scheduleItems)
+            .where(eq(scheduleItems.scheduleId, dailyScheduleData.id))
+            .orderBy(scheduleItems.startTime);
+        }
+      } catch (error) {
+        console.error("Error fetching daily schedule:", error);
+        // Don't fail the whole request if just the daily schedule part fails
+      }
+      
       // Return combined schedule data
       res.json({
         pendingNotifications: pendingSchedules,
         scheduledTasks,
         scheduledSubtasks: subtasksByTask,
-        lastScheduleUpdate: recentScheduleMessages[0] || null
+        lastScheduleUpdate: recentScheduleMessages[0] || null,
+        dailySchedule: dailyScheduleData,
+        scheduleItems: scheduleItemsData
       });
     } catch (error) {
       console.error("Error fetching schedule data:", error);
