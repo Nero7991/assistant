@@ -44,7 +44,18 @@ export default function AccountPage() {
   useEffect(() => {
     if (user) {
       // Set form values based on user data
-      setTimeZone(user.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone);
+      try {
+        // Use user's timezone if available, otherwise try to auto-detect
+        const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        // Verify the timezone is valid before setting it
+        new Date().toLocaleString('en-US', { timeZone: browserTimeZone });
+        setTimeZone(user.timeZone || browserTimeZone);
+      } catch (error) {
+        // If there's an error with the timezone, set a default safe value
+        console.error("Error setting timezone:", error);
+        setTimeZone("UTC");
+      }
+      
       setPreferredMessageTime(user.preferredMessageTime || "08:00");
     }
   }, [user]);
@@ -206,9 +217,11 @@ export default function AccountPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground mt-1">
-                Current time in selected zone: {new Date().toLocaleString("en-US", { timeZone })}
-              </p>
+              {timeZone && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Current time in selected zone: {new Date().toLocaleString("en-US", { timeZone })}
+                </p>
+              )}
             </div>
             
             <div className="grid gap-2">
