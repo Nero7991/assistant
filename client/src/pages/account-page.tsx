@@ -1,20 +1,53 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
-import { Loader2 } from "lucide-react";
+import { Loader2, Info } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+
+// List of common timezones
+const TIMEZONES = [
+  { value: "America/New_York", label: "Eastern Time (US & Canada)" },
+  { value: "America/Chicago", label: "Central Time (US & Canada)" },
+  { value: "America/Denver", label: "Mountain Time (US & Canada)" },
+  { value: "America/Los_Angeles", label: "Pacific Time (US & Canada)" },
+  { value: "America/Anchorage", label: "Alaska" },
+  { value: "Pacific/Honolulu", label: "Hawaii" },
+  { value: "America/Toronto", label: "Toronto" },
+  { value: "Europe/London", label: "London" },
+  { value: "Europe/Paris", label: "Paris" },
+  { value: "Europe/Berlin", label: "Berlin" },
+  { value: "Europe/Moscow", label: "Moscow" },
+  { value: "Asia/Tokyo", label: "Tokyo" },
+  { value: "Asia/Shanghai", label: "Shanghai" },
+  { value: "Asia/Kolkata", label: "Mumbai" },
+  { value: "Australia/Sydney", label: "Sydney" },
+];
 
 export default function AccountPage() {
   const { user, logoutMutation } = useAuth();
   const [isDeactivating, setIsDeactivating] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
   const [confirmText, setConfirmText] = useState("");
+  const [timeZone, setTimeZone] = useState<string>("");
+  const [preferredMessageTime, setPreferredMessageTime] = useState<string>("");
+  
+  // Get browser timezone on component mount
+  useEffect(() => {
+    if (user) {
+      // Set form values based on user data
+      setTimeZone(user.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone);
+      setPreferredMessageTime(user.preferredMessageTime || "08:00");
+    }
+  }, [user]);
 
   if (!user) {
     return (
@@ -23,6 +56,39 @@ export default function AccountPage() {
       </div>
     );
   }
+
+  const handleSaveSettings = async () => {
+    try {
+      setIsSaving(true);
+      
+      // Call the API to update the user settings
+      const response = await apiRequest("PATCH", "/api/user", {
+        timeZone,
+        preferredMessageTime
+      });
+      
+      if (response.ok) {
+        toast({
+          title: "Settings saved",
+          description: "Your account settings have been updated"
+        });
+        
+        // Refresh user data
+        queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+      } else {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to update settings");
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "An error occurred",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handleDeactivateAccount = async () => {
     if (confirmText !== "DEACTIVATE") {
@@ -102,6 +168,88 @@ export default function AccountPage() {
               </div>
             </div>
           </CardContent>
+        </Card>
+
+        {/* Time and Location Settings */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Time and Location Settings</CardTitle>
+            <CardDescription>Manage your timezone and scheduling preferences</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="time-zone" className="flex items-center gap-2">
+                  Time Zone
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info size={16} className="text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="w-60">Your timezone is used to ensure all schedules and notifications are displayed in your local time.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </Label>
+              </div>
+              <Select
+                value={timeZone}
+                onValueChange={setTimeZone}
+              >
+                <SelectTrigger id="time-zone" className="w-full">
+                  <SelectValue placeholder="Select your timezone" />
+                </SelectTrigger>
+                <SelectContent>
+                  {TIMEZONES.map((tz) => (
+                    <SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">
+                Current time in selected zone: {new Date().toLocaleString("en-US", { timeZone })}
+              </p>
+            </div>
+            
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="preferred-time" className="flex items-center gap-2">
+                  Preferred Message Time
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info size={16} className="text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="w-60">The time of day when you prefer to receive your daily schedule and notifications.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </Label>
+              </div>
+              <Input 
+                id="preferred-time"
+                type="time"
+                value={preferredMessageTime}
+                onChange={(e) => setPreferredMessageTime(e.target.value)}
+              />
+            </div>
+          </CardContent>
+          <CardFooter>
+            <Button 
+              onClick={handleSaveSettings}
+              disabled={isSaving}
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                "Save Settings"
+              )}
+            </Button>
+          </CardFooter>
         </Card>
 
         {/* Notification Settings */}

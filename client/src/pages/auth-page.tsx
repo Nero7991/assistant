@@ -226,6 +226,8 @@ const RegisterForm = () => {
             phoneNumber: "",
             email: "",
             contactPreference: "email",
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            preferredMessageTime: "08:00"
         },
         mode: "onChange",
     });

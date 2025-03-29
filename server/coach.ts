@@ -91,11 +91,21 @@ export async function generateCoachingResponse(
 export async function generateDailySchedule(
   tasks: Task[],
   facts: KnownUserFact[],
-  customInstructions?: string
+  customInstructions?: string,
+  userTimeZone?: string
 ): Promise<string> {
   try {
-    // Format current date and time
-    const currentDateTime = new Date().toISOString();
+    // Format current date and time in user's timezone if provided
+    let currentDateTime;
+    if (userTimeZone) {
+      currentDateTime = new Date().toLocaleString('en-US', { 
+        timeZone: userTimeZone,
+        dateStyle: 'full',
+        timeStyle: 'long'
+      });
+    } else {
+      currentDateTime = new Date().toISOString();
+    }
     
     // Format user facts
     const userFactsFormatted = facts.length > 0

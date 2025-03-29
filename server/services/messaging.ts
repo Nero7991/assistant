@@ -74,10 +74,22 @@ export class MessagingService {
         subtaskList.push(...incompleteSubtasks);
       }
     }
+    
+    // Format current date and time in user's timezone if available
+    let formattedDateTime;
+    if (context.user.timeZone) {
+      formattedDateTime = new Date().toLocaleString('en-US', { 
+        timeZone: context.user.timeZone,
+        dateStyle: 'full',
+        timeStyle: 'long'
+      });
+    } else {
+      formattedDateTime = context.currentDateTime;
+    }
 
     const prompt = `
       You are an ADHD coach and accountability partner. Create a friendly, to-the-point morning message for ${context.user.username}.
-      Current date and time: ${context.currentDateTime}
+      Current date and time: ${formattedDateTime}
 
       Here's what you know about the user (use this to inform your tone, but don't explicitly mention these facts):
       ${context.facts.map((fact) => `- ${fact.category}: ${fact.content}`).join("\n")}
@@ -168,10 +180,22 @@ export class MessagingService {
       // Check if it's a daily task with scheduled time for today
       return task.taskType === TaskType.DAILY && task.scheduledTime;
     });
+    
+    // Format current date and time in user's timezone if available
+    let formattedDateTime;
+    if (context.user.timeZone) {
+      formattedDateTime = new Date().toLocaleString('en-US', { 
+        timeZone: context.user.timeZone,
+        dateStyle: 'full',
+        timeStyle: 'long'
+      });
+    } else {
+      formattedDateTime = context.currentDateTime;
+    }
 
     const prompt = `
       You are an ADHD coach and accountability partner. Create a friendly, to-the-point follow-up message for ${context.user.username}.
-      Current date and time: ${context.currentDateTime}
+      Current date and time: ${formattedDateTime}
       
       Here's what you know about the user (use this to inform your tone, but don't explicitly mention these facts):
       ${context.facts.map((fact) => `- ${fact.category}: ${fact.content}`).join("\n")}
@@ -275,10 +299,22 @@ export class MessagingService {
       }
     }
 
+    // Format current date and time in user's timezone if available
+    let formattedDateTime;
+    if (context.user.timeZone) {
+      formattedDateTime = new Date().toLocaleString('en-US', { 
+        timeZone: context.user.timeZone,
+        dateStyle: 'full',
+        timeStyle: 'long'
+      });
+    } else {
+      formattedDateTime = context.currentDateTime;
+    }
+    
     // Create a single unified prompt that lets the LLM determine the context and response type
     const prompt = `
       You are an ADHD coach and accountability partner chatting with ${context.user.username}.
-      Current date and time: ${context.currentDateTime}
+      Current date and time: ${formattedDateTime}
       
       Here's what you know about the user (use this to inform your tone, but don't explicitly mention these facts):
       ${context.facts.map((fact) => `- ${fact.category}: ${fact.content}`).join("\n")}
@@ -452,7 +488,33 @@ export class MessagingService {
     }
 
     // Get current time to estimate what remains in the day
-    const currentTime = new Date(context.currentDateTime);
+    let currentDateTime;
+    let currentTime;
+    
+    // Format current date and time in user's timezone if available
+    if (context.user.timeZone) {
+      const now = new Date();
+      currentDateTime = now.toLocaleString('en-US', { 
+        timeZone: context.user.timeZone,
+        dateStyle: 'full',
+        timeStyle: 'long'
+      });
+      
+      // Create a date object adjusted for the user's timezone
+      const options = { timeZone: context.user.timeZone };
+      const formatter = new Intl.DateTimeFormat('en-US', options);
+      const parts = formatter.formatToParts(now);
+      
+      // Extract hours from the formatted parts
+      const hourPart = parts.find(part => part.type === 'hour');
+      const hours = hourPart ? parseInt(hourPart.value) : now.getHours();
+      
+      currentTime = now;
+    } else {
+      currentDateTime = context.currentDateTime;
+      currentTime = new Date(context.currentDateTime);
+    }
+    
     const hours = currentTime.getHours();
     const timeOfDay =
       hours < 12 ? "morning" : hours < 17 ? "afternoon" : "evening";
@@ -473,7 +535,7 @@ export class MessagingService {
 
     const prompt = `
       You are an ADHD coach and accountability partner helping ${context.user.username} reschedule their day.
-      Current date and time: ${context.currentDateTime} (${timeOfDay})
+      Current date and time: ${currentDateTime} (${timeOfDay})
       
       Here's what you know about the user (use this to inform your tone, but don't explicitly mention these facts):
       ${context.facts.map((fact) => `- ${fact.category}: ${fact.content}`).join("\n")}
@@ -662,13 +724,25 @@ export class MessagingService {
         .orderBy(desc(messageHistory.createdAt))
         .limit(10);
 
+      // Format current date and time in user's timezone if available
+      let currentDateTime;
+      if (user.timeZone) {
+        currentDateTime = new Date().toLocaleString('en-US', { 
+          timeZone: user.timeZone,
+          dateStyle: 'full',
+          timeStyle: 'long'
+        });
+      } else {
+        currentDateTime = new Date().toISOString();
+      }
+      
       // Prepare messaging context
       const messagingContext: MessageContext = {
         user,
         tasks,
         facts,
         previousMessages,
-        currentDateTime: new Date().toISOString(),
+        currentDateTime,
         messageType:
           messageType === "reschedule_request" ? "reschedule" : "response",
         userResponse: context.userRequest || undefined,
@@ -765,13 +839,25 @@ export class MessagingService {
         }
       }
 
+      // Format current date and time in user's timezone if available
+      let currentDateTime;
+      if (user.timeZone) {
+        currentDateTime = new Date().toLocaleString('en-US', { 
+          timeZone: user.timeZone,
+          dateStyle: 'full',
+          timeStyle: 'long'
+        });
+      } else {
+        currentDateTime = new Date().toLocaleString();
+      }
+      
       // Create a single messaging context for all responses
       const messageContext: MessageContext = {
         user,
         tasks: userTasks,
         facts: userFacts,
         previousMessages,
-        currentDateTime: new Date().toLocaleString(),
+        currentDateTime,
         messageType: "response", // We'll let the LLM determine the actual type
         userResponse: response,
       };
@@ -1176,13 +1262,25 @@ export class MessagingService {
         const messageType =
           schedule.type === "morning_message" ? "morning" : "follow_up";
 
+        // Format current date and time in user's timezone if available
+        let currentDateTime;
+        if (user.timeZone) {
+          currentDateTime = now.toLocaleString('en-US', { 
+            timeZone: user.timeZone,
+            dateStyle: 'full',
+            timeStyle: 'long'
+          });
+        } else {
+          currentDateTime = now.toLocaleString();
+        }
+        
         // Generate the message based on context
         const message = await this.generateMessage({
           user,
           tasks: userTasks,
           facts: userFacts,
           previousMessages,
-          currentDateTime: now.toLocaleString(),
+          currentDateTime,
           messageType,
         });
 
