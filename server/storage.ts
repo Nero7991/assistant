@@ -707,13 +707,42 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async getDailySchedule(scheduleId: number): Promise<typeof dailySchedules.$inferSelect | undefined> {
+  async getDailySchedule(idOrUserId: number, date?: Date): Promise<typeof dailySchedules.$inferSelect | undefined> {
     try {
-      const [schedule] = await db
-        .select()
-        .from(dailySchedules)
-        .where(eq(dailySchedules.id, scheduleId));
-      return schedule;
+      // Check if this is a userId + date query or a direct scheduleId query
+      if (date) {
+        // Format the date to match the database storage format (remove time component)
+        const formattedDate = new Date(date);
+        // Start of day
+        formattedDate.setHours(0, 0, 0, 0);
+        
+        // End of day
+        const endDate = new Date(formattedDate);
+        endDate.setHours(23, 59, 59, 999);
+        
+        // Query by userId and date range
+        const [schedule] = await db
+          .select()
+          .from(dailySchedules)
+          .where(
+            and(
+              eq(dailySchedules.userId, idOrUserId),
+              gte(dailySchedules.date, formattedDate),
+              lte(dailySchedules.date, endDate)
+            )
+          )
+          .orderBy(desc(dailySchedules.createdAt));
+        
+        return schedule;
+      } else {
+        // This is a direct scheduleId query
+        const [schedule] = await db
+          .select()
+          .from(dailySchedules)
+          .where(eq(dailySchedules.id, idOrUserId));
+        
+        return schedule;
+      }
     } catch (error) {
       // If the table doesn't exist, log and return undefined
       if (error instanceof Error && 

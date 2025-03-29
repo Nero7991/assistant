@@ -81,7 +81,8 @@ export function DailyScheduleComponent({ onCreateNew }: DailyScheduleProps) {
     data: schedules = [], 
     isLoading: isLoadingSchedules,
     isError: isSchedulesError,
-    error: schedulesError
+    error: schedulesError,
+    refetch: refetchSchedules
   } = useQuery<DailySchedule[]>({
     queryKey: ["/api/daily-schedules"],
     queryFn: async () => {
@@ -119,6 +120,7 @@ export function DailyScheduleComponent({ onCreateNew }: DailyScheduleProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/daily-schedules"] });
+      refetchSchedules();
       toast({
         title: "Schedule confirmed",
         description: "Your daily schedule has been confirmed and notifications have been scheduled.",
@@ -175,6 +177,7 @@ export function DailyScheduleComponent({ onCreateNew }: DailyScheduleProps) {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/daily-schedules"] });
+      refetchSchedules();
       setLlmResponseDialog(false);
       setLlmResponse("");
       toast({
@@ -204,6 +207,7 @@ export function DailyScheduleComponent({ onCreateNew }: DailyScheduleProps) {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/daily-schedules"] });
+      refetchSchedules();
       setLlmResponseDialog(false);
       setCustomInstructions("");
       setLlmResponse("");
