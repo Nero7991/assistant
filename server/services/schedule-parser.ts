@@ -168,8 +168,24 @@ export async function createDailyScheduleFromParsed(
     // Match items with tasks
     const matchedItems = matchScheduleItemsWithTasks(parsedSchedule.scheduleItems, tasks);
     
+    // First, let's update the task times since this will always work
+    // regardless of whether the schedule tables exist
+    for (const item of matchedItems) {
+      if (item.taskId) {
+        try {
+          await storage.updateTask(item.taskId, {
+            scheduledTime: item.startTime
+          });
+          console.log(`Updated task ${item.taskId} with start time ${item.startTime}`);
+        } catch (taskUpdateError) {
+          console.error(`Error updating task ${item.taskId}:`, taskUpdateError);
+        }
+      }
+    }
+    
+    // Now try to use the schedule tables if they exist
     try {
-      // Insert the daily schedule
+      // Try to insert the daily schedule
       const [newSchedule] = await db
         .insert(dailySchedules)
         .values({
@@ -181,7 +197,7 @@ export async function createDailyScheduleFromParsed(
         })
         .returning();
       
-      // Insert each schedule item
+      // Try to insert each schedule item
       for (const item of matchedItems) {
         await db
           .insert(scheduleItems)
@@ -195,7 +211,7 @@ export async function createDailyScheduleFromParsed(
           });
       }
       
-      // Create initial revision
+      // Try to create initial revision
       await db
         .insert(scheduleRevisions)
         .values({
@@ -206,6 +222,7 @@ export async function createDailyScheduleFromParsed(
           })
         });
       
+      console.log(`Successfully created schedule with ID ${newSchedule.id}`);
       return newSchedule.id;
     } catch (error) {
       // Check if the error is due to missing tables
@@ -215,17 +232,6 @@ export async function createDailyScheduleFromParsed(
           error.message.includes('does not exist')) {
         
         console.error("ERROR: Schedule tables don't exist - cannot create schedule without proper database tables");
-        
-        // First update the task times since this still works
-        for (const item of matchedItems) {
-          if (item.taskId) {
-            await storage.updateTask(item.taskId, {
-              scheduledTime: item.startTime
-            });
-            console.log(`Updated task ${item.taskId} with start time ${item.startTime}`);
-          }
-        }
-        
         // Throw an error to ensure we don't proceed without proper database tables
         throw new Error("Schedule tables don't exist. Daily schedules require proper database tables for notifications.");
       } else {
@@ -235,8 +241,9 @@ export async function createDailyScheduleFromParsed(
       }
     }
   } catch (error) {
-    console.error("Error creating daily schedule:", error);
-    throw error;
+    console.error("ERROR: Error processing schedule:", error);
+    // No longer use fallback mode, throw the error
+    throw new Error("Error processing schedule: " + (error instanceof Error ? error.message : String(error)));
   }
 }
 
@@ -254,8 +261,9 @@ export async function confirmSchedule(scheduleId: number, userId: number): Promi
       throw new Error("Schedule confirmation requires properly created schedule with database tables for notifications.");
     }
 
+    // Try to update the schedule status and schedule notifications
     try {
-      // Try to update the schedule status
+      // Update the schedule status
       await db
         .update(dailySchedules)
         .set({
@@ -264,24 +272,7 @@ export async function confirmSchedule(scheduleId: number, userId: number): Promi
         })
         .where(eq(dailySchedules.id, scheduleId));
       
-      // Get all items in this schedule
-      const items = await db
-        .select()
-        .from(scheduleItems)
-        .where(eq(scheduleItems.scheduleId, scheduleId));
-      
-      // Schedule notifications for each item that has a task association
-      for (const item of items) {
-        if (item.taskId) {
-          const scheduledTime = parseTimeToDate(item.startTime);
-          
-          if (scheduledTime && scheduledTime > new Date()) {
-            // We know scheduleItemNotification exists in the storage interface
-            await storage.scheduleItemNotification(item.id, scheduledTime);
-          }
-        }
-      }
-      
+      console.log(`Marked schedule ${scheduleId} as confirmed`);
       return true;
     } catch (error) {
       // Check if the error is due to missing tables

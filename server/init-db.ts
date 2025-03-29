@@ -13,40 +13,40 @@ const tableCreationQueries = [
   // Daily Schedules table
   `CREATE TABLE IF NOT EXISTS "daily_schedules" (
     "id" SERIAL PRIMARY KEY,
-    "userId" INTEGER NOT NULL,
+    "user_id" INTEGER NOT NULL,
     "date" TIMESTAMP NOT NULL DEFAULT NOW(),
     "status" TEXT NOT NULL DEFAULT 'draft',
-    "originalContent" TEXT NOT NULL,
-    "formattedSchedule" JSONB,
-    "confirmedAt" TIMESTAMP,
-    "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
-    "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW()
+    "original_content" TEXT NOT NULL,
+    "formatted_schedule" JSONB,
+    "confirmed_at" TIMESTAMP,
+    "created_at" TIMESTAMP NOT NULL DEFAULT NOW(),
+    "updated_at" TIMESTAMP NOT NULL DEFAULT NOW()
   )`,
   
   // Schedule Items table
   `CREATE TABLE IF NOT EXISTS "schedule_items" (
     "id" SERIAL PRIMARY KEY,
-    "scheduleId" INTEGER NOT NULL,
-    "taskId" INTEGER,
+    "schedule_id" INTEGER NOT NULL,
+    "task_id" INTEGER,
     "title" TEXT NOT NULL,
     "description" TEXT,
-    "startTime" TEXT NOT NULL,
-    "endTime" TEXT,
+    "start_time" TEXT NOT NULL,
+    "end_time" TEXT,
     "status" TEXT NOT NULL DEFAULT 'scheduled',
-    "notificationSent" BOOLEAN NOT NULL DEFAULT false,
-    "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
-    "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW(),
-    CONSTRAINT "schedule_items_scheduleId_fkey" FOREIGN KEY ("scheduleId") REFERENCES "daily_schedules"("id") ON DELETE CASCADE
+    "notification_sent" BOOLEAN NOT NULL DEFAULT false,
+    "created_at" TIMESTAMP NOT NULL DEFAULT NOW(),
+    "updated_at" TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT "schedule_items_schedule_id_fkey" FOREIGN KEY ("schedule_id") REFERENCES "daily_schedules"("id") ON DELETE CASCADE
   )`,
   
   // Schedule Revisions table
   `CREATE TABLE IF NOT EXISTS "schedule_revisions" (
     "id" SERIAL PRIMARY KEY,
-    "scheduleId" INTEGER NOT NULL,
-    "revisionType" TEXT NOT NULL,
+    "schedule_id" INTEGER NOT NULL,
+    "revision_type" TEXT NOT NULL,
     "changes" JSONB NOT NULL,
-    "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
-    CONSTRAINT "schedule_revisions_scheduleId_fkey" FOREIGN KEY ("scheduleId") REFERENCES "daily_schedules"("id") ON DELETE CASCADE
+    "created_at" TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT "schedule_revisions_schedule_id_fkey" FOREIGN KEY ("schedule_id") REFERENCES "daily_schedules"("id") ON DELETE CASCADE
   )`
 ];
 
