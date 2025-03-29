@@ -173,7 +173,7 @@ export async function createDailyScheduleFromParsed(
       const [newSchedule] = await db
         .insert(dailySchedules)
         .values({
-          userId,
+          userId: userId,
           date: new Date(),
           status: 'draft',
           originalContent: parsedSchedule.rawScheduleText,

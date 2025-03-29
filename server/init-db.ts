@@ -32,11 +32,11 @@ const tableCreationQueries = [
     "description" TEXT,
     "startTime" TEXT NOT NULL,
     "endTime" TEXT,
-    "status" TEXT NOT NULL DEFAULT 'pending',
+    "status" TEXT NOT NULL DEFAULT 'scheduled',
     "notificationSent" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
     "updatedAt" TIMESTAMP NOT NULL DEFAULT NOW(),
-    CONSTRAINT "schedule_items_scheduleId_fkey" FOREIGN KEY ("scheduleId") REFERENCES "daily_schedules"("id")
+    CONSTRAINT "schedule_items_scheduleId_fkey" FOREIGN KEY ("scheduleId") REFERENCES "daily_schedules"("id") ON DELETE CASCADE
   )`,
   
   // Schedule Revisions table
@@ -46,7 +46,7 @@ const tableCreationQueries = [
     "revisionType" TEXT NOT NULL,
     "changes" JSONB NOT NULL,
     "createdAt" TIMESTAMP NOT NULL DEFAULT NOW(),
-    CONSTRAINT "schedule_revisions_scheduleId_fkey" FOREIGN KEY ("scheduleId") REFERENCES "daily_schedules"("id")
+    CONSTRAINT "schedule_revisions_scheduleId_fkey" FOREIGN KEY ("scheduleId") REFERENCES "daily_schedules"("id") ON DELETE CASCADE
   )`
 ];
 
