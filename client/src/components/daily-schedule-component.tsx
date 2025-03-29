@@ -11,6 +11,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { Check, Clock } from 'lucide-react';
+import { Task } from '@shared/schema';
 
 interface ScheduleItem {
   id: number;
@@ -43,12 +44,14 @@ interface DailyScheduleComponentProps {
   dailySchedule: DailySchedule;
   scheduleItems: ScheduleItem[];
   className?: string;
+  tasks?: Task[]; // Optional tasks array to show task names
 }
 
 export default function DailyScheduleComponent({
   dailySchedule,
   scheduleItems,
-  className = ''
+  className = '',
+  tasks = []
 }: DailyScheduleComponentProps) {
   // Group schedule items by time periods (morning, afternoon, evening)
   const morningItems = scheduleItems.filter((item) => {
@@ -106,7 +109,19 @@ export default function DailyScheduleComponent({
               <div className="flex-1 ml-3 space-y-1">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
-                    <h4 className="font-medium">{item.title}</h4>
+                    <div>
+                      <h4 className="font-medium">
+                        {item.title}
+                        {item.taskId && tasks.length > 0 && (
+                          <>
+                            <span className="mx-1 text-muted-foreground">•</span>
+                            <span className="text-primary/80">
+                              {tasks.find(task => task.id === item.taskId)?.title}
+                            </span>
+                          </>
+                        )}
+                      </h4>
+                    </div>
                     {item.status === 'completed' && (
                       <Badge variant="outline" className="ml-2 text-xs">
                         completed
