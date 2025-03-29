@@ -1,3 +1,5 @@
+
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2, Calendar, Clock, Bell, Check, ArrowRight } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
@@ -80,6 +82,19 @@ export default function SchedulePage() {
     queryKey: ['/api/schedule'],
     retry: 1
   });
+  
+  // Effect to refresh data when page is visited
+  useEffect(() => {
+    // Refetch on component mount to ensure we have the latest data
+    refetch();
+    
+    // Also set up a 10-second polling interval for auto-updates
+    const intervalId = setInterval(() => {
+      refetch();
+    }, 10000); // 10 seconds
+    
+    return () => clearInterval(intervalId);
+  }, [refetch]);
 
   // Handle refresh button click
   const handleRefresh = () => {
