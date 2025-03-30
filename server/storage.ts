@@ -6,7 +6,7 @@ import {
   InsertDailySchedule, InsertScheduleItem, InsertScheduleRevision
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, gte, lte, inArray } from "drizzle-orm";
 import { 
   users, goals, checkIns, contactVerifications, knownUserFacts, tasks, subtasks, messageSchedules,
   dailySchedules, scheduleItems, scheduleRevisions 
@@ -72,6 +72,7 @@ export interface IStorage {
   // Subtask management methods
   createSubtask(taskId: number, subtask: InsertSubtask): Promise<Subtask>;
   getSubtasks(taskId: number): Promise<Subtask[]>;
+  getAllSubtasks(userId: number): Promise<Subtask[]>;
   completeSubtask(id: number): Promise<Subtask>;
   updateSubtask(id: number, updates: Partial<Subtask>): Promise<Subtask>;
   deleteSubtask(taskId: number, subtaskId: number): Promise<void>;
@@ -648,6 +649,27 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(subtasks)
       .where(eq(subtasks.parentTaskId, taskId))
+      .orderBy(subtasks.createdAt);
+  }
+  
+  async getAllSubtasks(userId: number): Promise<Subtask[]> {
+    // First get all tasks for this user
+    const userTasks = await this.getTasks(userId);
+    
+    // Then get all subtasks for these tasks
+    if (userTasks.length === 0) {
+      return [];
+    }
+    
+    const taskIds = userTasks.map(task => task.id);
+    
+    return db
+      .select()
+      .from(subtasks)
+      .where(
+        // Use 'inArray' operator to find subtasks with parentTaskId in the array of task IDs
+        inArray(subtasks.parentTaskId, taskIds)
+      )
       .orderBy(subtasks.createdAt);
   }
 

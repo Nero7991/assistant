@@ -1,6 +1,31 @@
 import OpenAI from "openai";
-import { Task, KnownUserFact } from "@shared/schema";
+import { Task, KnownUserFact, Subtask } from "@shared/schema";
 import { SCHEDULE_MARKER } from "./services/schedule-parser-new";
+import { storage } from "./storage";
+
+// Define interfaces for task data formatting
+interface SubtaskData {
+  id: number;
+  title: string;
+  description: string;
+  status: string;
+  estimatedDuration: string;
+  deadline: string | null;
+  scheduledTime: string | null;
+  recurrencePattern: string;
+}
+
+interface TaskData {
+  id: number;
+  title: string;
+  description: string;
+  status: string;
+  estimatedDuration: string;
+  deadline: string | null;
+  scheduledTime: string | null;
+  recurrencePattern: string;
+  subtasks: SubtaskData[];
+}
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -26,17 +51,29 @@ User time preferences:
 User facts:
 {userFactsFormatted}
 
-Tasks information:
+Tasks and subtasks information (in JSON format):
 {tasksFormatted}
+
+The JSON structure contains tasks and their associated subtasks with the following fields:
+- id: The unique identifier for the task/subtask
+- title: The name of the task/subtask
+- description: A description of what the task/subtask entails
+- status: Current status ('active', 'completed', 'archived')
+- estimatedDuration: Estimated time required for the task/subtask
+- deadline: The due date if applicable
+- scheduledTime: The time the task/subtask is scheduled for (if any)
+- recurrencePattern: Whether the task repeats and how often
+- subtasks: Array of subtasks associated with the main task
 
 Your task is to create a daily schedule that:
 1. Accounts for the user's ADHD challenges
 2. Breaks down the day into manageable time blocks
 3. Includes time for breaks, transitions, and self-care
 4. Prioritizes important tasks based on deadlines and importance
-5. Provides a realistic and achievable schedule 
+5. Provides a realistic and achievable schedule
 6. Respects the user's wake time, routine start time, and sleep time
 7. Includes specific times for each activity in 24-hour format (e.g., "09:00 - 10:30")
+8. CLEARLY INDICATES which main task each subtask belongs to when scheduling subtasks
 
 EXTREMELY IMPORTANT: Your response MUST ALWAYS include a section with the EXACT marker "${SCHEDULE_MARKER}" followed by a schedule with each item on a separate line with a time specified. This marker is essential and MUST appear exactly as written. Example format:
 
@@ -44,6 +81,7 @@ ${SCHEDULE_MARKER}
 08:00 - 08:30 Morning routine
 08:30 - 09:15 Work on Project X
 09:15 - 09:30 Short break
+10:00 - 11:00 Design User Interface (for: ADHD Coach project)
 ...
 
 Provide a friendly, encouraging message before presenting the schedule. After the schedule, include 2-3 tips for staying on track.`;
@@ -105,6 +143,7 @@ export async function generateCoachingResponse(
 }
 
 export async function generateDailySchedule(
+  userId: number,
   tasks: Task[],
   facts: KnownUserFact[],
   customInstructions?: string,
@@ -140,7 +179,20 @@ export async function generateDailySchedule(
       : "No known user facts available.";
     
     // Format tasks, prioritizing those with deadlines or scheduled times
-    const tasksFormatted = tasks.length > 0
+    // Get subtasks for each task
+    const allSubtasks = await storage.getAllSubtasks(userId);
+    
+    // Create a map of task ID to its subtasks
+    const subtasksByTaskId = new Map<number, Subtask[]>();
+    allSubtasks.forEach((subtask: Subtask) => {
+      if (!subtasksByTaskId.has(subtask.parentTaskId)) {
+        subtasksByTaskId.set(subtask.parentTaskId, []);
+      }
+      subtasksByTaskId.get(subtask.parentTaskId)?.push(subtask);
+    });
+    
+    // Format tasks and subtasks as JSON
+    const formattedTasksJSON = tasks.length > 0
       ? tasks
           .sort((a, b) => {
             // Priority order: has deadline > has scheduledTime > default
@@ -157,19 +209,40 @@ export async function generateDailySchedule(
             return 0;
           })
           .map(task => {
-            let taskInfo = `- ${task.title}`;
-            if (task.description) taskInfo += `\n  Description: ${task.description}`;
-            if (task.estimatedDuration) taskInfo += `\n  Estimated Duration: ${task.estimatedDuration}`;
-            if (task.deadline) taskInfo += `\n  Deadline: ${new Date(task.deadline).toLocaleDateString()}`;
-            if (task.scheduledTime) taskInfo += `\n  Scheduled Time: ${task.scheduledTime}`;
-            if (task.recurrencePattern && task.recurrencePattern !== 'none') {
-              taskInfo += `\n  Recurrence: ${task.recurrencePattern}`;
+            // Format task
+            const taskData: TaskData = {
+              id: task.id,
+              title: task.title,
+              description: task.description || "",
+              status: task.status,
+              estimatedDuration: task.estimatedDuration || "",
+              deadline: task.deadline ? new Date(task.deadline).toLocaleDateString() : null,
+              scheduledTime: task.scheduledTime || null,
+              recurrencePattern: task.recurrencePattern || "none",
+              subtasks: []
+            };
+            
+            // Add subtasks if available
+            const taskSubtasks = subtasksByTaskId.get(task.id) || [];
+            if (taskSubtasks.length > 0) {
+              taskData.subtasks = taskSubtasks.map((subtask: Subtask) => ({
+                id: subtask.id,
+                title: subtask.title,
+                description: subtask.description || "",
+                status: subtask.status,
+                estimatedDuration: subtask.estimatedDuration || "",
+                deadline: subtask.deadline ? new Date(subtask.deadline).toLocaleDateString() : null,
+                scheduledTime: subtask.scheduledTime || null,
+                recurrencePattern: subtask.recurrencePattern || "none"
+              }));
             }
             
-            return taskInfo;
+            return taskData;
           })
-          .join('\n\n')
-      : "No tasks available.";
+      : [];
+      
+    // Create a string representation as JSON for the LLM prompt
+    const tasksFormatted = JSON.stringify(formattedTasksJSON, null, 2);
     
     // Replace placeholders in the prompt
     let promptContent = DAILY_SCHEDULE_PROMPT

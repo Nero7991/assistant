@@ -154,6 +154,7 @@ export const scheduleItems = pgTable("schedule_items", {
   id: serial("id").primaryKey(),
   scheduleId: integer("schedule_id").notNull().references(() => dailySchedules.id, { onDelete: 'cascade' }),
   taskId: integer("task_id").references(() => tasks.id), // Optional link to a task
+  subtaskId: integer("subtask_id").references(() => subtasks.id), // Optional link to a subtask
   title: text("title").notNull(),
   description: text("description"),
   startTime: text("start_time").notNull(), // Format: "HH:mm"
@@ -179,11 +180,12 @@ export const tasksRelations = relations(tasks, ({ many }) => ({
   scheduleItems: many(scheduleItems),
 }));
 
-export const subtasksRelations = relations(subtasks, ({ one }) => ({
+export const subtasksRelations = relations(subtasks, ({ one, many }) => ({
   parentTask: one(tasks, {
     fields: [subtasks.parentTaskId],
     references: [tasks.id],
   }),
+  scheduleItems: many(scheduleItems),
 }));
 
 export const dailySchedulesRelations = relations(dailySchedules, ({ one, many }) => ({
@@ -203,6 +205,10 @@ export const scheduleItemsRelations = relations(scheduleItems, ({ one }) => ({
   task: one(tasks, {
     fields: [scheduleItems.taskId],
     references: [tasks.id],
+  }),
+  subtask: one(subtasks, {
+    fields: [scheduleItems.subtaskId],
+    references: [subtasks.id],
   }),
 }));
 
@@ -375,6 +381,7 @@ export const insertScheduleItemSchema = createInsertSchema(scheduleItems)
   .pick({
     scheduleId: true,
     taskId: true,
+    subtaskId: true,
     title: true,
     description: true,
     startTime: true,

@@ -486,6 +486,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get all subtasks for a user (across all tasks) - specific user endpoint
+  app.get("/api/users/:userId/subtasks/all", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    const userId = parseInt(req.params.userId);
+    
+    // Check if the user is requesting their own subtasks
+    if (req.user.id !== userId) {
+      return res.status(403).json({ 
+        message: "You can only access your own subtasks" 
+      });
+    }
+
+    try {
+      const subtasks = await storage.getAllSubtasks(userId);
+      res.json(subtasks);
+    } catch (error) {
+      console.error("Error fetching all subtasks:", error);
+      res.status(500).json({ 
+        message: "Failed to fetch all subtasks", 
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+  
+  // Simplified endpoint to get all subtasks for the authenticated user
+  app.get("/api/subtasks/all", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+
+    try {
+      const subtasks = await storage.getAllSubtasks(req.user.id);
+      res.json(subtasks);
+    } catch (error) {
+      console.error("Error fetching all subtasks:", error);
+      res.status(500).json({ 
+        message: "Failed to fetch all subtasks", 
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
+  });
+
   // Goals
   app.get("/api/goals", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
