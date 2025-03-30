@@ -18,7 +18,6 @@ interface Message {
 
 export function ChatInterface() {
   const [message, setMessage] = useState("");
-  const [pendingConfirmation, setPendingConfirmation] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -34,20 +33,8 @@ export function ChatInterface() {
     }
   });
   
-  // Check if the latest assistant message requires confirmation
-  useEffect(() => {
-    if (messages.length > 0) {
-      const lastMessage = messages[messages.length - 1];
-      if (
-        lastMessage.sender === 'assistant' && 
-        lastMessage.content.includes('PROPOSED_SCHEDULE_AWAITING_CONFIRMATION')
-      ) {
-        setPendingConfirmation(lastMessage.id);
-      } else {
-        setPendingConfirmation(null);
-      }
-    }
-  }, [messages]);
+  // We're now using natural language detection for confirmation
+  // No need to manage confirmation state anymore
   
   // Reschedule day mutation
   const rescheduleDayMutation = useMutation({
@@ -75,20 +62,10 @@ export function ChatInterface() {
         updatedMessage
       ]);
       
-      // Reset confirmation state
-      setPendingConfirmation(null);
-      
-      if (data.requiresConfirmation) {
-        toast({
-          title: "Schedule Proposed",
-          description: "Please review and confirm your new schedule.",
-        });
-      } else {
-        toast({
-          title: "Day Rescheduled",
-          description: "Your schedule has been updated.",
-        });
-      }
+      toast({
+        title: "Day Rescheduled",
+        description: "Your schedule has been updated.",
+      });
     },
     onError: (error: Error) => {
       toast({
@@ -156,12 +133,6 @@ export function ChatInterface() {
     const date = new Date(timestamp);
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
-
-  const handleConfirmSchedule = (confirm: boolean) => {
-    rescheduleDayMutation.mutate({ 
-      confirmation: confirm ? 'confirm' : 'reject' 
-    });
-  };
   
   // Function to clean up confirmation markers for display purposes
   const cleanMessageContent = (content: string) => {
@@ -180,7 +151,7 @@ export function ChatInterface() {
           variant="outline" 
           size="sm" 
           onClick={() => rescheduleDayMutation.mutate(undefined)}
-          disabled={rescheduleDayMutation.isPending || pendingConfirmation !== null}
+          disabled={rescheduleDayMutation.isPending}
           className="flex items-center gap-1"
         >
           {rescheduleDayMutation.isPending ? (
@@ -241,35 +212,7 @@ export function ChatInterface() {
                   </>
                 )}
                 
-                {/* Confirmation buttons for schedule */}
-                {pendingConfirmation === msg.id && (
-                  <div className="mt-3 flex gap-2">
-                    <Button 
-                      size="sm" 
-                      variant="default"
-                      className="flex items-center gap-1.5"
-                      onClick={() => handleConfirmSchedule(true)}
-                      disabled={rescheduleDayMutation.isPending}
-                    >
-                      {rescheduleDayMutation.isPending ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <ThumbsUp className="h-3.5 w-3.5" />
-                      )}
-                      Confirm Schedule
-                    </Button>
-                    <Button 
-                      size="sm" 
-                      variant="outline"
-                      className="flex items-center gap-1.5"
-                      onClick={() => handleConfirmSchedule(false)}
-                      disabled={rescheduleDayMutation.isPending}
-                    >
-                      <ThumbsDown className="h-3.5 w-3.5" />
-                      Request Changes
-                    </Button>
-                  </div>
-                )}
+                {/* No confirmation buttons needed - using natural language detection */}
                 
                 <div className={cn(
                   "text-xs mt-1",
@@ -292,20 +235,12 @@ export function ChatInterface() {
       
       {/* Input area */}
       <div className="p-4 border-t">
-        {pendingConfirmation && (
-          <div className="mb-3 p-2 bg-amber-50 border border-amber-200 rounded-md flex items-center text-sm gap-2">
-            <AlertCircle className="h-4 w-4 text-amber-500 flex-shrink-0" />
-            <p className="text-amber-800">Please confirm or request changes to your proposed schedule.</p>
-          </div>
-        )}
         <div className="flex items-center gap-2">
           <Input
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={pendingConfirmation 
-              ? "Confirm the schedule or suggest changes..." 
-              : "Type your message..."}
+            placeholder="Type your message..."
             className="flex-1"
             disabled={sendMessageMutation.isPending}
           />
