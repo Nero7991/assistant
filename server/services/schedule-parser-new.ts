@@ -242,7 +242,7 @@ export async function createDailyScheduleFromParsed(
     }
   } catch (error) {
     console.error("ERROR: Error processing schedule:", error);
-    // No longer use fallback mode, throw the error
+    // Always throw errors to ensure proper error handling and database dependency
     throw new Error("Error processing schedule: " + (error instanceof Error ? error.message : String(error)));
   }
 }
@@ -254,11 +254,10 @@ export async function createDailyScheduleFromParsed(
  */
 export async function confirmSchedule(scheduleId: number, userId: number): Promise<boolean> {
   try {
-    // If we got a placeholder scheduleId (-1), it means we're in fallback mode
-    // But we no longer support fallback mode
+    // If we got a placeholder scheduleId (-1), it's invalid - all schedules must have proper IDs
     if (scheduleId === -1) {
-      console.error("ERROR: Cannot confirm schedule with ID -1. Proper database tables are required for notifications.");
-      throw new Error("Schedule confirmation requires properly created schedule with database tables for notifications.");
+      console.error("ERROR: Cannot confirm schedule with ID -1. Invalid schedule ID.");
+      throw new Error("Invalid schedule ID. Schedule confirmation requires a valid schedule ID.");
     }
 
     // Try to update the schedule status and schedule notifications

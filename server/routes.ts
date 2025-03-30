@@ -636,11 +636,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const scheduleId = parseInt(req.params.id);
       
-      // We no longer support fallback mode with ID -1
+      // All schedules must have valid IDs
       if (scheduleId === -1) {
-        console.error("ERROR: Schedule ID -1 requested - fallback mode no longer supported");
+        console.error("ERROR: Invalid schedule ID -1 requested");
         return res.status(400).json({ 
-          error: "Invalid schedule ID. Fallback mode not supported - database tables are required for proper scheduling." 
+          error: "Invalid schedule ID. All schedules must have valid database IDs." 
         });
       }
       
@@ -663,11 +663,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const scheduleId = parseInt(req.params.id);
       
-      // We no longer support fallback mode with ID -1
+      // All schedules must have valid IDs
       if (scheduleId === -1) {
-        console.error("ERROR: Schedule items for ID -1 requested - fallback mode no longer supported");
+        console.error("ERROR: Invalid schedule ID -1 requested for items");
         return res.status(400).json({ 
-          error: "Invalid schedule ID. Fallback mode not supported - database tables are required for proper scheduling." 
+          error: "Invalid schedule ID. All schedules must have valid database IDs." 
         });
       }
       
@@ -685,11 +685,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const scheduleId = parseInt(req.params.id);
       
-      // We no longer support fallback mode with ID -1
+      // All schedules must have valid IDs
       if (scheduleId === -1) {
-        console.error("ERROR: Attempt to confirm schedule with ID -1 - fallback mode not supported");
+        console.error("ERROR: Invalid schedule ID -1 requested for confirmation");
         return res.status(400).json({ 
-          error: "Invalid schedule ID. Fallback mode not supported - database tables are required for proper scheduling and notifications." 
+          error: "Invalid schedule ID. All schedules must have valid database IDs." 
         });
       }
       

@@ -59,7 +59,13 @@ app.use((req, res, next) => {
   app.set('trust proxy', 1);
   
   // Initialize database tables if they don't exist
-  await initDatabase();
+  console.log("Starting database initialization...");
+  const dbInitSuccess = await initDatabase();
+  if (!dbInitSuccess) {
+    console.error("WARNING: Database initialization failed or had issues. Some features may not work properly.");
+  } else {
+    console.log("Database initialization successful!");
+  }
 
   const server = await registerRoutes(app);
 
