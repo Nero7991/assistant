@@ -69,6 +69,12 @@ const tableCreationQueries = [
     EXCEPTION
       WHEN duplicate_column THEN NULL;
     END;
+    
+    BEGIN
+      ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "preferred_model" TEXT DEFAULT 'gpt-4o';
+    EXCEPTION
+      WHEN duplicate_column THEN NULL;
+    END;
   END $$;`
 ];
 

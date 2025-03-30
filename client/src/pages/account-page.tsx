@@ -12,6 +12,14 @@ import { Loader2, Info } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
+// Available OpenAI models
+const OPENAI_MODELS = [
+  { value: "gpt-4o", label: "GPT-4o (Latest & Best)" },
+  { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
+  { value: "gpt-4", label: "GPT-4" },
+  { value: "gpt-3.5-turbo", label: "GPT-3.5 Turbo (Faster)" }
+];
+
 // List of common timezones
 const TIMEZONES = [
   { value: "America/New_York", label: "Eastern Time (US & Canada)" },
@@ -42,6 +50,7 @@ export default function AccountPage() {
   const [wakeTime, setWakeTime] = useState<string>("08:00");
   const [routineStartTime, setRoutineStartTime] = useState<string>("09:30");
   const [sleepTime, setSleepTime] = useState<string>("23:00");
+  const [preferredModel, setPreferredModel] = useState<string>("gpt-4o");
   
   // Get browser timezone on component mount
   useEffect(() => {
@@ -63,6 +72,7 @@ export default function AccountPage() {
       setWakeTime(user.wakeTime || "08:00");
       setRoutineStartTime(user.routineStartTime || "09:30"); 
       setSleepTime(user.sleepTime || "23:00");
+      setPreferredModel(user.preferredModel || "gpt-4o");
     }
   }, [user]);
 
@@ -100,7 +110,8 @@ export default function AccountPage() {
         preferredMessageTime,
         wakeTime,
         routineStartTime,
-        sleepTime
+        sleepTime,
+        preferredModel
       });
       
       if (response.ok) {
@@ -365,6 +376,61 @@ export default function AccountPage() {
           </CardFooter>
         </Card>
 
+        {/* AI Model Settings */}
+        <Card>
+          <CardHeader>
+            <CardTitle>AI Model Settings</CardTitle>
+            <CardDescription>Configure the AI model used for coaching and scheduling</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="ai-model" className="flex items-center gap-2">
+                  Preferred AI Model
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info size={16} className="text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="w-80">Choose which OpenAI model to use for all interactions. GPT-4o is recommended for best results, while GPT-3.5 may be faster but less capable.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </Label>
+              </div>
+              <Select
+                value={preferredModel}
+                onValueChange={setPreferredModel}
+              >
+                <SelectTrigger id="ai-model" className="w-full">
+                  <SelectValue placeholder="Select AI model" />
+                </SelectTrigger>
+                <SelectContent>
+                  {OPENAI_MODELS.map((model) => (
+                    <SelectItem key={model.value} value={model.value}>{model.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </CardContent>
+          <CardFooter>
+            <Button 
+              onClick={handleSaveSettings}
+              disabled={isSaving}
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                "Save Model Setting"
+              )}
+            </Button>
+          </CardFooter>
+        </Card>
+        
         {/* Notification Settings */}
         <Card>
           <CardHeader>

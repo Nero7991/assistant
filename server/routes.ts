@@ -232,7 +232,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         timeZone,
         wakeTime,
         routineStartTime,
-        sleepTime
+        sleepTime,
+        preferredModel
       } = req.body;
       
       // Build the update object with only defined values
@@ -249,6 +250,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (wakeTime !== undefined) updateData.wakeTime = wakeTime;
       if (routineStartTime !== undefined) updateData.routineStartTime = routineStartTime;
       if (sleepTime !== undefined) updateData.sleepTime = sleepTime;
+      if (preferredModel !== undefined) updateData.preferredModel = preferredModel;
       
       // Apply the update
       const updatedUser = await storage.updateUser({
