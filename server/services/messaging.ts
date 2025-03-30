@@ -456,13 +456,16 @@ export class MessagingService {
         ...conversationHistory,
         { role: "user", content: context.userResponse },
       ],
-      response_format: { type: "json_object" },
     };
     
-    // Only add temperature for non-reasoning models
-    // Reasoning models like o1-mini don't need temperature parameter
+    // Add response_format only for models that support it
     if (preferredModel !== "o1-mini" && preferredModel !== "o3-mini") {
+      completionParams.response_format = { type: "json_object" };
       completionParams.temperature = 0.7;
+    } else {
+      // Ensure the prompt is very clear about JSON format for models 
+      // that don't support response_format parameter
+      console.log("Using model without response_format support, relying on clear instructions");
     }
     
     const response = await openai.chat.completions.create(completionParams);
@@ -477,7 +480,13 @@ export class MessagingService {
     console.log("========================================\n");
 
     try {
-      const parsed = JSON.parse(content);
+      // Clean up the content if it contains markdown formatting
+      let cleanContent = content;
+      if (content.includes("```json")) {
+        cleanContent = content.replace(/```json\n/g, "").replace(/\n```/g, "");
+      }
+      
+      const parsed = JSON.parse(cleanContent);
 
       // Ensure schedule proposals have the proper marker
       if (
@@ -714,13 +723,16 @@ export class MessagingService {
     let completionParams: any = {
       model: preferredModel,
       messages: [{ role: "user", content: prompt }],
-      response_format: { type: "json_object" },
     };
     
-    // Only add temperature for non-reasoning models
-    // Reasoning models like o1-mini don't need temperature parameter
+    // Add response_format only for models that support it
     if (preferredModel !== "o1-mini" && preferredModel !== "o3-mini") {
+      completionParams.response_format = { type: "json_object" };
       completionParams.temperature = 0.7;
+    } else {
+      // Ensure the prompt is very clear about JSON format for models 
+      // that don't support response_format parameter
+      console.log("Using model without response_format support, relying on clear instructions");
     }
     
     const response = await openai.chat.completions.create(completionParams);
@@ -738,7 +750,13 @@ export class MessagingService {
     console.log("========================================\n");
 
     try {
-      const parsed = JSON.parse(content);
+      // Clean up the content if it contains markdown formatting
+      let cleanContent = content;
+      if (content.includes("```json")) {
+        cleanContent = content.replace(/```json\n/g, "").replace(/\n```/g, "");
+      }
+      
+      const parsed = JSON.parse(cleanContent);
       // Ensure the message contains the confirmation marker
       if (!parsed.message.includes("PROPOSED_SCHEDULE_AWAITING_CONFIRMATION")) {
         parsed.message += "\n\nPROPOSED_SCHEDULE_AWAITING_CONFIRMATION";
@@ -750,6 +768,7 @@ export class MessagingService {
       };
     } catch (error) {
       console.error("Failed to parse LLM response as JSON:", error);
+      console.log("Attempted to parse content:", content);
       return { message: content };
     }
   }
@@ -1276,13 +1295,16 @@ export class MessagingService {
         },
         { role: "user", content: text },
       ],
-      response_format: { type: "json_object" },
     };
     
-    // Only add temperature for non-reasoning models
-    // Reasoning models like o1-mini don't need temperature parameter
+    // Add response_format only for models that support it
     if (preferredModel !== "o1-mini" && preferredModel !== "o3-mini") {
+      completionParams.response_format = { type: "json_object" };
       completionParams.temperature = 0.3;
+    } else {
+      // Ensure the prompt is very clear about JSON format for models 
+      // that don't support response_format parameter
+      console.log("Using model without response_format support, relying on clear instructions");
     }
     
     const response = await openai.chat.completions.create(completionParams);
@@ -1290,8 +1312,25 @@ export class MessagingService {
     if (!response.choices[0].message.content) {
       throw new Error("No response content from OpenAI");
     }
-
-    return JSON.parse(response.choices[0].message.content);
+    
+    // Clean up the content if it contains markdown formatting
+    let content = response.choices[0].message.content;
+    if (content.includes("```json")) {
+      content = content.replace(/```json\n/g, "").replace(/\n```/g, "");
+    }
+    
+    try {
+      return JSON.parse(content);
+    } catch (error) {
+      console.error("Failed to parse sentiment response as JSON:", error);
+      console.log("Raw content:", content);
+      // Return a default neutral sentiment if parsing fails
+      return {
+        type: "neutral",
+        needsFollowUp: true,
+        urgency: 3
+      };
+    }
   }
 
   async scheduleFollowUp(
