@@ -50,7 +50,8 @@ Provide a friendly, encouraging message before presenting the schedule. After th
 
 export async function generateCoachingResponse(
   checkInContent: string,
-  previousResponses?: string[]
+  previousResponses?: string[],
+  preferredModel: string = "gpt-4o"
 ): Promise<{
   message: string;
   nextCheckIn: string;
@@ -62,13 +63,14 @@ export async function generateCoachingResponse(
     console.log("System prompt: ", COACHING_PROMPT);
     console.log("User message: ", checkInContent);
     console.log(`Previous responses: ${previousResponses?.length || 0}`);
+    console.log(`Using model: ${preferredModel}`);
     if (previousResponses && previousResponses.length > 0) {
       console.log("Previous responses:", previousResponses);
     }
     console.log("========================================\n");
     
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: preferredModel,
       messages: [
         { role: "system", content: COACHING_PROMPT },
         ...(previousResponses?.map(msg => ({ role: "assistant" as const, content: msg })) || []),
@@ -103,7 +105,8 @@ export async function generateDailySchedule(
     wakeTime?: string,
     routineStartTime?: string,
     sleepTime?: string
-  }
+  },
+  preferredModel: string = "gpt-4o"
 ): Promise<string> {
   try {
     // Format current date and time in user's timezone if provided
@@ -179,8 +182,11 @@ export async function generateDailySchedule(
     console.log(promptContent);
     console.log("=====================================\n");
     
+    // Log which model is being used
+    console.log(`Using model: ${preferredModel} for daily schedule generation`);
+    
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: preferredModel,
       messages: [
         { role: "system", content: promptContent },
         { role: "user", content: "Please create a daily schedule for me based on my tasks and information." }

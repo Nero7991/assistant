@@ -592,13 +592,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         sleepTime: req.user.sleepTime || "23:00"
       };
       
-      // Generate the schedule with the AI
+      // Generate the schedule with the AI using the user's preferred model
       const llmResponse = await generateDailySchedule(
         tasks, 
         facts, 
         customInstructions, 
-        req.user.timeZone,
-        timePreferences
+        req.user.timeZone || undefined,
+        timePreferences,
+        req.user.preferredModel || "gpt-4o" // Use user's preferred model or default to gpt-4o
       );
       
       // Parse the schedule from the LLM response
@@ -747,9 +748,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       .map(ci => ci.response)
       .filter((response): response is string => response !== null);
 
+    // Use the user's preferred model or default to gpt-4o
     const coachingResponse = await generateCoachingResponse(
       parsed.data.content,
-      previousResponses
+      previousResponses,
+      req.user.preferredModel || "gpt-4o"
     );
 
     const checkIn = await storage.createCheckIn({

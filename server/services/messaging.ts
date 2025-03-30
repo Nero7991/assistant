@@ -56,6 +56,16 @@ export interface ScheduleUpdate {
 }
 
 export class MessagingService {
+  // Add a method to get the user's preferred model or use the default
+  private async getUserPreferredModel(userId: number): Promise<string> {
+    try {
+      const user = await storage.getUser(userId);
+      return user?.preferredModel || "gpt-4o"; // Default to gpt-4o if no preference set
+    } catch (error) {
+      console.error("Error getting user preferred model:", error);
+      return "gpt-4o"; // Fall back to default model on error
+    }
+  }
   async generateMorningMessage(context: MessageContext): Promise<string> {
     const activeTasks = context.tasks.filter(
       (task) => task.status === "active",
@@ -74,14 +84,14 @@ export class MessagingService {
         subtaskList.push(...incompleteSubtasks);
       }
     }
-    
+
     // Format current date and time in user's timezone if available
     let formattedDateTime;
     if (context.user.timeZone) {
-      formattedDateTime = new Date().toLocaleString('en-US', { 
+      formattedDateTime = new Date().toLocaleString("en-US", {
         timeZone: context.user.timeZone,
-        dateStyle: 'full',
-        timeStyle: 'long'
+        dateStyle: "full",
+        timeStyle: "long",
       });
     } else {
       formattedDateTime = context.currentDateTime;
@@ -162,8 +172,12 @@ export class MessagingService {
     console.log(prompt);
     console.log("========================================\n");
     
+    // Get the user's preferred model
+    const preferredModel = await this.getUserPreferredModel(context.user.id);
+    console.log(`Using user's preferred model: ${preferredModel} for morning message`);
+
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: preferredModel,
       messages: [{ role: "user", content: prompt }],
       temperature: 0.7,
     });
@@ -185,14 +199,14 @@ export class MessagingService {
       // Check if it's a daily task with scheduled time for today
       return task.taskType === TaskType.DAILY && task.scheduledTime;
     });
-    
+
     // Format current date and time in user's timezone if available
     let formattedDateTime;
     if (context.user.timeZone) {
-      formattedDateTime = new Date().toLocaleString('en-US', { 
+      formattedDateTime = new Date().toLocaleString("en-US", {
         timeZone: context.user.timeZone,
-        dateStyle: 'full',
-        timeStyle: 'long'
+        dateStyle: "full",
+        timeStyle: "long",
       });
     } else {
       formattedDateTime = context.currentDateTime;
@@ -247,9 +261,13 @@ export class MessagingService {
 
     // log the prompt
     console.log("Follow-up prompt:", prompt);
+    
+    // Get the user's preferred model
+    const preferredModel = await this.getUserPreferredModel(context.user.id);
+    console.log(`Using user's preferred model: ${preferredModel} for follow-up message`);
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: preferredModel,
       messages: [{ role: "user", content: prompt }],
       temperature: 0.7,
     });
@@ -312,15 +330,15 @@ export class MessagingService {
     // Format current date and time in user's timezone if available
     let formattedDateTime;
     if (context.user.timeZone) {
-      formattedDateTime = new Date().toLocaleString('en-US', { 
+      formattedDateTime = new Date().toLocaleString("en-US", {
         timeZone: context.user.timeZone,
-        dateStyle: 'full',
-        timeStyle: 'long'
+        dateStyle: "full",
+        timeStyle: "long",
       });
     } else {
       formattedDateTime = context.currentDateTime;
     }
-    
+
     // Create a single unified prompt that lets the LLM determine the context and response type
     const prompt = `
       You are an ADHD coach and accountability partner chatting with ${context.user.username}.
@@ -409,9 +427,13 @@ export class MessagingService {
     console.log(JSON.stringify(conversationHistory, null, 2));
     console.log("========================================\n");
     
+    // Get the user's preferred model
+    const preferredModel = await this.getUserPreferredModel(context.user.id);
+    console.log(`Using user's preferred model: ${preferredModel} for response message`);
+
     // Send the prompt to the LLM for processing
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: preferredModel,
       messages: [
         { role: "system", content: prompt },
         ...conversationHistory,
@@ -424,7 +446,7 @@ export class MessagingService {
     const content = response.choices[0].message.content;
     if (!content)
       return { message: "I couldn't generate a response. Please try again." };
-    
+
     // DEBUG: Print the raw LLM response
     console.log("\n===== MESSAGING DEBUG: RAW LLM RESPONSE =====");
     console.log(content);
@@ -506,34 +528,34 @@ export class MessagingService {
     let currentDateTime;
     let currentTimeFormatted;
     let currentTime;
-    
+
     // Format current date and time in user's timezone if available
     if (context.user.timeZone) {
       const now = new Date();
-      
+
       // Full date and time format
-      currentDateTime = now.toLocaleString('en-US', { 
+      currentDateTime = now.toLocaleString("en-US", {
         timeZone: context.user.timeZone,
-        dateStyle: 'full',
-        timeStyle: 'long'
+        dateStyle: "full",
+        timeStyle: "long",
       });
-      
+
       // Time-only format (for display in schedule)
-      currentTimeFormatted = now.toLocaleString('en-US', {
+      currentTimeFormatted = now.toLocaleString("en-US", {
         timeZone: context.user.timeZone,
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
       });
-      
+
       currentTime = now;
     } else {
       currentDateTime = context.currentDateTime;
       currentTime = new Date(context.currentDateTime);
-      currentTimeFormatted = currentTime.toLocaleString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false
+      currentTimeFormatted = currentTime.toLocaleString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
       });
     }
 
@@ -542,13 +564,13 @@ export class MessagingService {
       .slice(0, 10)
       .map((msg) => {
         let messageTime;
-        
+
         if (context.user.timeZone) {
           // Convert to user's timezone
-          messageTime = new Date(msg.createdAt).toLocaleTimeString('en-US', {
+          messageTime = new Date(msg.createdAt).toLocaleTimeString("en-US", {
             timeZone: context.user.timeZone,
             hour: "2-digit",
-            minute: "2-digit"
+            minute: "2-digit",
           });
         } else {
           // Fallback to system timezone
@@ -557,7 +579,7 @@ export class MessagingService {
             minute: "2-digit",
           });
         }
-        
+
         const messageType = msg.type === "user_message" ? "User" : "Coach";
         return `[${messageTime}] ${messageType}: ${msg.content}`;
       })
@@ -620,6 +642,7 @@ export class MessagingService {
         * Considering rest/relaxation if there are no urgent tasks
         * Including more frequent breaks if they're working late
         * Unwinding activities as valid and healthy options
+        * Do not schedule beyond their sleep time.
       - If it's morning or mid-day, focus on helping them make the most of their productive hours
       - Be sensitive to how much time is remaining in their day based on their sleep time preference
 
@@ -658,9 +681,13 @@ export class MessagingService {
     console.log("\n===== MESSAGING DEBUG: RESCHEDULE PROMPT =====");
     console.log(prompt);
     console.log("========================================\n");
+    
+    // Get the user's preferred model
+    const preferredModel = await this.getUserPreferredModel(context.user.id);
+    console.log(`Using user's preferred model: ${preferredModel} for reschedule message`);
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: preferredModel,
       messages: [{ role: "user", content: prompt }],
       temperature: 0.7,
       response_format: { type: "json_object" },
@@ -672,7 +699,7 @@ export class MessagingService {
         message:
           "I couldn't create a schedule for you right now. Please try again.",
       };
-      
+
     // DEBUG: Print the raw reschedule response
     console.log("\n===== MESSAGING DEBUG: RESCHEDULE RAW RESPONSE =====");
     console.log(content);
@@ -776,15 +803,15 @@ export class MessagingService {
       // Format current date and time in user's timezone if available
       let currentDateTime;
       if (user.timeZone) {
-        currentDateTime = new Date().toLocaleString('en-US', { 
+        currentDateTime = new Date().toLocaleString("en-US", {
           timeZone: user.timeZone,
-          dateStyle: 'full',
-          timeStyle: 'long'
+          dateStyle: "full",
+          timeStyle: "long",
         });
       } else {
         currentDateTime = new Date().toISOString();
       }
-      
+
       // Prepare messaging context
       const messagingContext: MessageContext = {
         user,
@@ -891,15 +918,15 @@ export class MessagingService {
       // Format current date and time in user's timezone if available
       let currentDateTime;
       if (user.timeZone) {
-        currentDateTime = new Date().toLocaleString('en-US', { 
+        currentDateTime = new Date().toLocaleString("en-US", {
           timeZone: user.timeZone,
-          dateStyle: 'full',
-          timeStyle: 'long'
+          dateStyle: "full",
+          timeStyle: "long",
         });
       } else {
         currentDateTime = new Date().toLocaleString();
       }
-      
+
       // Create a single messaging context for all responses
       const messageContext: MessageContext = {
         user,
@@ -918,10 +945,14 @@ export class MessagingService {
       console.log(`User: ${messageContext.user.username}`);
       console.log(`Tasks: ${messageContext.tasks.length} tasks`);
       console.log(`Facts: ${messageContext.facts.length} facts`);
-      console.log(`Previous Messages: ${messageContext.previousMessages.length} messages`);
-      console.log(`Existing Schedule Updates: ${existingScheduleUpdates.length}`);
+      console.log(
+        `Previous Messages: ${messageContext.previousMessages.length} messages`,
+      );
+      console.log(
+        `Existing Schedule Updates: ${existingScheduleUpdates.length}`,
+      );
       console.log("========================================\n");
-      
+
       // Generate the response using our unified approach
       const responseResult = await this.generateResponseMessage(
         messageContext,
@@ -1002,7 +1033,7 @@ export class MessagingService {
       }
 
       // Analyze message sentiment to determine if we need a follow-up
-      const sentiment = await this.analyzeSentiment(response);
+      const sentiment = await this.analyzeSentiment(response, userId);
       if (sentiment.needsFollowUp) {
         console.log(
           `Scheduling follow-up based on ${sentiment.type} sentiment`,
@@ -1186,13 +1217,24 @@ export class MessagingService {
     }
   }
 
-  private async analyzeSentiment(text: string): Promise<{
+  private async analyzeSentiment(text: string, userId?: number): Promise<{
     type: "positive" | "negative" | "neutral";
     needsFollowUp: boolean;
     urgency: number;
   }> {
+    // Get the user's preferred model if userId is provided
+    let preferredModel = "gpt-4o"; // Default model
+    if (userId) {
+      try {
+        preferredModel = await this.getUserPreferredModel(userId);
+        console.log(`Using user's preferred model: ${preferredModel} for sentiment analysis`);
+      } catch (error) {
+        console.error("Error getting user preferred model for sentiment analysis:", error);
+      }
+    }
+    
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+      model: preferredModel,
       messages: [
         {
           role: "system",
@@ -1314,15 +1356,15 @@ export class MessagingService {
         // Format current date and time in user's timezone if available
         let currentDateTime;
         if (user.timeZone) {
-          currentDateTime = now.toLocaleString('en-US', { 
+          currentDateTime = now.toLocaleString("en-US", {
             timeZone: user.timeZone,
-            dateStyle: 'full',
-            timeStyle: 'long'
+            dateStyle: "full",
+            timeStyle: "long",
           });
         } else {
           currentDateTime = now.toLocaleString();
         }
-        
+
         // Generate the message based on context
         const message = await this.generateMessage({
           user,

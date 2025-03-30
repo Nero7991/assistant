@@ -19,6 +19,7 @@ export const users = pgTable("users", {
   sleepTime: text("sleep_time").default("23:00"), // Format: "HH:mm", Default: 11pm
   preferredMessageTime: text("preferred_message_time"), // Format: "HH:mm", Will be phased out in favor of routineStartTime
   timeZone: text("time_zone"),
+  preferredModel: text("preferred_model").default("gpt-4o"), // Default to GPT-4o, alternatives: gpt-3.5-turbo, etc.
   isActive: boolean("is_active").notNull().default(true),
   deactivatedAt: timestamp("deactivated_at"),
 });
@@ -225,6 +226,7 @@ export const insertUserSchema = createInsertSchema(users).extend({
   sleepTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, "Invalid time format. Use HH:mm").default("23:00"),
   preferredMessageTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, "Invalid time format. Use HH:mm").optional(),
   timeZone: z.string().optional(),
+  preferredModel: z.enum(["gpt-4o", "gpt-4", "gpt-3.5-turbo"]).default("gpt-4o"),
 });
 
 export const insertGoalSchema = createInsertSchema(goals).pick({

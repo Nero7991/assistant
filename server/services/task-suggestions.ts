@@ -167,8 +167,13 @@ export async function generateTaskSuggestions(
       console.log('------- END TASK SUGGESTION DEBUG -------\n');
     }
 
+    // Get the user's preferred model
+    const user = await storage.getUser(userId);
+    const preferredModel = user?.preferredModel || "gpt-4o";
+    console.log(`Using user's preferred model: ${preferredModel} for task suggestions`);
+    
     const response = await openai.chat.completions.create({
-      model: "gpt-4o", // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
+      model: preferredModel, // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
       messages: [
         {
           role: "system",
