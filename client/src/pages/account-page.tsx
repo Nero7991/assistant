@@ -14,6 +14,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 
 // Available OpenAI models
 const OPENAI_MODELS = [
+  { value: "o1-mini", label: "O1-mini (Default reasoning model)" },
   { value: "gpt-4o", label: "GPT-4o (Latest & Best)" },
   { value: "gpt-4o-mini", label: "GPT-4o-mini (Reasoning Model)" },
   { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
@@ -51,7 +52,7 @@ export default function AccountPage() {
   const [wakeTime, setWakeTime] = useState<string>("08:00");
   const [routineStartTime, setRoutineStartTime] = useState<string>("09:30");
   const [sleepTime, setSleepTime] = useState<string>("23:00");
-  const [preferredModel, setPreferredModel] = useState<string>("gpt-4o");
+  const [preferredModel, setPreferredModel] = useState<string>("o1-mini");
   
   // Get browser timezone on component mount
   useEffect(() => {
@@ -73,7 +74,7 @@ export default function AccountPage() {
       setWakeTime(user.wakeTime || "08:00");
       setRoutineStartTime(user.routineStartTime || "09:30"); 
       setSleepTime(user.sleepTime || "23:00");
-      setPreferredModel(user.preferredModel || "gpt-4o");
+      setPreferredModel(user.preferredModel || "o1-mini");
     }
   }, [user]);
 
@@ -394,7 +395,8 @@ export default function AccountPage() {
                         <Info size={16} className="text-muted-foreground cursor-help" />
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p className="w-96">Choose which OpenAI model to use for all interactions:
+                        <p className="w-96">Choose which AI model to use for all interactions:
+                        <br />• O1-mini: Default reasoning model (recommended)
                         <br />• GPT-4o: Latest & most capable model
                         <br />• GPT-4o-mini: Specialized for reasoning tasks
                         <br />• GPT-4/GPT-4-turbo: Previous generation models
