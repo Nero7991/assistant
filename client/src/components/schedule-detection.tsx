@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -18,10 +18,11 @@ interface ParsedSchedule {
 
 interface ScheduleDetectionProps {
   messageContent: string;
+  messageId: string;
   userId: number;
 }
 
-export function ScheduleDetection({ messageContent, userId }: ScheduleDetectionProps) {
+export function ScheduleDetection({ messageContent, messageId, userId }: ScheduleDetectionProps) {
   const [showDialog, setShowDialog] = useState(false);
   const [scheduleData, setScheduleData] = useState<{
     scheduleId: number | null;
@@ -139,12 +140,30 @@ export function ScheduleDetection({ messageContent, userId }: ScheduleDetectionP
     }
   };
 
+  // We want to use a ref to track the first render to avoid processing messages during initial load
+  const isInitialRenderRef = useRef(true);
+  const processedMessagesRef = useRef<Record<string, boolean>>({});
+  
   useEffect(() => {
     // Check for schedule marker in the message content
     const SCHEDULE_MARKER = "The final schedule is as follows:";
     
-    // Debug log for message detection (helps identify if we're receiving the message content)
-    console.log("Checking message for schedule marker:", {
+    // Create a storage key using the messageId which is much more reliable than content hashing
+    const storageKey = `processed_schedule_${messageId}`;
+    
+    // Skip processing on the initial render to avoid parsing old messages when loading chat history
+    if (isInitialRenderRef.current) {
+      console.log(`Initial render for message ${messageId}, skipping schedule processing`);
+      isInitialRenderRef.current = false;
+      
+      // Mark this message as processed on first render
+      processedMessagesRef.current[messageId] = true;
+      sessionStorage.setItem(storageKey, "true");
+      return;
+    }
+    
+    // Debug log for message detection
+    console.log(`Checking message ${messageId} for schedule marker:`, {
       hasMessage: !!messageContent,
       messageLength: messageContent ? messageContent.length : 0,
       contentPreview: messageContent ? messageContent.substring(0, 50) + "..." : "",
@@ -152,33 +171,27 @@ export function ScheduleDetection({ messageContent, userId }: ScheduleDetectionP
     
     // Only process if there's a message and it contains the marker
     if (messageContent && messageContent.toLowerCase().includes(SCHEDULE_MARKER.toLowerCase())) {
-      console.log("Schedule marker found in message!");
+      console.log(`Schedule marker found in message ${messageId}!`);
       
-      // Create a deterministic key based on message content to avoid duplicates
-      // Using first 100 chars + last 20 chars gives us a pretty unique fingerprint
-      const messagePreview = messageContent.substring(0, 100);
-      const messageEnd = messageContent.length > 20 
-        ? messageContent.substring(messageContent.length - 20) 
-        : "";
-      const processedMessageKey = `processed_schedule_${messagePreview}_${messageEnd}`;
+      // Check if we've already processed this message (either in memory or in session storage)
+      const alreadyProcessed = processedMessagesRef.current[messageId] || sessionStorage.getItem(storageKey);
       
-      // Check if we've already processed this message
-      if (!sessionStorage.getItem(processedMessageKey)) {
-        console.log("Processing new schedule from message...");
+      if (!alreadyProcessed) {
+        console.log(`Processing new schedule from message ${messageId}...`);
         
         // If marker is found and not yet processed, send the content to be parsed
         scheduleFromLLMMutation.mutate(messageContent);
         
-        // Mark as processed
-        sessionStorage.setItem(processedMessageKey, "true");
+        // Mark as processed both in memory and session storage
+        processedMessagesRef.current[messageId] = true;
+        sessionStorage.setItem(storageKey, "true");
         
-        // Log success for debugging
-        console.log("Schedule processing initiated with key:", processedMessageKey);
+        console.log(`Schedule processing initiated for message ${messageId}`);
       } else {
-        console.log("Schedule already processed, skipping duplicate processing");
+        console.log(`Message ${messageId} already processed, skipping duplicate processing`);
       }
     }
-  }, [messageContent, scheduleFromLLMMutation]);
+  }, [messageId, messageContent, scheduleFromLLMMutation]);
 
   return (
     <>
