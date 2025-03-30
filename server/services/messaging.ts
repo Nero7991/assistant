@@ -176,11 +176,21 @@ export class MessagingService {
     const preferredModel = await this.getUserPreferredModel(context.user.id);
     console.log(`Using user's preferred model: ${preferredModel} for morning message`);
 
-    const response = await openai.chat.completions.create({
+    // Different models require different parameters
+    let completionParams: any = {
       model: preferredModel,
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.7,
-    });
+    };
+    
+    // Add reasoning_effort for o1-mini (or other reasoning models)
+    if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
+      completionParams.reasoning_effort = "medium";
+    } else {
+      // Add temperature for non-reasoning models
+      completionParams.temperature = 0.7;
+    }
+    
+    const response = await openai.chat.completions.create(completionParams);
 
     return response.choices[0].message.content || "Unable to generate message";
   }
@@ -266,11 +276,21 @@ export class MessagingService {
     const preferredModel = await this.getUserPreferredModel(context.user.id);
     console.log(`Using user's preferred model: ${preferredModel} for follow-up message`);
 
-    const response = await openai.chat.completions.create({
+    // Different models require different parameters
+    let completionParams: any = {
       model: preferredModel,
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.7,
-    });
+    };
+    
+    // Add reasoning_effort for o1-mini (or other reasoning models)
+    if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
+      completionParams.reasoning_effort = "medium";
+    } else {
+      // Add temperature for non-reasoning models
+      completionParams.temperature = 0.7;
+    }
+    
+    const response = await openai.chat.completions.create(completionParams);
 
     return (
       response.choices[0].message.content ||
@@ -432,16 +452,26 @@ export class MessagingService {
     console.log(`Using user's preferred model: ${preferredModel} for response message`);
 
     // Send the prompt to the LLM for processing
-    const response = await openai.chat.completions.create({
+    // Different models require different parameters
+    let completionParams: any = {
       model: preferredModel,
       messages: [
         { role: "system", content: prompt },
         ...conversationHistory,
         { role: "user", content: context.userResponse },
       ],
-      temperature: 0.7,
       response_format: { type: "json_object" },
-    });
+    };
+    
+    // Add reasoning_effort for o1-mini (or other reasoning models)
+    if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
+      completionParams.reasoning_effort = "medium";
+    } else {
+      // Add temperature for non-reasoning models
+      completionParams.temperature = 0.7;
+    }
+    
+    const response = await openai.chat.completions.create(completionParams);
 
     const content = response.choices[0].message.content;
     if (!content)
@@ -686,12 +716,22 @@ export class MessagingService {
     const preferredModel = await this.getUserPreferredModel(context.user.id);
     console.log(`Using user's preferred model: ${preferredModel} for reschedule message`);
 
-    const response = await openai.chat.completions.create({
+    // Different models require different parameters
+    let completionParams: any = {
       model: preferredModel,
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.7,
       response_format: { type: "json_object" },
-    });
+    };
+    
+    // Add reasoning_effort for o1-mini (or other reasoning models)
+    if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
+      completionParams.reasoning_effort = "medium";
+    } else {
+      // Add temperature for non-reasoning models
+      completionParams.temperature = 0.7;
+    }
+    
+    const response = await openai.chat.completions.create(completionParams);
 
     const content = response.choices[0].message.content;
     if (!content)
@@ -1233,7 +1273,8 @@ export class MessagingService {
       }
     }
     
-    const response = await openai.chat.completions.create({
+    // Different models require different parameters
+    let completionParams: any = {
       model: preferredModel,
       messages: [
         {
@@ -1244,7 +1285,17 @@ export class MessagingService {
         { role: "user", content: text },
       ],
       response_format: { type: "json_object" },
-    });
+    };
+    
+    // Add reasoning_effort for o1-mini (or other reasoning models)
+    if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
+      completionParams.reasoning_effort = "medium";
+    } else {
+      // Add temperature for non-reasoning models
+      completionParams.temperature = 0.3;
+    }
+    
+    const response = await openai.chat.completions.create(completionParams);
 
     if (!response.choices[0].message.content) {
       throw new Error("No response content from OpenAI");

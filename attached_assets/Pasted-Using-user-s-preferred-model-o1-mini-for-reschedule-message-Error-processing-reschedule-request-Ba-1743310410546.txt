@@ -1,0 +1,45 @@
+Using user's preferred model: o1-mini for reschedule message
+Error processing reschedule request: BadRequestError: 400 Unsupported value: 'temperature' does not support 0.7 with this model. Only the default (1) value is supported.
+    at Function.generate (/home/runner/workspace/node_modules/openai/src/error.ts:72:14)
+    at OpenAI.makeStatusError (/home/runner/workspace/node_modules/openai/src/core.ts:443:21)
+    at OpenAI.makeRequest (/home/runner/workspace/node_modules/openai/src/core.ts:507:24)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MessagingService.generateRescheduleMessage (/home/runner/workspace/server/services/messaging.ts:689:22)
+    at async <anonymous> (/home/runner/workspace/server/routes.ts:1322:18) {
+  status: 400,
+  headers: {
+    'access-control-expose-headers': 'X-Request-ID',
+    'alt-svc': 'h3=":443"; ma=86400',
+    'cf-cache-status': 'DYNAMIC',
+    'cf-ray': '9285003a9e1d757b-SEA',
+    connection: 'keep-alive',
+    'content-length': '247',
+    'content-type': 'application/json',
+    date: 'Sun, 30 Mar 2025 04:53:02 GMT',
+    'openai-organization': 'virginia-tech-47',
+    'openai-processing-ms': '17',
+    'openai-version': '2020-10-01',
+    server: 'cloudflare',
+    'set-cookie': '__cf_bm=O.WWeVlv5h35bQENESQ8xSQJ7787WoGVIE8sI4fzGjU-1743310382-1.0.1.1-_ldv0CFwpJcjTE15QZR69fVvcQ5zDbwX1N7V9XuStm9o4hkh8Zt10Yyr3Jss9sjOECHNfmjPzQAvfi6NcV12ojgNqS.secJUQm_wb2dXpBA; path=/; expires=Sun, 30-Mar-25 05:23:02 GMT; domain=.api.openai.com; HttpOnly; Secure; SameSite=None, _cfuvid=EW.v.tV7yg2T1NSVeSRaQ4sgT460Mu4sM8COOQlR1zc-1743310382020-0.0.1.1-604800000; path=/; domain=.api.openai.com; HttpOnly; Secure; SameSite=None',
+    'strict-transport-security': 'max-age=31536000; includeSubDomains; preload',
+    'x-content-type-options': 'nosniff',
+    'x-ratelimit-limit-requests': '500',
+    'x-ratelimit-limit-tokens': '200000',
+    'x-ratelimit-remaining-requests': '499',
+    'x-ratelimit-remaining-tokens': '198231',
+    'x-ratelimit-reset-requests': '120ms',
+    'x-ratelimit-reset-tokens': '530ms',
+    'x-request-id': 'req_ed981fa533dd28e6a9dd7ec1abdd1287'
+  },
+  request_id: 'req_ed981fa533dd28e6a9dd7ec1abdd1287',
+  error: {
+    message: "Unsupported value: 'temperature' does not support 0.7 with this model. Only the default (1) value is supported.",
+    type: 'invalid_request_error',
+    param: 'temperature',
+    code: 'unsupported_value'
+  },
+  code: 'unsupported_value',
+  param: 'temperature',
+  type: 'invalid_request_error'
+}
+4:53:02 AM [express] POST /api/messages/reschedule 500 in 1096ms :: {"message":"Failed to reschedule…

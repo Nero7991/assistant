@@ -69,7 +69,8 @@ export async function generateCoachingResponse(
     }
     console.log("========================================\n");
     
-    const response = await openai.chat.completions.create({
+    // Different models require different parameters
+    let completionParams: any = {
       model: preferredModel,
       messages: [
         { role: "system", content: COACHING_PROMPT },
@@ -77,7 +78,17 @@ export async function generateCoachingResponse(
         { role: "user", content: checkInContent }
       ],
       response_format: { type: "json_object" }
-    });
+    };
+    
+    // Add reasoning_effort for o1-mini (or other reasoning models)
+    if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
+      completionParams.reasoning_effort = "medium";
+    } else {
+      // Add temperature for non-reasoning models
+      completionParams.temperature = 0.7;
+    }
+    
+    const response = await openai.chat.completions.create(completionParams);
 
     const content = response.choices[0].message.content;
     if (!content) {
@@ -185,14 +196,25 @@ export async function generateDailySchedule(
     // Log which model is being used
     console.log(`Using model: ${preferredModel} for daily schedule generation`);
     
-    const response = await openai.chat.completions.create({
+    // Different models require different parameters
+    let completionParams: any = {
       model: preferredModel,
       messages: [
         { role: "system", content: promptContent },
         { role: "user", content: "Please create a daily schedule for me based on my tasks and information." }
       ],
       max_tokens: 1500
-    });
+    };
+    
+    // Add reasoning_effort for o1-mini (or other reasoning models)
+    if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
+      completionParams.reasoning_effort = "medium";
+    } else {
+      // Add temperature for non-reasoning models
+      completionParams.temperature = 0.7;
+    }
+    
+    const response = await openai.chat.completions.create(completionParams);
     
     const content = response.choices[0].message.content;
     return content ? content : "Failed to generate a schedule.";

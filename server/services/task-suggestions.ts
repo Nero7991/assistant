@@ -172,7 +172,8 @@ export async function generateTaskSuggestions(
     const preferredModel = user?.preferredModel || "gpt-4o";
     console.log(`Using user's preferred model: ${preferredModel} for task suggestions`);
     
-    const response = await openai.chat.completions.create({
+    // Different models require different parameters
+    let completionParams: any = {
       model: preferredModel, // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
       messages: [
         {
@@ -185,7 +186,17 @@ export async function generateTaskSuggestions(
         }
       ],
       response_format: { type: "json_object" }
-    });
+    };
+    
+    // Add reasoning_effort for o1-mini (or other reasoning models)
+    if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
+      completionParams.reasoning_effort = "medium";
+    } else {
+      // Add temperature for non-reasoning models
+      completionParams.temperature = 0.7;
+    }
+    
+    const response = await openai.chat.completions.create(completionParams);
 
     const suggestions = JSON.parse(response.choices[0].message.content!) as TaskSuggestionResponse;
     
