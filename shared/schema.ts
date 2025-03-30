@@ -133,6 +133,7 @@ export const messageSchedules = pgTable("message_schedules", {
   sentAt: timestamp("sent_at"),
   status: text("status").notNull().default('pending'), // 'pending', 'sent', 'cancelled'
   metadata: jsonb("metadata"), // Store context for message generation
+  deletedAt: timestamp("deleted_at"), // Soft delete field
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -163,6 +164,7 @@ export const scheduleItems = pgTable("schedule_items", {
   endTime: text("end_time"), // Format: "HH:mm", optional for non-duration items
   status: text("status").notNull().default('scheduled'), // 'scheduled', 'in_progress', 'completed', 'skipped'
   notificationSent: boolean("notification_sent").notNull().default(false),
+  deletedAt: timestamp("deleted_at"), // Soft delete field
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

@@ -9,6 +9,7 @@ import type { Express, Request, Response } from "express";
 import { 
   createScheduleItem, 
   deleteScheduleItem, 
+  deleteMessageSchedule,
   getScheduleItemsForDay, 
   getPendingMessageSchedules,
   scheduleMessage, 
@@ -119,36 +120,36 @@ export function registerScheduleManagementAPI(app: Express) {
   // Update an existing schedule item
   app.put("/api/schedule-management/items/:id", async (req: Request, res: Response) => {
     try {
-      // Log the request body as a separate response for debugging
-      console.log("Request body debug:", JSON.stringify(req.body));
-      
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
         return res.status(400).json({ error: "Invalid schedule item ID" });
       }
       
-      // For debugging, output all we get
-      res.status(200).json({
-        message: "Received update request",
-        id,
-        body: req.body,
-        hasStatus: 'status' in req.body,
-        statusValue: req.body.status
-      });
+      // Create a completely new implementation
+      const updateData: any = {};
       
-      return; // Stop here for diagnostic purposes
+      // Explicitly check for each field in the request body
+      if (req.body.title !== undefined) updateData.title = req.body.title;
+      if (req.body.description !== undefined) updateData.description = req.body.description;
+      if (req.body.startTime !== undefined) updateData.startTime = req.body.startTime;
+      if (req.body.endTime !== undefined) updateData.endTime = req.body.endTime;
+      if (req.body.status !== undefined) updateData.status = req.body.status;
       
-      // Normal code will resume below after debugging
+      // Handle IDs specially since they need parsing
+      if (req.body.taskId !== undefined) {
+        updateData.taskId = req.body.taskId ? parseInt(req.body.taskId) : null;
+      }
+      
+      if (req.body.subtaskId !== undefined) {
+        updateData.subtaskId = req.body.subtaskId ? parseInt(req.body.subtaskId) : null;
+      }
+      
+      // Check if there's anything to update
+      if (Object.keys(updateData).length === 0) {
+        return res.status(400).json({ error: "No fields provided for update" });
+      }
 
-      const item = await updateScheduleItem(id, {
-        title,
-        description,
-        startTime,
-        endTime,
-        taskId: taskId ? parseInt(taskId) : undefined,
-        subtaskId: subtaskId ? parseInt(subtaskId) : undefined,
-        status
-      });
+      const item = await updateScheduleItem(id, updateData);
 
       if (!item) {
         return res.status(404).json({ error: "Schedule item not found" });
@@ -164,24 +165,32 @@ export function registerScheduleManagementAPI(app: Express) {
     }
   });
 
-  // Delete a schedule item
+  // Soft delete a schedule item (sets deletedAt timestamp)
   app.delete("/api/schedule-management/items/:id", async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
+      console.log(`API: Processing delete request for schedule item ID ${id}`);
+      
       if (isNaN(id)) {
+        console.log(`API: Invalid schedule item ID: ${req.params.id}`);
         return res.status(400).json({ error: "Invalid schedule item ID" });
       }
 
       const result = await deleteScheduleItem(id);
+      console.log(`API: Delete result for schedule item ${id}:`, result);
+      
       if (!result) {
+        console.log(`API: Schedule item with ID ${id} not found or already deleted`);
         return res.status(404).json({ error: "Schedule item not found" });
       }
 
-      res.status(204).send();
+      // Use 204 No Content for successful deletes to be consistent with message schedules endpoint
+      console.log(`API: Successfully deleted schedule item ${id}, sending 204 response`);
+      return res.status(204).end();
     } catch (error) {
-      console.error("Error deleting schedule item:", error);
+      console.error("Error soft-deleting schedule item:", error);
       res.status(500).json({ 
-        error: "Failed to delete schedule item",
+        error: "Failed to soft-delete schedule item",
         details: error instanceof Error ? error.message : String(error)
       });
     }
@@ -258,6 +267,37 @@ export function registerScheduleManagementAPI(app: Express) {
       console.error("Error scheduling message:", error);
       res.status(500).json({ 
         error: "Failed to schedule message",
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Soft delete a message schedule (sets deletedAt timestamp)
+  app.delete("/api/schedule-management/messages/:id", async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      console.log(`API: Processing delete request for message schedule ID ${id}`);
+      
+      if (isNaN(id)) {
+        console.log(`API: Invalid message schedule ID: ${req.params.id}`);
+        return res.status(400).json({ error: "Invalid message schedule ID" });
+      }
+
+      const result = await deleteMessageSchedule(id);
+      console.log(`API: Delete result for message ${id}:`, result);
+      
+      if (!result) {
+        console.log(`API: Message schedule with ID ${id} not found or already deleted`);
+        return res.status(404).json({ error: "Message schedule not found" });
+      }
+
+      // Use 204 No Content for consistency with the schedule items endpoint
+      console.log(`API: Successfully deleted message schedule ${id}, sending 204 response`);
+      return res.status(204).end();
+    } catch (error) {
+      console.error("Error soft-deleting message schedule:", error);
+      return res.status(500).json({ 
+        error: "Failed to soft-delete message schedule",
         details: error instanceof Error ? error.message : String(error)
       });
     }

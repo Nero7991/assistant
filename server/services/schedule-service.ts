@@ -8,7 +8,7 @@
 
 import { db } from "../db";
 import { scheduleItems, messageSchedules } from "@shared/schema";
-import { and, eq, gte, lt } from "drizzle-orm";
+import { and, eq, gte, lt, isNull } from "drizzle-orm";
 
 /**
  * Get all schedule items for a specific date for a user
@@ -22,7 +22,7 @@ export async function getScheduleItemsForDay(userId: number, date: Date): Promis
     const endDate = new Date(date);
     endDate.setHours(23, 59, 59, 999);
     
-    // Query schedule items for this user on this date
+    // Query non-deleted schedule items for this user on this date
     const items = await db
       .select()
       .from(scheduleItems)
@@ -30,7 +30,8 @@ export async function getScheduleItemsForDay(userId: number, date: Date): Promis
         and(
           eq(scheduleItems.userId, userId),
           gte(scheduleItems.date, startDate),
-          lt(scheduleItems.date, endDate)
+          lt(scheduleItems.date, endDate),
+          isNull(scheduleItems.deletedAt) // Only include non-deleted items
         )
       );
     
@@ -114,15 +115,24 @@ export async function updateScheduleItem(
 }
 
 /**
- * Delete a schedule item
+ * Soft delete a schedule item by setting the deletedAt timestamp
  */
 export async function deleteScheduleItem(id: number): Promise<boolean> {
-  const [deletedItem] = await db
-    .delete(scheduleItems)
-    .where(eq(scheduleItems.id, id))
-    .returning();
-  
-  return !!deletedItem;
+  try {
+    const [softDeletedItem] = await db
+      .update(scheduleItems)
+      .set({
+        deletedAt: new Date(),
+        status: 'cancelled' // Also update the status to reflect the item is cancelled
+      })
+      .where(eq(scheduleItems.id, id))
+      .returning();
+    
+    return !!softDeletedItem;
+  } catch (error) {
+    console.error("Error in soft delete schedule item:", error);
+    throw error;
+  }
 }
 
 /**
@@ -136,20 +146,37 @@ export async function getPendingMessageSchedules(userId: number, date: Date): Pr
   const endDate = new Date(date);
   endDate.setHours(23, 59, 59, 999);
   
-  // Query pending message schedules for this user on this date
-  const messages = await db
-    .select()
-    .from(messageSchedules)
-    .where(
-      and(
-        eq(messageSchedules.userId, userId),
-        eq(messageSchedules.status, 'pending'),
-        gte(messageSchedules.scheduledFor, startDate),
-        lt(messageSchedules.scheduledFor, endDate)
-      )
-    );
-  
-  return messages;
+  try {
+    console.log(`Getting pending message schedules for user ${userId} on ${date.toISOString().split('T')[0]}`);
+    
+    // Query pending message schedules for this user on this date
+    const messages = await db
+      .select()
+      .from(messageSchedules)
+      .where(
+        and(
+          eq(messageSchedules.userId, userId),
+          eq(messageSchedules.status, 'pending'),
+          gte(messageSchedules.scheduledFor, startDate),
+          lt(messageSchedules.scheduledFor, endDate),
+          isNull(messageSchedules.deletedAt) // Only include non-deleted messages
+        )
+      );
+    
+    console.log(`Found ${messages.length} pending message schedules for user ${userId}`);
+    
+    // Log details of returned messages for debugging
+    if (messages.length > 0) {
+      messages.forEach(msg => {
+        console.log(`Message ID: ${msg.id}, Status: ${msg.status}, DeletedAt: ${msg.deletedAt || 'null'}`);
+      });
+    }
+    
+    return messages;
+  } catch (error) {
+    console.error(`Error in getPendingMessageSchedules for user ${userId}:`, error);
+    throw error;
+  }
 }
 
 /**
@@ -166,22 +193,70 @@ export async function scheduleMessage(
     subtaskId?: number;
   }
 ): Promise<typeof messageSchedules.$inferSelect> {
-  // Create the message schedule
-  const [newSchedule] = await db
-    .insert(messageSchedules)
-    .values({
-      userId: data.userId,
-      type: data.type,
-      scheduledFor: data.scheduledFor,
-      status: 'pending',
-      metadata: {
-        tone: data.tone,
-        title: data.title,
-        taskId: data.taskId,
-        subtaskId: data.subtaskId
-      }
-    })
-    .returning();
-  
-  return newSchedule;
+  try {
+    // Create the message schedule
+    const [newSchedule] = await db
+      .insert(messageSchedules)
+      .values({
+        userId: data.userId,
+        type: data.type,
+        scheduledFor: data.scheduledFor,
+        status: 'pending',
+        metadata: {
+          tone: data.tone,
+          title: data.title,
+          taskId: data.taskId,
+          subtaskId: data.subtaskId
+        }
+      })
+      .returning();
+    
+    return newSchedule;
+  } catch (error) {
+    console.error("Error in schedule message:", error);
+    throw error;
+  }
+}
+
+/**
+ * Soft delete a message schedule by setting the deletedAt timestamp
+ */
+export async function deleteMessageSchedule(id: number): Promise<boolean> {
+  try {
+    console.log(`Soft deleting message schedule with ID: ${id}`);
+    
+    // First check if the message exists
+    const existingMessages = await db
+      .select()
+      .from(messageSchedules)
+      .where(eq(messageSchedules.id, id));
+    
+    if (!existingMessages || existingMessages.length === 0) {
+      console.log(`Message schedule with ID ${id} not found`);
+      return false;
+    }
+    
+    const timestamp = new Date();
+    console.log(`Setting deletedAt to ${timestamp.toISOString()} for message ID ${id}`);
+    
+    const [softDeletedMessage] = await db
+      .update(messageSchedules)
+      .set({
+        deletedAt: timestamp,
+        status: 'cancelled' // Also update the status to reflect the message is cancelled
+      })
+      .where(eq(messageSchedules.id, id))
+      .returning();
+    
+    console.log(`Soft delete result: `, softDeletedMessage ? "Success" : "Failed");
+    
+    if (softDeletedMessage) {
+      console.log(`Successfully soft-deleted message: ${JSON.stringify(softDeletedMessage)}`);
+    }
+    
+    return !!softDeletedMessage;
+  } catch (error) {
+    console.error("Error in soft delete message schedule:", error);
+    throw error;
+  }
 }
