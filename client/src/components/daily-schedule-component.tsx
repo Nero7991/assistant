@@ -116,7 +116,7 @@ export default function DailyScheduleComponent({
                           <>
                             <span className="mx-1 text-muted-foreground">•</span>
                             <span className="text-primary/80">
-                              {tasks.find(task => task.id === item.taskId)?.title}
+                              For: {tasks.find(task => task.id === item.taskId)?.title || "Main Task"}
                             </span>
                           </>
                         )}
