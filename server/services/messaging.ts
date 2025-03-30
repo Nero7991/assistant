@@ -1046,6 +1046,16 @@ export class MessagingService {
             // Automatically confirm the schedule since the marker indicates a final schedule
             await confirmSchedule(scheduleId, userId);
             console.log(`Confirmed schedule with ID ${scheduleId}`);
+            
+            // Add a system message confirming the schedule has been created and notifications are set
+            await db.insert(messageHistory).values({
+              userId,
+              content: "✅ Schedule confirmed! I've set up your notifications for today's tasks.",
+              type: "system_notification",
+              status: "sent",
+              createdAt: new Date(),
+            });
+            console.log("Added system confirmation message to chat");
           } catch (error) {
             console.error(
               "Error creating schedule from parsed response:",
@@ -1065,6 +1075,16 @@ export class MessagingService {
             userId,
             responseResult.scheduleUpdates,
           );
+          
+          // Add a system message confirming that schedule updates have been applied
+          await db.insert(messageHistory).values({
+            userId,
+            content: "✅ Schedule confirmed! I've updated your tasks with the new times.",
+            type: "system_notification",
+            status: "sent",
+            createdAt: new Date(),
+          });
+          console.log("Added system notification for schedule updates");
         }
       }
       // Check if this is a new proposed schedule (not confirmed yet)
@@ -1091,6 +1111,16 @@ export class MessagingService {
           userId,
           responseResult.scheduleUpdates,
         );
+        
+        // Add a system message confirming that task updates have been applied
+        await db.insert(messageHistory).values({
+          userId,
+          content: "✅ I've updated your tasks with the changes you requested.",
+          type: "system_notification",
+          status: "sent",
+          createdAt: new Date(),
+        });
+        console.log("Added system notification for task updates");
       }
 
       // Analyze message sentiment to determine if we need a follow-up
