@@ -15,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 // Available OpenAI models
 const OPENAI_MODELS = [
   { value: "gpt-4o", label: "GPT-4o (Latest & Best)" },
+  { value: "gpt-4o-mini", label: "GPT-4o-mini (Reasoning Model)" },
   { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
   { value: "gpt-4", label: "GPT-4" },
   { value: "gpt-3.5-turbo", label: "GPT-3.5 Turbo (Faster)" }
@@ -393,7 +394,12 @@ export default function AccountPage() {
                         <Info size={16} className="text-muted-foreground cursor-help" />
                       </TooltipTrigger>
                       <TooltipContent>
-                        <p className="w-80">Choose which OpenAI model to use for all interactions. GPT-4o is recommended for best results, while GPT-3.5 may be faster but less capable.</p>
+                        <p className="w-96">Choose which OpenAI model to use for all interactions:
+                        <br />• GPT-4o: Latest & most capable model
+                        <br />• GPT-4o-mini: Specialized for reasoning tasks
+                        <br />• GPT-4/GPT-4-turbo: Previous generation models
+                        <br />• GPT-3.5-turbo: Faster but less capable
+                        </p>
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>

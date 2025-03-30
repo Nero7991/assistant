@@ -226,7 +226,7 @@ export const insertUserSchema = createInsertSchema(users).extend({
   sleepTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, "Invalid time format. Use HH:mm").default("23:00"),
   preferredMessageTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, "Invalid time format. Use HH:mm").optional(),
   timeZone: z.string().optional(),
-  preferredModel: z.enum(["gpt-4o", "gpt-4", "gpt-3.5-turbo"]).default("gpt-4o"),
+  preferredModel: z.enum(["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"]).default("gpt-4o"),
 });
 
 export const insertGoalSchema = createInsertSchema(goals).pick({
