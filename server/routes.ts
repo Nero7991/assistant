@@ -888,18 +888,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let scheduleItemsData: any[] = [];
       
       try {
-        // Get the latest confirmed daily schedule
-        const dailyScheduleResult = await db
+        // Get the latest daily schedule for today, preferring confirmed ones
+        // First, try to get a confirmed schedule
+        let dailyScheduleResult = await db
           .select()
           .from(dailySchedules)
           .where(
             and(
               eq(dailySchedules.userId, req.user.id),
-              gte(dailySchedules.date, today)
+              gte(dailySchedules.date, today),
+              eq(dailySchedules.status, 'confirmed')
             )
           )
-          .orderBy(desc(dailySchedules.confirmedAt))
+          .orderBy(desc(dailySchedules.createdAt))
           .limit(1);
+        
+        // If no confirmed schedule is found, get the latest schedule of any status
+        if (dailyScheduleResult.length === 0) {
+          console.log('No confirmed schedule found, getting latest schedule of any status');
+          dailyScheduleResult = await db
+            .select()
+            .from(dailySchedules)
+            .where(
+              and(
+                eq(dailySchedules.userId, req.user.id),
+                gte(dailySchedules.date, today)
+              )
+            )
+            .orderBy(desc(dailySchedules.createdAt))
+            .limit(1);
+        }
           
         if (dailyScheduleResult.length > 0) {
           dailyScheduleData = dailyScheduleResult[0];
