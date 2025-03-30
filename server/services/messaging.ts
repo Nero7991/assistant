@@ -182,11 +182,9 @@ export class MessagingService {
       messages: [{ role: "user", content: prompt }],
     };
     
-    // Add reasoning_effort for o1-mini (or other reasoning models)
-    if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
-      completionParams.reasoning_effort = "medium";
-    } else {
-      // Add temperature for non-reasoning models
+    // Only add temperature for non-reasoning models
+    // Reasoning models like o1-mini don't need temperature parameter
+    if (preferredModel !== "o1-mini" && preferredModel !== "o3-mini") {
       completionParams.temperature = 0.7;
     }
     
@@ -282,11 +280,9 @@ export class MessagingService {
       messages: [{ role: "user", content: prompt }],
     };
     
-    // Add reasoning_effort for o1-mini (or other reasoning models)
-    if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
-      completionParams.reasoning_effort = "medium";
-    } else {
-      // Add temperature for non-reasoning models
+    // Only add temperature for non-reasoning models
+    // Reasoning models like o1-mini don't need temperature parameter
+    if (preferredModel !== "o1-mini" && preferredModel !== "o3-mini") {
       completionParams.temperature = 0.7;
     }
     
@@ -463,11 +459,9 @@ export class MessagingService {
       response_format: { type: "json_object" },
     };
     
-    // Add reasoning_effort for o1-mini (or other reasoning models)
-    if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
-      completionParams.reasoning_effort = "medium";
-    } else {
-      // Add temperature for non-reasoning models
+    // Only add temperature for non-reasoning models
+    // Reasoning models like o1-mini don't need temperature parameter
+    if (preferredModel !== "o1-mini" && preferredModel !== "o3-mini") {
       completionParams.temperature = 0.7;
     }
     
@@ -723,11 +717,9 @@ export class MessagingService {
       response_format: { type: "json_object" },
     };
     
-    // Add reasoning_effort for o1-mini (or other reasoning models)
-    if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
-      completionParams.reasoning_effort = "medium";
-    } else {
-      // Add temperature for non-reasoning models
+    // Only add temperature for non-reasoning models
+    // Reasoning models like o1-mini don't need temperature parameter
+    if (preferredModel !== "o1-mini" && preferredModel !== "o3-mini") {
       completionParams.temperature = 0.7;
     }
     
@@ -1287,11 +1279,9 @@ export class MessagingService {
       response_format: { type: "json_object" },
     };
     
-    // Add reasoning_effort for o1-mini (or other reasoning models)
-    if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
-      completionParams.reasoning_effort = "medium";
-    } else {
-      // Add temperature for non-reasoning models
+    // Only add temperature for non-reasoning models
+    // Reasoning models like o1-mini don't need temperature parameter
+    if (preferredModel !== "o1-mini" && preferredModel !== "o3-mini") {
       completionParams.temperature = 0.3;
     }
     

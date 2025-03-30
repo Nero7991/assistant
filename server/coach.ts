@@ -77,14 +77,11 @@ export async function generateCoachingResponse(
         ...(previousResponses?.map(msg => ({ role: "assistant" as const, content: msg })) || []),
         { role: "user", content: checkInContent }
       ],
-      response_format: { type: "json_object" }
     };
     
-    // Add reasoning_effort for o1-mini (or other reasoning models)
-    if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
-      completionParams.reasoning_effort = "medium";
-    } else {
-      // Add temperature for non-reasoning models
+    // Only add response_format for models that support it (not o1-mini/o3-mini)
+    if (preferredModel !== "o1-mini" && preferredModel !== "o3-mini") {
+      completionParams.response_format = { type: "json_object" };
       completionParams.temperature = 0.7;
     }
     
@@ -206,11 +203,9 @@ export async function generateDailySchedule(
       max_tokens: 1500
     };
     
-    // Add reasoning_effort for o1-mini (or other reasoning models)
-    if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
-      completionParams.reasoning_effort = "medium";
-    } else {
-      // Add temperature for non-reasoning models
+    // Only add temperature for non-reasoning models
+    // Reasoning models like o1-mini don't need temperature parameter
+    if (preferredModel !== "o1-mini" && preferredModel !== "o3-mini") {
       completionParams.temperature = 0.7;
     }
     

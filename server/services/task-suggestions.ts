@@ -185,14 +185,11 @@ export async function generateTaskSuggestions(
           content: userPrompt
         }
       ],
-      response_format: { type: "json_object" }
     };
     
-    // Add reasoning_effort for o1-mini (or other reasoning models)
-    if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
-      completionParams.reasoning_effort = "medium";
-    } else {
-      // Add temperature for non-reasoning models
+    // Only add response_format for models that support it (not o1-mini/o3-mini)
+    if (preferredModel !== "o1-mini" && preferredModel !== "o3-mini") {
+      completionParams.response_format = { type: "json_object" };
       completionParams.temperature = 0.7;
     }
     
