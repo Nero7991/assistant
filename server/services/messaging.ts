@@ -300,6 +300,11 @@ export class MessagingService {
   ): Promise<{
     message: string;
     scheduleUpdates?: ScheduleUpdate[];
+    scheduledMessages?: Array<{
+      type: string;
+      scheduledFor: string;
+      content: string;
+    }>;
   }> {
     if (!context.userResponse) {
       throw new Error("User response is required for response generation");
@@ -382,46 +387,41 @@ export class MessagingService {
       The user just messaged you: "${context.userResponse}"
       
       CONTEXT ANALYSIS INSTRUCTIONS:
-      1. Read the conversation history carefully to understand the context.
-      2. Determine if this is a response to a proposed schedule (look for PROPOSED_SCHEDULE_AWAITING_CONFIRMATION).
-      3. Determine if the user is confirming a schedule (saying "yes", "looks good", "that works", etc.)
-      4. Determine if the user is requesting a new schedule or modification.
-      5. Determine if the user wants to free up time or clear their schedule.
+      1. Understand the user's intention from their natural language request
+      2. If user wants to add a reminder, check-in, or follow-up, create an appropriate scheduleUpdate
+      3. If user wants to modify their schedule, interpret which tasks they're referring to
+      4. If user is confirming a schedule you proposed, prepare the final schedule
+      5. Extract specific times, tasks, or activities mentioned by the user
       
-      RESPONSE FORMATTING INSTRUCTIONS:
+      RESPONSE CAPABILITIES:
+      1. SCHEDULE TASKS: Use scheduleUpdates with action "reschedule" to set times for tasks
+      2. CREATE CHECK-INS: Include scheduledMessages to create follow-ups at specific times
+      3. COMPLETE TASKS: Use scheduleUpdates with action "complete" to mark tasks as done
+      4. CREATE NEW TASKS: Use scheduleUpdates with action "create" to add new tasks
+      5. CLEAR SCHEDULE: Use appropriate scheduleUpdates to modify the user's day
       
-      For SCHEDULE CONFIRMATION (if user is positively confirming a previously proposed schedule):
-      - Include the EXACT phrase "The final schedule is as follows:" followed by the schedule items
-      - Include task IDs and specific times
-      - Format your response as clear bullet points
-      - Provide a friendly confirmation message before the schedule
-      
-      For SCHEDULE PROPOSAL (if user is requesting a new schedule or changes):
-      - Create a specific proposed schedule with task IDs and times
-      - Do NOT include "The final schedule is as follows:" phrase
-      - End with a question asking for confirmation
-      - Include "PROPOSED_SCHEDULE_AWAITING_CONFIRMATION" at the end of your message
-      
-      For FREE TIME REQUEST (if user wants to clear or free up time):
-      - Create a minimal schedule that gives them the free time they want
-      - Keep at most 1 essential task if needed
-      - Specify time blocks that are completely free
-      - Include "PROPOSED_SCHEDULE_AWAITING_CONFIRMATION" at the end of your message
-      
-      For REGULAR CONVERSATIONS (if not schedule related):
-      - Keep your response brief, friendly and concise (under 800 characters)
-      - Be conversational and supportive
-      - Use minimal text with clear sentences
-      - Do NOT include any schedule markers
+      SCHEDULE CONFIRMATION:
+      - If the user confirms a proposed schedule, include "The final schedule is as follows:"
+      - For new schedule proposals, do NOT include the confirmation phrase
+      - For schedule proposals, add "PROPOSED_SCHEDULE_AWAITING_CONFIRMATION" at the end
       
       ALWAYS FORMAT YOUR RESPONSE AS A JSON OBJECT:
       {
-        "message": "Your response to the user including any necessary markers",
-        "scheduleUpdates": [  // Include task updates only for schedule-related messages
+        "message": "Your conversational response to the user",
+        "scheduleUpdates": [  // For updating tasks or creating new ones
           {
-            "taskId": 123,   // Must be a valid task ID from the list above
-            "action": "reschedule", 
-            "scheduledTime": "16:30"  // Use 24-hour format
+            "taskId": 123,   // Task ID or descriptive string for new tasks
+            "action": "reschedule|complete|skip|create", 
+            "scheduledTime": "16:30",  // 24-hour format
+            "title": "New task name",  // Only for action "create"
+            "description": "Details"   // Only for action "create"
+          }
+        ],
+        "scheduledMessages": [  // For creating follow-up messages/reminders
+          {
+            "type": "follow_up",
+            "scheduledFor": "20:30",  // 24-hour format
+            "content": "Brief description of what this reminder is about"
           }
         ]
       }
@@ -543,6 +543,7 @@ export class MessagingService {
       return {
         message: parsed.message,
         scheduleUpdates: parsed.scheduleUpdates || [],
+        scheduledMessages: parsed.scheduledMessages || [],
       };
     } catch (error) {
       console.error("Failed to parse LLM response as JSON:", error);
@@ -553,6 +554,11 @@ export class MessagingService {
   async generateRescheduleMessage(context: MessageContext): Promise<{
     message: string;
     scheduleUpdates?: ScheduleUpdate[];
+    scheduledMessages?: Array<{
+      type: string;
+      scheduledFor: string;
+      content: string;
+    }>;
   }> {
     const activeTasks = context.tasks.filter(
       (task) => task.status === "active",
@@ -775,6 +781,7 @@ export class MessagingService {
       return {
         message: parsed.message,
         scheduleUpdates: parsed.scheduleUpdates,
+        scheduledMessages: parsed.scheduledMessages || [],
       };
     } catch (error) {
       console.error("Failed to parse LLM response as JSON:", error);
@@ -1158,11 +1165,80 @@ export class MessagingService {
     }
   }
 
+  async processScheduledMessages(
+    userId: number,
+    messages: Array<{
+      type: string;
+      scheduledFor: string;
+      content: string;
+    }>
+  ): Promise<void> {
+    try {
+      if (!messages || messages.length === 0) {
+        return;
+      }
+      
+      console.log(`Processing ${messages.length} scheduled messages for user ${userId}`);
+      
+      const user = await storage.getUser(userId);
+      if (!user) {
+        console.error(`Can't schedule messages: User ${userId} not found`);
+        return;
+      }
+      
+      const now = new Date();
+      const today = new Date(now);
+      
+      for (const message of messages) {
+        try {
+          // Parse the time (supports 24-hour format like "20:30")
+          const [hours, minutes] = message.scheduledFor.split(':').map(n => parseInt(n, 10));
+          
+          if (isNaN(hours) || isNaN(minutes)) {
+            console.error(`Invalid time format in scheduled message: ${message.scheduledFor}`);
+            continue;
+          }
+          
+          // Create a date object for the scheduled time
+          const scheduledDateTime = new Date(today);
+          scheduledDateTime.setHours(hours, minutes, 0, 0);
+          
+          // If the time is in the past for today, schedule it for tomorrow
+          if (scheduledDateTime < now) {
+            scheduledDateTime.setDate(scheduledDateTime.getDate() + 1);
+            console.log(`Time ${message.scheduledFor} is in the past, scheduling for tomorrow instead`);
+          }
+          
+          // Create the message schedule
+          await db.insert(messageSchedules).values({
+            userId: userId,
+            type: message.type || 'follow_up',
+            scheduledFor: scheduledDateTime,
+            content: message.content || 'Check-in',
+            status: 'pending',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
+          
+          console.log(`Created ${message.type} message scheduled for ${scheduledDateTime.toISOString()}`);
+        } catch (error) {
+          console.error(`Error scheduling message: ${error}`);
+        }
+      }
+    } catch (error) {
+      console.error(`Error processing scheduled messages: ${error}`);
+    }
+  }
+
   async processScheduleUpdates(
     userId: number,
     updates: ScheduleUpdate[],
   ): Promise<void> {
     try {
+      if (!updates || updates.length === 0) {
+        return;
+      }
+      
       console.log(
         `Processing ${updates.length} schedule updates for user ${userId}`,
       );
@@ -1416,12 +1492,13 @@ export class MessagingService {
     const scheduledFor = new Date(Date.now() + followUpDelay * 60000);
 
     await db.insert(messageSchedules).values({
-      userId,
+      userId: userId,
       type: "follow_up",
-      scheduledFor,
+      scheduledFor: scheduledFor,
       status: "pending",
       metadata: { responseType } as any,
       createdAt: new Date(),
+      updatedAt: new Date(),
     });
 
     console.log(

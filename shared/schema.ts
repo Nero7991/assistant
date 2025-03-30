@@ -128,13 +128,15 @@ export const messageHistory = pgTable("message_history", {
 export const messageSchedules = pgTable("message_schedules", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull(),
-  type: text("type").notNull(), // 'morning_message', 'follow_up', 'reminder'
+  type: text("type").notNull().default('follow_up'), // 'morning_message', 'follow_up', 'reminder'
+  content: text("content"), // Optional content for the message
   scheduledFor: timestamp("scheduled_for").notNull(),
   sentAt: timestamp("sent_at"),
   status: text("status").notNull().default('pending'), // 'pending', 'sent', 'cancelled'
   metadata: jsonb("metadata"), // Store context for message generation
   deletedAt: timestamp("deleted_at"), // Soft delete field
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
 // Daily schedule table to store the confirmed schedules

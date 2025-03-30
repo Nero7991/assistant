@@ -641,6 +641,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Generate the schedule with the AI using the user's preferred model
       const llmResponse = await generateDailySchedule(
+        req.user.id,
         tasks, 
         facts, 
         customInstructions, 
@@ -1532,14 +1533,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const result = await Promise.race([
           messagingService.generateRescheduleMessage(messagingContext),
           timeoutPromise
-        ]);
+        ]) as { message: string; scheduleUpdates?: any[] };
         
         res.json({
           model: preferredModel,
           message: result.message,
           scheduleUpdates: result.scheduleUpdates || []
         });
-      } catch (error) {
+      } catch (error: any) {
         if (error.message === "Request timed out after 15 seconds") {
           console.log("Test request timed out, but that's expected during high API load");
           res.json({

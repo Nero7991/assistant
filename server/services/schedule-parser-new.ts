@@ -300,18 +300,36 @@ export async function createDailyScheduleFromParsed(
         return validItem;
       });
       
+      // Log the validation results for debugging
+      console.log('Existing task IDs:', existingTaskIds);
+      console.log('Existing subtask IDs:', existingSubtaskIds);
+      console.log('Original matched items:', JSON.stringify(matchedItems.map(item => ({ 
+        title: item.title, 
+        taskId: item.taskId, 
+        subtaskId: item.subtaskId 
+      }))));
+      console.log('Valid items after filtering:', JSON.stringify(validItems.map(item => ({ 
+        title: item.title, 
+        taskId: item.taskId, 
+        subtaskId: item.subtaskId 
+      }))));
+      
+      
       // Try to insert each valid schedule item
       for (const item of validItems) {
         await db
           .insert(scheduleItems)
           .values({
+            userId: userId,
+            date: new Date(),
             scheduleId: newSchedule.id,
-            taskId: item.taskId || null, // Make sure to use null if taskId is undefined
-            subtaskId: item.subtaskId || null, // Include the subtask ID if available
+            taskId: item.taskId !== undefined ? item.taskId : null, // Make sure to use null if taskId is undefined
+            subtaskId: item.subtaskId !== undefined ? item.subtaskId : null, // Include the subtask ID if available
             title: item.title,
             description: item.description || null,
             startTime: item.startTime,
-            endTime: item.endTime || null
+            endTime: item.endTime || null,
+            status: 'scheduled'
           });
       }
       
