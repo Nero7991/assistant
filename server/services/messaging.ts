@@ -451,21 +451,31 @@ export class MessagingService {
     // Different models require different parameters
     let completionParams: any = {
       model: preferredModel,
-      messages: [
+    };
+    
+    // o1-mini and o3-mini models don't support system messages or response_format
+    if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
+      // For models that don't support system role, combine prompt with first message
+      console.log("Using model without system role support, adding instructions to user message");
+      
+      // Combine the instructions into the user message for models that don't support system role
+      const combinedUserMessage = `${prompt}\n\nUser's message: ${context.userResponse}`;
+      
+      // Set only compatible parameters
+      completionParams.messages = [
+        { role: "user", content: combinedUserMessage }
+      ];
+    } else {
+      // For models that support system role, use normal message structure
+      completionParams.messages = [
         { role: "system", content: prompt },
         ...conversationHistory,
         { role: "user", content: context.userResponse },
-      ],
-    };
-    
-    // Add response_format only for models that support it
-    if (preferredModel !== "o1-mini" && preferredModel !== "o3-mini") {
+      ];
+      
+      // Add response_format for models that support it
       completionParams.response_format = { type: "json_object" };
       completionParams.temperature = 0.7;
-    } else {
-      // Ensure the prompt is very clear about JSON format for models 
-      // that don't support response_format parameter
-      console.log("Using model without response_format support, relying on clear instructions");
     }
     
     const response = await openai.chat.completions.create(completionParams);
@@ -1286,25 +1296,39 @@ export class MessagingService {
     
     // Different models require different parameters
     let completionParams: any = {
-      model: preferredModel,
-      messages: [
-        {
-          role: "system",
-          content:
-            "Analyze the sentiment and urgency of this ADHD coaching response from a user. Return JSON with: type (positive/negative/neutral), needsFollowUp (boolean), urgency (1-5 where 5 is most urgent).",
-        },
-        { role: "user", content: text },
-      ],
+      model: preferredModel
     };
     
-    // Add response_format only for models that support it
-    if (preferredModel !== "o1-mini" && preferredModel !== "o3-mini") {
+    // o1-mini and o3-mini models don't support system messages or response_format
+    if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
+      // For models that don't support system role, include the instructions in the user message
+      const instructionsAndText = `
+        Analyze the sentiment and urgency of this ADHD coaching response from a user. 
+        Return JSON with: type (positive/negative/neutral), needsFollowUp (boolean), urgency (1-5 where 5 is most urgent).
+        
+        User's response: ${text}
+        
+        Respond ONLY with a JSON object and nothing else:
+        {"type": "positive|negative|neutral", "needsFollowUp": true|false, "urgency": 1-5}
+      `;
+      
+      completionParams.messages = [
+        { role: "user", content: instructionsAndText }
+      ];
+      
+      console.log("Using model without system role support, adding instructions to user message");
+    } else {
+      // For models that support system role and response_format
+      completionParams.messages = [
+        {
+          role: "system",
+          content: "Analyze the sentiment and urgency of this ADHD coaching response from a user. Return JSON with: type (positive/negative/neutral), needsFollowUp (boolean), urgency (1-5 where 5 is most urgent)."
+        },
+        { role: "user", content: text }
+      ];
+      
       completionParams.response_format = { type: "json_object" };
       completionParams.temperature = 0.3;
-    } else {
-      // Ensure the prompt is very clear about JSON format for models 
-      // that don't support response_format parameter
-      console.log("Using model without response_format support, relying on clear instructions");
     }
     
     const response = await openai.chat.completions.create(completionParams);
