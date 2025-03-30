@@ -75,13 +75,25 @@ Your task is to create a daily schedule that:
 7. Includes specific times for each activity in 24-hour format (e.g., "09:00 - 10:30")
 8. CLEARLY INDICATES which main task each subtask belongs to when scheduling subtasks
 
-EXTREMELY IMPORTANT: Your response MUST ALWAYS include a section with the EXACT marker "${SCHEDULE_MARKER}" followed by a schedule with each item on a separate line with a time specified. This marker is essential and MUST appear exactly as written. Example format:
+EXTREMELY IMPORTANT: Your response MUST ALWAYS include a section with the EXACT marker "${SCHEDULE_MARKER}" followed by a schedule with each item on a separate line with a time specified. This marker is essential and MUST appear exactly as written.
+
+FORMATTING INSTRUCTIONS FOR SCHEDULE ITEMS:
+1. Do NOT include "Task ID:" in the title of any schedule item
+2. Instead, provide task IDs and subtask IDs in a specific format at the end of each item
+3. For tasks, use the format: "10:00 - 11:00 Design User Interface (Task ID: 43)"
+4. For subtasks, use the format: "10:00 - 11:00 Create wireframes (Subtask ID: 75)"
+5. Do NOT include colons at the beginning of activity titles
+6. Keep the activity title clean and readable, without any extraneous information
+
+Example of correctly formatted schedule:
 
 ${SCHEDULE_MARKER}
-08:00 - 08:30 Morning routine
-08:30 - 09:15 Work on Project X
-09:15 - 09:30 Short break
-10:00 - 11:00 Design User Interface (for: ADHD Coach project)
+08:00 Morning routine
+08:30 Work on Project X (Task ID: 12)
+09:15 Short break
+10:00 Design User Interface (Task ID: 43)
+10:30 Create wireframes (Subtask ID: 75)
+11:00 Short break
 ...
 
 Provide a friendly, encouraging message before presenting the schedule. After the schedule, include 2-3 tips for staying on track.`;

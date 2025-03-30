@@ -71,11 +71,38 @@ export function parseScheduleFromLLMResponse(llmResponse: string): ParsedSchedul
       // Remove any bullet points or other common markers
       title = title.replace(/^[•\-–—*]\s*/, '');
       
+      // Remove any leading ": " prefix in the title
+      if (title.startsWith(': ')) {
+        title = title.substring(2).trim();
+      }
+      
+      // Extract task ID and subtask ID if present
+      let taskId: number | undefined = undefined;
+      let subtaskId: number | undefined = undefined;
+      
+      // Check for subtask ID pattern: "Something (Subtask ID: 123)"
+      const subtaskIdMatch = title.match(/.*\(Subtask ID:?\s*(\d+)\)/i);
+      if (subtaskIdMatch) {
+        subtaskId = parseInt(subtaskIdMatch[1], 10);
+        // Remove the subtask ID from the title
+        title = title.replace(/\s*\(Subtask ID:?\s*\d+\)/i, '').trim();
+      }
+      
+      // Check for task ID pattern: "Something (Task ID: 123)"
+      const taskIdMatch = title.match(/.*\(Task ID:?\s*(\d+)\)/i);
+      if (taskIdMatch) {
+        taskId = parseInt(taskIdMatch[1], 10);
+        // Remove the task ID from the title
+        title = title.replace(/\s*\(Task ID:?\s*\d+\)/i, '').trim();
+      }
+      
       if (title && startTime) {
         scheduleItems.push({
           title,
           startTime,
-          endTime
+          endTime,
+          taskId,
+          subtaskId
         });
       }
     }
