@@ -90,6 +90,11 @@ export class MessagingService {
     const prompt = `
       You are an ADHD coach and accountability partner. Create a friendly, to-the-point morning message for ${context.user.username}.
       Current date and time: ${formattedDateTime}
+      
+      User time preferences:
+      - Wake up time: ${context.user.wakeTime || "08:00"}
+      - Routine start time: ${context.user.routineStartTime || "09:30"}
+      - Sleep time: ${context.user.sleepTime || "23:00"}
 
       Here's what you know about the user (use this to inform your tone, but don't explicitly mention these facts):
       ${context.facts.map((fact) => `- ${fact.category}: ${fact.content}`).join("\n")}
@@ -196,6 +201,11 @@ export class MessagingService {
     const prompt = `
       You are an ADHD coach and accountability partner. Create a friendly, to-the-point follow-up message for ${context.user.username}.
       Current date and time: ${formattedDateTime}
+      
+      User time preferences:
+      - Wake up time: ${context.user.wakeTime || "08:00"}
+      - Routine start time: ${context.user.routineStartTime || "09:30"}
+      - Sleep time: ${context.user.sleepTime || "23:00"}
       
       Here's what you know about the user (use this to inform your tone, but don't explicitly mention these facts):
       ${context.facts.map((fact) => `- ${fact.category}: ${fact.content}`).join("\n")}
@@ -315,6 +325,11 @@ export class MessagingService {
     const prompt = `
       You are an ADHD coach and accountability partner chatting with ${context.user.username}.
       Current date and time: ${formattedDateTime}
+      
+      User time preferences:
+      - Wake up time: ${context.user.wakeTime || "08:00"}
+      - Routine start time: ${context.user.routineStartTime || "09:30"}
+      - Sleep time: ${context.user.sleepTime || "23:00"}
       
       Here's what you know about the user (use this to inform your tone, but don't explicitly mention these facts):
       ${context.facts.map((fact) => `- ${fact.category}: ${fact.content}`).join("\n")}
@@ -535,6 +550,11 @@ export class MessagingService {
     const prompt = `
       You are an ADHD coach and accountability partner helping ${context.user.username} reschedule their day.
       Current date and time: ${currentDateTime}
+      
+      User time preferences:
+      - Wake up time: ${context.user.wakeTime || "08:00"}
+      - Routine start time: ${context.user.routineStartTime || "09:30"}
+      - Sleep time: ${context.user.sleepTime || "23:00"}
       
       Here's what you know about the user (use this to inform your tone, but don't explicitly mention these facts):
       ${context.facts.map((fact) => `- ${fact.category}: ${fact.content}`).join("\n")}

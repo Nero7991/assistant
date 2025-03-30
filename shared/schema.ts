@@ -14,7 +14,10 @@ export const users = pgTable("users", {
   isEmailVerified: boolean("is_email_verified").notNull().default(false),
   allowEmailNotifications: boolean("allow_email_notifications").notNull().default(true),
   allowPhoneNotifications: boolean("allow_phone_notifications").notNull().default(false),
-  preferredMessageTime: text("preferred_message_time"), // Format: "HH:mm"
+  wakeTime: text("wake_time").default("08:00"), // Format: "HH:mm", Default: 8am
+  routineStartTime: text("routine_start_time").default("09:30"), // Format: "HH:mm", Default: 9:30am
+  sleepTime: text("sleep_time").default("23:00"), // Format: "HH:mm", Default: 11pm
+  preferredMessageTime: text("preferred_message_time"), // Format: "HH:mm", Will be phased out in favor of routineStartTime
   timeZone: text("time_zone"),
   isActive: boolean("is_active").notNull().default(true),
   deactivatedAt: timestamp("deactivated_at"),
@@ -217,6 +220,9 @@ export const insertUserSchema = createInsertSchema(users).extend({
   contactPreference: z.enum(["whatsapp", "imessage", "email"], {
     required_error: "Please select a contact preference",
   }),
+  wakeTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, "Invalid time format. Use HH:mm").default("08:00"),
+  routineStartTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, "Invalid time format. Use HH:mm").default("09:30"),
+  sleepTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, "Invalid time format. Use HH:mm").default("23:00"),
   preferredMessageTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/, "Invalid time format. Use HH:mm").optional(),
   timeZone: z.string().optional(),
 });

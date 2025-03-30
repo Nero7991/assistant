@@ -47,7 +47,29 @@ const tableCreationQueries = [
     "changes" JSONB NOT NULL,
     "created_at" TIMESTAMP NOT NULL DEFAULT NOW(),
     CONSTRAINT "schedule_revisions_schedule_id_fkey" FOREIGN KEY ("schedule_id") REFERENCES "daily_schedules"("id") ON DELETE CASCADE
-  )`
+  )`,
+  
+  // Alter users table to add the new time-related columns if they don't exist
+  `DO $$ 
+  BEGIN 
+    BEGIN
+      ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "wake_time" TEXT DEFAULT '08:00';
+    EXCEPTION
+      WHEN duplicate_column THEN NULL;
+    END;
+    
+    BEGIN
+      ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "routine_start_time" TEXT DEFAULT '09:30';
+    EXCEPTION
+      WHEN duplicate_column THEN NULL;
+    END;
+    
+    BEGIN
+      ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "sleep_time" TEXT DEFAULT '23:00';
+    EXCEPTION
+      WHEN duplicate_column THEN NULL;
+    END;
+  END $$;`
 ];
 
 /**

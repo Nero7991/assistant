@@ -39,6 +39,9 @@ export default function AccountPage() {
   const [confirmText, setConfirmText] = useState("");
   const [timeZone, setTimeZone] = useState<string>("");
   const [preferredMessageTime, setPreferredMessageTime] = useState<string>("");
+  const [wakeTime, setWakeTime] = useState<string>("08:00");
+  const [routineStartTime, setRoutineStartTime] = useState<string>("09:30");
+  const [sleepTime, setSleepTime] = useState<string>("23:00");
   
   // Get browser timezone on component mount
   useEffect(() => {
@@ -57,6 +60,9 @@ export default function AccountPage() {
       }
       
       setPreferredMessageTime(user.preferredMessageTime || "08:00");
+      setWakeTime(user.wakeTime || "08:00");
+      setRoutineStartTime(user.routineStartTime || "09:30"); 
+      setSleepTime(user.sleepTime || "23:00");
     }
   }, [user]);
 
@@ -72,10 +78,29 @@ export default function AccountPage() {
     try {
       setIsSaving(true);
       
+      // Validate time inputs
+      const timeInputs = {
+        wakeTime, 
+        routineStartTime, 
+        sleepTime, 
+        preferredMessageTime
+      };
+      
+      // Check if times are valid HH:MM format
+      const timeRegex = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+      for (const [key, value] of Object.entries(timeInputs)) {
+        if (!timeRegex.test(value)) {
+          throw new Error(`Invalid time format for ${key.replace(/([A-Z])/g, ' $1').toLowerCase()}. Please use HH:MM format.`);
+        }
+      }
+      
       // Call the API to update the user settings
       const response = await apiRequest("PATCH", "/api/user", {
         timeZone,
-        preferredMessageTime
+        preferredMessageTime,
+        wakeTime,
+        routineStartTime,
+        sleepTime
       });
       
       if (response.ok) {
@@ -246,6 +271,81 @@ export default function AccountPage() {
                 value={preferredMessageTime}
                 onChange={(e) => setPreferredMessageTime(e.target.value)}
               />
+            </div>
+
+            <h3 className="text-lg font-semibold pt-2">Daily Schedule Preferences</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="wake-time" className="flex items-center gap-2">
+                    Wake Up Time
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Info size={16} className="text-muted-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="w-60">The time you typically wake up each day.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </Label>
+                </div>
+                <Input 
+                  id="wake-time"
+                  type="time"
+                  value={wakeTime}
+                  onChange={(e) => setWakeTime(e.target.value)}
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="routine-start-time" className="flex items-center gap-2">
+                    Routine Start Time
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Info size={16} className="text-muted-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="w-60">The time you start your daily routine (after morning essentials).</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </Label>
+                </div>
+                <Input 
+                  id="routine-start-time"
+                  type="time"
+                  value={routineStartTime}
+                  onChange={(e) => setRoutineStartTime(e.target.value)}
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="sleep-time" className="flex items-center gap-2">
+                    Sleep Time
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Info size={16} className="text-muted-foreground cursor-help" />
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p className="w-60">The time you typically go to bed each night.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </Label>
+                </div>
+                <Input 
+                  id="sleep-time"
+                  type="time"
+                  value={sleepTime}
+                  onChange={(e) => setSleepTime(e.target.value)}
+                />
+              </div>
             </div>
           </CardContent>
           <CardFooter>

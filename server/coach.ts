@@ -18,6 +18,11 @@ const DAILY_SCHEDULE_PROMPT = `You are an ADHD coach helping create a structured
 
 Current date and time: {currentDateTime}
 
+User time preferences:
+- Wake up time: {wakeTime}
+- Routine start time: {routineStartTime}
+- Sleep time: {sleepTime}
+
 User facts:
 {userFactsFormatted}
 
@@ -29,8 +34,9 @@ Your task is to create a daily schedule that:
 2. Breaks down the day into manageable time blocks
 3. Includes time for breaks, transitions, and self-care
 4. Prioritizes important tasks based on deadlines and importance
-5. Provides a realistic and achievable schedule
-6. Includes specific times for each activity in 24-hour format (e.g., "09:00 - 10:30")
+5. Provides a realistic and achievable schedule 
+6. Respects the user's wake time, routine start time, and sleep time
+7. Includes specific times for each activity in 24-hour format (e.g., "09:00 - 10:30")
 
 EXTREMELY IMPORTANT: Your response MUST ALWAYS include a section with the EXACT marker "${SCHEDULE_MARKER}" followed by a schedule with each item on a separate line with a time specified. This marker is essential and MUST appear exactly as written. Example format:
 
@@ -92,7 +98,12 @@ export async function generateDailySchedule(
   tasks: Task[],
   facts: KnownUserFact[],
   customInstructions?: string,
-  userTimeZone?: string
+  userTimeZone?: string,
+  userTimePreferences?: {
+    wakeTime?: string,
+    routineStartTime?: string,
+    sleepTime?: string
+  }
 ): Promise<string> {
   try {
     // Format current date and time in user's timezone if provided
@@ -106,6 +117,11 @@ export async function generateDailySchedule(
     } else {
       currentDateTime = new Date().toISOString();
     }
+    
+    // Set default time preferences if not provided
+    const wakeTime = userTimePreferences?.wakeTime || "08:00";
+    const routineStartTime = userTimePreferences?.routineStartTime || "09:30";
+    const sleepTime = userTimePreferences?.sleepTime || "23:00";
     
     // Format user facts
     const userFactsFormatted = facts.length > 0
@@ -147,6 +163,9 @@ export async function generateDailySchedule(
     // Replace placeholders in the prompt
     let promptContent = DAILY_SCHEDULE_PROMPT
       .replace('{currentDateTime}', currentDateTime)
+      .replace('{wakeTime}', wakeTime)
+      .replace('{routineStartTime}', routineStartTime)
+      .replace('{sleepTime}', sleepTime)
       .replace('{userFactsFormatted}', userFactsFormatted)
       .replace('{tasksFormatted}', tasksFormatted);
     

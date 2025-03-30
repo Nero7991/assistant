@@ -229,7 +229,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         allowEmailNotifications,
         allowPhoneNotifications,
         preferredMessageTime,
-        timeZone
+        timeZone,
+        wakeTime,
+        routineStartTime,
+        sleepTime
       } = req.body;
       
       // Build the update object with only defined values
@@ -243,6 +246,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (allowPhoneNotifications !== undefined) updateData.allowPhoneNotifications = allowPhoneNotifications;
       if (preferredMessageTime !== undefined) updateData.preferredMessageTime = preferredMessageTime;
       if (timeZone !== undefined) updateData.timeZone = timeZone;
+      if (wakeTime !== undefined) updateData.wakeTime = wakeTime;
+      if (routineStartTime !== undefined) updateData.routineStartTime = routineStartTime;
+      if (sleepTime !== undefined) updateData.sleepTime = sleepTime;
       
       // Apply the update
       const updatedUser = await storage.updateUser({
@@ -579,8 +585,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Optional custom instructions
       const { customInstructions } = req.body;
       
+      // Get user time preferences
+      const timePreferences = {
+        wakeTime: req.user.wakeTime || "08:00",
+        routineStartTime: req.user.routineStartTime || "09:30",
+        sleepTime: req.user.sleepTime || "23:00"
+      };
+      
       // Generate the schedule with the AI
-      const llmResponse = await generateDailySchedule(tasks, facts, customInstructions);
+      const llmResponse = await generateDailySchedule(
+        tasks, 
+        facts, 
+        customInstructions, 
+        req.user.timeZone,
+        timePreferences
+      );
       
       // Parse the schedule from the LLM response
       const parsedSchedule = parseScheduleFromLLMResponse(llmResponse);
