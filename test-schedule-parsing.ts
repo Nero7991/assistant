@@ -1,12 +1,11 @@
 /**
- * Test Schedule Formatting
+ * Test Schedule Parsing
  * 
- * This script tests the updated schedule parsing functionality
- * to verify that task IDs and subtask IDs are correctly extracted from
+ * This script tests the schedule parsing functionality to verify
+ * that task IDs and subtask IDs are correctly extracted from
  * formatted schedule items.
  */
-// Use the default parser instead of the new one
-import { parseScheduleFromLLMResponse } from './server/services/schedule-parser.js';
+import { parseScheduleFromLLMResponse } from './server/services/schedule-parser';
 
 // Test with a properly formatted sample response
 const sampleResponse = `

@@ -1,0 +1,58 @@
+Updated task 19 with start time 16:30
+Updated task 43 with start time 20:00
+Updated task 20 with start time 21:30
+Error creating schedule tables: error: insert or update on table "schedule_items" violates foreign key constraint "schedule_items_task_id_fkey"
+    at file:///home/runner/workspace/node_modules/@neondatabase/serverless/index.mjs:1345:74
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async createDailyScheduleFromParsed (/home/runner/workspace/server/services/schedule-parser-new.ts:278:9)
+    at async MessagingService.handleUserResponse (/home/runner/workspace/server/services/messaging.ts:1039:32)
+    at async <anonymous> (/home/runner/workspace/server/routes.ts:1430:7) {
+  length: 279,
+  severity: 'ERROR',
+  code: '23503',
+  detail: 'Key (task_id)=(41) is not present in table "tasks".',
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: 'public',
+  table: 'schedule_items',
+  column: undefined,
+  dataType: undefined,
+  constraint: 'schedule_items_task_id_fkey',
+  file: 'ri_triggers.c',
+  line: '2608',
+  routine: 'ri_ReportViolation'
+}
+ERROR: Error processing schedule: error: insert or update on table "schedule_items" violates foreign key constraint "schedule_items_task_id_fkey"
+    at file:///home/runner/workspace/node_modules/@neondatabase/serverless/index.mjs:1345:74
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async createDailyScheduleFromParsed (/home/runner/workspace/server/services/schedule-parser-new.ts:278:9)
+    at async MessagingService.handleUserResponse (/home/runner/workspace/server/services/messaging.ts:1039:32)
+    at async <anonymous> (/home/runner/workspace/server/routes.ts:1430:7) {
+  length: 279,
+  severity: 'ERROR',
+  code: '23503',
+  detail: 'Key (task_id)=(41) is not present in table "tasks".',
+  hint: undefined,
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: 'public',
+  table: 'schedule_items',
+  column: undefined,
+  dataType: undefined,
+  constraint: 'schedule_items_task_id_fkey',
+  file: 'ri_triggers.c',
+  line: '2608',
+  routine: 'ri_ReportViolation'
+}
+Error creating schedule from parsed response: Error: Error processing schedule: insert or update on table "schedule_items" violates foreign key constraint "schedule_items_task_id_fkey"
+    at createDailyScheduleFromParsed (/home/runner/workspace/server/services/schedule-parser-new.ts:323:11)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MessagingService.handleUserResponse (/home/runner/workspace/server/services/messaging.ts:1039:32)
+    at async <anonymous> (/home/runner/workspace/server/routes.ts:1430:7)
+Using user's preferred model: o1-mini for sentiment analysis
+Using model without system role support, adding instructions to user message

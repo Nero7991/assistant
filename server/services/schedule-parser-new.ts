@@ -241,6 +241,9 @@ export async function createDailyScheduleFromParsed(
   tasks: (Task | TaskWithSubtasks)[]
 ): Promise<number> {
   try {
+    // Get all subtasks for the user for validation
+    const allSubtasks: Subtask[] = await storage.getAllSubtasks(userId);
+    
     // Match items with tasks
     const matchedItems = matchScheduleItemsWithTasks(parsedSchedule.scheduleItems, tasks);
     
@@ -273,13 +276,37 @@ export async function createDailyScheduleFromParsed(
         })
         .returning();
       
-      // Try to insert each schedule item
-      for (const item of matchedItems) {
+      // Before inserting, verify which tasks and subtasks actually exist in the database
+      // This prevents foreign key constraint errors
+      const existingTaskIds = tasks.map(task => task.id);
+      const existingSubtaskIds = allSubtasks.map((subtask: Subtask) => subtask.id);
+      
+      // Filter out schedule items with invalid task or subtask IDs
+      const validItems = matchedItems.map(item => {
+        const validItem = { ...item };
+        
+        // Check if taskId exists in our known tasks
+        if (item.taskId && !existingTaskIds.includes(item.taskId)) {
+          console.log(`Warning: Task ID ${item.taskId} referenced in schedule does not exist, removing reference`);
+          validItem.taskId = undefined;
+        }
+        
+        // Check if subtaskId exists in our known subtasks
+        if (item.subtaskId && !existingSubtaskIds.includes(item.subtaskId)) {
+          console.log(`Warning: Subtask ID ${item.subtaskId} referenced in schedule does not exist, removing reference`);
+          validItem.subtaskId = undefined;
+        }
+        
+        return validItem;
+      });
+      
+      // Try to insert each valid schedule item
+      for (const item of validItems) {
         await db
           .insert(scheduleItems)
           .values({
             scheduleId: newSchedule.id,
-            taskId: item.taskId,
+            taskId: item.taskId || null, // Make sure to use null if taskId is undefined
             subtaskId: item.subtaskId || null, // Include the subtask ID if available
             title: item.title,
             description: item.description || null,
