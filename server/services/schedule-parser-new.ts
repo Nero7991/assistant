@@ -3,11 +3,17 @@ import { db } from "../db";
 import { storage } from "../storage";
 import { eq } from "drizzle-orm";
 
+// Extended Task interface that includes subtasks (loaded from relations)
+interface TaskWithSubtasks extends Task {
+  subtasks?: Subtask[];
+}
+
 // Marker that signals the start of the final schedule in the LLM response
 export const SCHEDULE_MARKER = "The final schedule is as follows:";
 
 interface ScheduleItem {
   taskId?: number;       // Link to existing task or null for standalone items
+  subtaskId?: number;    // Link to existing subtask or null for standalone items
   title: string;         // Title of the schedule item
   description?: string;  // Optional description
   startTime: string;     // Format: "HH:MM" in 24-hour format
@@ -118,11 +124,54 @@ function convertToStandardTimeFormat(timeStr: string): string {
 }
 
 /**
- * Try to match schedule items with existing tasks by name similarity or time
+ * Try to match schedule items with existing tasks and subtasks by name similarity or time
  */
-function matchScheduleItemsWithTasks(items: ScheduleItem[], tasks: Task[]): ScheduleItem[] {
+function matchScheduleItemsWithTasks(items: ScheduleItem[], tasks: (Task | TaskWithSubtasks)[]): ScheduleItem[] {
   return items.map(item => {
-    // Try to find a matching task by name similarity
+    // First, try to find a matching subtask in any of the tasks
+    let foundSubtask = null;
+    
+    // Iterate through all tasks to check their subtasks
+    for (const task of tasks) {
+      // Type guard to check if this task has subtasks property
+      if ('subtasks' in task && task.subtasks && task.subtasks.length > 0) {
+        // Look for a matching subtask
+        const matchingSubtask = task.subtasks.find((subtask: Subtask) => {
+          // Exact title match is a direct hit
+          if (subtask.title.toLowerCase() === item.title.toLowerCase()) {
+            return true;
+          }
+          
+          // If item title contains the subtask title, it's a likely match
+          if (item.title.toLowerCase().includes(subtask.title.toLowerCase())) {
+            return true;
+          }
+          
+          // If subtask has scheduled time matching the item's time, it's another signal
+          if (subtask.scheduledTime === item.startTime) {
+            return true;
+          }
+          
+          return false;
+        });
+        
+        if (matchingSubtask) {
+          foundSubtask = { subtask: matchingSubtask, parentTaskId: task.id };
+          break; // Found a match, no need to continue searching
+        }
+      }
+    }
+    
+    // If we found a matching subtask, return with both taskId and subtaskId
+    if (foundSubtask && foundSubtask.subtask.id) {
+      return {
+        ...item,
+        taskId: foundSubtask.parentTaskId,
+        subtaskId: foundSubtask.subtask.id
+      };
+    }
+    
+    // If no subtask match, try to find a matching task by name similarity
     const matchingTask = tasks.find(task => {
       // Exact title match is a direct hit
       if (task.title.toLowerCase() === item.title.toLowerCase()) {
@@ -162,7 +211,7 @@ function matchScheduleItemsWithTasks(items: ScheduleItem[], tasks: Task[]): Sche
 export async function createDailyScheduleFromParsed(
   userId: number, 
   parsedSchedule: ParsedSchedule,
-  tasks: Task[]
+  tasks: (Task | TaskWithSubtasks)[]
 ): Promise<number> {
   try {
     // Match items with tasks
@@ -204,6 +253,7 @@ export async function createDailyScheduleFromParsed(
           .values({
             scheduleId: newSchedule.id,
             taskId: item.taskId,
+            subtaskId: item.subtaskId || null, // Include the subtask ID if available
             title: item.title,
             description: item.description || null,
             startTime: item.startTime,
