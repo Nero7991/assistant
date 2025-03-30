@@ -184,9 +184,10 @@ export function registerScheduleManagementAPI(app: Express) {
         return res.status(404).json({ error: "Schedule item not found" });
       }
 
-      // Use 204 No Content for successful deletes to be consistent with message schedules endpoint
-      console.log(`API: Successfully deleted schedule item ${id}, sending 204 response`);
-      return res.status(204).end();
+      // Use 200 OK with a success message instead of 204 No Content
+      // This ensures we return a JSON response that our express wrapper can handle
+      console.log(`API: Successfully deleted schedule item ${id}, sending 200 response`);
+      res.status(200).json({ success: true, message: "Schedule item deleted successfully" });
     } catch (error) {
       console.error("Error soft-deleting schedule item:", error);
       res.status(500).json({ 
@@ -291,12 +292,13 @@ export function registerScheduleManagementAPI(app: Express) {
         return res.status(404).json({ error: "Message schedule not found" });
       }
 
-      // Use 204 No Content for consistency with the schedule items endpoint
-      console.log(`API: Successfully deleted message schedule ${id}, sending 204 response`);
-      return res.status(204).end();
+      // Use 200 OK with a success message instead of 204 No Content
+      // This ensures we return a JSON response that our express wrapper can handle
+      console.log(`API: Successfully deleted message schedule ${id}, sending 200 response`);
+      res.status(200).json({ success: true, message: "Message schedule deleted successfully" });
     } catch (error) {
       console.error("Error soft-deleting message schedule:", error);
-      return res.status(500).json({ 
+      res.status(500).json({ 
         error: "Failed to soft-delete message schedule",
         details: error instanceof Error ? error.message : String(error)
       });
