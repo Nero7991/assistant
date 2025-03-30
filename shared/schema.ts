@@ -1,7 +1,7 @@
 import { pgTable, text, serial, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -152,7 +152,9 @@ export const dailySchedules = pgTable("daily_schedules", {
 // Schedule item table for individual items in a daily schedule
 export const scheduleItems = pgTable("schedule_items", {
   id: serial("id").primaryKey(),
-  scheduleId: integer("schedule_id").notNull().references(() => dailySchedules.id, { onDelete: 'cascade' }),
+  userId: integer("user_id").notNull(), // User who owns this schedule item
+  scheduleId: integer("schedule_id").references(() => dailySchedules.id, { onDelete: 'set null' }), // Optional reference to a daily schedule
+  date: timestamp("date").notNull().defaultNow(), // Which date this item is scheduled for
   taskId: integer("task_id").references(() => tasks.id), // Optional link to a task
   subtaskId: integer("subtask_id").references(() => subtasks.id), // Optional link to a subtask
   title: text("title").notNull(),
@@ -198,6 +200,10 @@ export const dailySchedulesRelations = relations(dailySchedules, ({ one, many })
 }));
 
 export const scheduleItemsRelations = relations(scheduleItems, ({ one }) => ({
+  user: one(users, {
+    fields: [scheduleItems.userId],
+    references: [users.id],
+  }),
   schedule: one(dailySchedules, {
     fields: [scheduleItems.scheduleId],
     references: [dailySchedules.id],
@@ -379,6 +385,8 @@ export const insertDailyScheduleSchema = createInsertSchema(dailySchedules)
 
 export const insertScheduleItemSchema = createInsertSchema(scheduleItems)
   .pick({
+    userId: true,
+    date: true,
     scheduleId: true,
     taskId: true,
     subtaskId: true,

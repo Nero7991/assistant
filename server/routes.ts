@@ -10,6 +10,7 @@ import { messagingService } from "./services/messaging";
 import { generateTaskSuggestions } from "./services/task-suggestions";
 import { db } from "./db";
 import { eq, desc, and, gte } from "drizzle-orm";
+import { registerScheduleManagementAPI } from "./api/schedule-management";
 
 // Import interface and type definitions needed for chat functionality
 import type { MessageContext, ScheduleUpdate } from "./services/messaging";
@@ -20,6 +21,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // WhatsApp Webhook endpoint
   app.post("/api/webhook/whatsapp", handleWhatsAppWebhook);
+  
+  // Register schedule management API endpoints
+  registerScheduleManagementAPI(app);
 
   // Test endpoints for scheduling messages and testing webhooks (only in development)
   if (process.env.NODE_ENV === 'development' || true) { // Force enable for testing
