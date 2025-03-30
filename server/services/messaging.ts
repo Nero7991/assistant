@@ -502,59 +502,62 @@ export class MessagingService {
       }
     }
 
-    // Get current time to estimate what remains in the day
+    // Get current time in user's timezone for context
     let currentDateTime;
+    let currentTimeFormatted;
     let currentTime;
-    let hours;
-    let isLateHour = false;
-    let sleepTimeHour = 23; // Default sleep time (11 PM)
     
     // Format current date and time in user's timezone if available
     if (context.user.timeZone) {
       const now = new Date();
+      
+      // Full date and time format
       currentDateTime = now.toLocaleString('en-US', { 
         timeZone: context.user.timeZone,
         dateStyle: 'full',
         timeStyle: 'long'
       });
       
-      // Create a date object adjusted for the user's timezone
-      const options = { timeZone: context.user.timeZone };
-      const formatter = new Intl.DateTimeFormat('en-US', options);
-      const parts = formatter.formatToParts(now);
-      
-      // Extract hours from the formatted parts
-      const hourPart = parts.find(part => part.type === 'hour');
-      hours = hourPart ? parseInt(hourPart.value) : now.getHours();
+      // Time-only format (for display in schedule)
+      currentTimeFormatted = now.toLocaleString('en-US', {
+        timeZone: context.user.timeZone,
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      });
       
       currentTime = now;
     } else {
       currentDateTime = context.currentDateTime;
       currentTime = new Date(context.currentDateTime);
-      hours = currentTime.getHours();
-    }
-    
-    // Parse the user's sleep time to determine if current time is too late
-    if (context.user.sleepTime) {
-      const sleepTimeParts = context.user.sleepTime.split(':');
-      if (sleepTimeParts.length === 2) {
-        sleepTimeHour = parseInt(sleepTimeParts[0]);
-        
-        // Check if we're within 2 hours of sleep time
-        const hoursUntilSleep = (sleepTimeHour - hours + 24) % 24;
-        isLateHour = hoursUntilSleep <= 2;
-        console.log(`Current hour: ${hours}, Sleep time hour: ${sleepTimeHour}, Hours until sleep: ${hoursUntilSleep}, Is late hour: ${isLateHour}`);
-      }
+      currentTimeFormatted = currentTime.toLocaleString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      });
     }
 
-    // Format past messages with timestamps to give better context
+    // Format past messages with timestamps converted to user's timezone
     const formattedPreviousMessages = context.previousMessages
       .slice(0, 10)
       .map((msg) => {
-        const messageTime = new Date(msg.createdAt).toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-        });
+        let messageTime;
+        
+        if (context.user.timeZone) {
+          // Convert to user's timezone
+          messageTime = new Date(msg.createdAt).toLocaleTimeString('en-US', {
+            timeZone: context.user.timeZone,
+            hour: "2-digit",
+            minute: "2-digit"
+          });
+        } else {
+          // Fallback to system timezone
+          messageTime = new Date(msg.createdAt).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+        }
+        
         const messageType = msg.type === "user_message" ? "User" : "Coach";
         return `[${messageTime}] ${messageType}: ${msg.content}`;
       })
@@ -564,6 +567,7 @@ export class MessagingService {
     const prompt = `
       You are an ADHD coach and accountability partner helping ${context.user.username} reschedule their day.
       Current date and time: ${currentDateTime}
+      Current time in 24-hour format: ${currentTimeFormatted}
       
       User time preferences:
       - Wake up time: ${context.user.wakeTime || "08:00"}
@@ -601,23 +605,23 @@ export class MessagingService {
       VERY IMPORTANT INSTRUCTION:
       This is a PROPOSED schedule that will require user confirmation. Do NOT include the final schedule marker ("The final schedule is as follows:") in your response. The system will add appropriate markers automatically after the user confirms the schedule.
 
-      The user has asked to reschedule their day. ${isLateHour ? 'NOTE: The current time is close to their usual sleep time.' : ''}
+      The user has asked to reschedule their day.
       
-      ${isLateHour ? `
-      SPECIAL LATE-HOUR INSTRUCTIONS:
-      Since it's currently ${hours}:00 and getting close to the user's sleep time (${context.user.sleepTime || "23:00"}), consider these options:
-      1. If the user has minimal essential tasks, suggest they focus only on these before winding down
-      2. If there are no urgent tasks, strongly encourage them to consider taking the rest of the day for relaxation
-      3. Present unwinding and self-care activities as valid and healthy options for their schedule
-      4. If they prefer to work late, include frequent breaks and be realistic about how much can be done
-      5. Frame your response to emphasize quality rest is important for ADHD management
-      ` : `
       Create a new schedule for them that:
-      1. Takes into account the current time (${hours}:00)
+      1. Takes into account the current time (${currentTimeFormatted})
       2. Prioritizes tasks that are most time-sensitive
       3. Spaces out tasks appropriately with breaks
       4. Includes specific times for remaining tasks
-      `}
+      
+      IMPORTANT CONSIDERATIONS:
+      - Consider the user's time preferences (wake time, routine start time, and especially sleep time) when creating the schedule
+      - If it's late in the day and approaching their sleep time, intelligently adjust your suggestions to emphasize:
+        * Focusing only on essential tasks
+        * Considering rest/relaxation if there are no urgent tasks
+        * Including more frequent breaks if they're working late
+        * Unwinding activities as valid and healthy options
+      - If it's morning or mid-day, focus on helping them make the most of their productive hours
+      - Be sensitive to how much time is remaining in their day based on their sleep time preference
 
       IMPORTANT RULES:
       - Be friendly but concise (max 800 characters)
