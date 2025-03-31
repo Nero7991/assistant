@@ -11,6 +11,7 @@ import { generateTaskSuggestions } from "./services/task-suggestions";
 import { db } from "./db";
 import { eq, desc, and, gte } from "drizzle-orm";
 import { registerScheduleManagementAPI } from "./api/schedule-management";
+import OpenAI from "openai";
 
 // Import interface and type definitions needed for chat functionality
 import type { MessageContext, ScheduleUpdate } from "./services/messaging";
@@ -1557,6 +1558,119 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ 
         error: "Model compatibility test failed",
         details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Test endpoint for o1-mini model with developer role
+  app.post("/api/messages/test-developer-role", async (req, res) => {
+    try {
+      const { userId = 2, modelToTest = "o1-mini" } = req.body;
+      
+      console.log(`Testing developer role implementation with ${modelToTest} model`);
+      
+      // Get test user
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "Test user not found" });
+      }
+      
+      // Set the model to test
+      user.preferredModel = modelToTest;
+      
+      // Create a basic OpenAI client
+      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      
+      // Create appropriate messages based on the model
+      let messages;
+      if (modelToTest === "o1-mini") {
+        // For o1-mini, just use user role as it doesn't support system or developer roles
+        messages = [
+          { role: "user", content: "Act as an ADHD coach helping with task management. Give me a brief response about ADHD coaching." }
+        ];
+      } else {
+        // For other models, use developer role
+        messages = [
+          { role: "developer", content: "You are an ADHD coach helping with task management." },
+          { role: "user", content: "Give me a brief response about ADHD coaching." }
+        ];
+      }
+      
+      const completionParams: any = {
+        model: modelToTest,
+        messages: messages
+      };
+      
+      console.log("Testing with parameters:", JSON.stringify(completionParams, null, 2));
+      
+      const response = await openai.chat.completions.create(completionParams);
+      const content = response.choices[0].message.content;
+      
+      return res.json({
+        success: true,
+        model: modelToTest,
+        response: content,
+        message: "Developer role test completed successfully"
+      });
+    } catch (error) {
+      console.error("Error testing developer role:", error);
+      return res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+  
+  // Simulate a message to test reschedule with developer role
+  app.post("/api/messages/simulate-reschedule", async (req, res) => {
+    try {
+      const { userId = 2 } = req.body;
+      
+      console.log(`Simulating reschedule message for user ${userId}`);
+      
+      // Get test user
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "Test user not found" });
+      }
+      
+      // Make sure we're using o1-mini model for testing
+      user.preferredModel = "o1-mini";
+      
+      // Get tasks and facts for context
+      const tasks = await storage.getTasks(userId);
+      const facts = await storage.getKnownUserFacts(userId);
+      const previousMessages = await db
+        .select()
+        .from(messageHistory)
+        .where(eq(messageHistory.userId, userId))
+        .orderBy(desc(messageHistory.createdAt))
+        .limit(10);
+      
+      // Create message context
+      const messagingContext: MessageContext = {
+        user,
+        tasks,
+        facts,
+        previousMessages,
+        currentDateTime: new Date().toISOString(),
+        messageType: 'reschedule',
+        userResponse: "I need to reschedule my tasks for this afternoon"
+      };
+      
+      // Test the reschedule message generation
+      const result = await messagingService.generateRescheduleMessage(messagingContext);
+      
+      return res.json({
+        success: true,
+        message: result.message,
+        scheduleUpdates: result.scheduleUpdates || []
+      });
+    } catch (error) {
+      console.error("Error simulating reschedule:", error);
+      return res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
       });
     }
   });

@@ -179,12 +179,22 @@ export class MessagingService {
     // Different models require different parameters
     let completionParams: any = {
       model: preferredModel,
-      messages: [{ role: "user", content: prompt }],
     };
     
-    // Only add temperature for non-reasoning models
-    // Reasoning models like o1-mini don't need temperature parameter
-    if (preferredModel !== "o1-mini" && preferredModel !== "o3-mini") {
+    // Handle different model requirements
+    if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
+      // For o1-mini/o3-mini, use only user role as these models don't support system or developer roles
+      completionParams.messages = [
+        { role: "user", content: "Act as an ADHD coach helping with scheduling. " + prompt }
+      ];
+      console.log("Using model with simple user role prompt for o1-mini model");
+      // No temperature parameter - using default
+    } else {
+      // For standard models
+      completionParams.messages = [
+        { role: "system", content: "You are an ADHD coach helping with scheduling." },
+        { role: "user", content: prompt }
+      ];
       completionParams.temperature = 0.7;
     }
     
@@ -277,12 +287,22 @@ export class MessagingService {
     // Different models require different parameters
     let completionParams: any = {
       model: preferredModel,
-      messages: [{ role: "user", content: prompt }],
     };
     
-    // Only add temperature for non-reasoning models
-    // Reasoning models like o1-mini don't need temperature parameter
-    if (preferredModel !== "o1-mini" && preferredModel !== "o3-mini") {
+    // Handle different model requirements
+    if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
+      // For o1-mini/o3-mini, use only user role as these models don't support system or developer roles
+      completionParams.messages = [
+        { role: "user", content: "Act as an ADHD coach helping with scheduling. " + prompt }
+      ];
+      console.log("Using model with simple user role prompt for o1-mini model");
+      // No temperature parameter - using default
+    } else {
+      // For standard models
+      completionParams.messages = [
+        { role: "system", content: "You are an ADHD coach helping with scheduling." },
+        { role: "user", content: prompt }
+      ];
       completionParams.temperature = 0.7;
     }
     
@@ -455,17 +475,17 @@ export class MessagingService {
     
     // o1-mini and o3-mini models don't support system messages or response_format
     if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
-      // For models that don't support system role, combine prompt with first message
-      console.log("Using model without system role support, adding instructions to user message");
+      // For o1-mini/o3-mini, use only user role as these models don't support system or developer roles
+      console.log("Using model with simple user role prompt for o1-mini model");
       
       // Combine the instructions into the user message for models that don't support system role
-      const combinedUserMessage = `${prompt}\n\nUser's message: ${context.userResponse}`;
+      const combinedUserMessage = `Act as an ADHD coach helping with task management. ${prompt}\n\nUser's message: ${context.userResponse}`;
       
-      // Set only compatible parameters
+      // Set only compatible parameters using user role
       completionParams.messages = [
         { role: "user", content: combinedUserMessage }
       ];
-      // No temperature parameter set - using default of 1
+      // No temperature parameter set - using default
     } else {
       // For models that support system role, use normal message structure
       completionParams.messages = [
@@ -739,19 +759,25 @@ export class MessagingService {
     // Different models require different parameters
     let completionParams: any = {
       model: preferredModel,
-      messages: [{ role: "user", content: prompt }],
     };
     
-    // Add response_format only for models that support it
-    if (preferredModel !== "o1-mini" && preferredModel !== "o3-mini") {
+    // Handle different model requirements
+    if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
+      // For o1-mini/o3-mini
+      // Use only user role as these models don't support system or developer roles
+      completionParams.messages = [
+        { role: "user", content: "Act as an ADHD coach helping with scheduling. " + prompt }
+      ];
+      console.log("Using model with simple user role prompt for o1-mini model");
+      // No temperature parameter - using default
+    } else {
+      // For standard models
+      completionParams.messages = [
+        { role: "system", content: "You are an ADHD coach helping with scheduling." },
+        { role: "user", content: prompt }
+      ];
       completionParams.response_format = { type: "json_object" };
       completionParams.temperature = 0.7;
-    } else {
-      // Ensure the prompt is very clear about JSON format for models 
-      // that don't support response_format parameter
-      console.log("Using model without response_format support, relying on clear instructions");
-      // o1-mini and o3-mini don't support temperature parameter with value other than 1
-      // So we don't set it at all, letting it use the default
     }
     
     const response = await openai.chat.completions.create(completionParams);
@@ -1410,7 +1436,7 @@ export class MessagingService {
     
     // o1-mini and o3-mini models don't support system messages or response_format
     if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
-      // For models that don't support system role, include the instructions in the user message
+      // For o1-mini/o3-mini models, try using the developer role
       const instructionsAndText = `
         Analyze the sentiment and urgency of this ADHD coaching response from a user. 
         Return JSON with: type (positive/negative/neutral), needsFollowUp (boolean), urgency (1-5 where 5 is most urgent).
@@ -1422,10 +1448,11 @@ export class MessagingService {
       `;
       
       completionParams.messages = [
+        { role: "developer", content: "You are helping analyze user sentiment for an ADHD coaching app." },
         { role: "user", content: instructionsAndText }
       ];
       
-      console.log("Using model without system role support, adding instructions to user message");
+      console.log("Using model with developer role instead of system role");
       // No temperature parameter for o1-mini/o3-mini - using default
     } else {
       // For models that support system role and response_format
