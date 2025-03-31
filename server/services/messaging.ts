@@ -16,13 +16,14 @@ import {
   Subtask,
 } from "@shared/schema";
 import { db } from "../db";
-import { eq, and, lte, desc, gt } from "drizzle-orm";
+import { eq, and, lte, desc, gt, isNull } from "drizzle-orm";
 import { storage } from "../storage";
 import {
   parseScheduleFromLLMResponse,
   createDailyScheduleFromParsed,
   confirmSchedule,
 } from "./schedule-parser-new";
+import { llmFunctions, llmFunctionDefinitions } from "./llm-functions";
 
 // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -473,6 +474,22 @@ export class MessagingService {
       model: preferredModel,
     };
     
+    // Set up function calling for supported models
+    const isMiniModel = ["o1-mini", "o3-mini"].includes(preferredModel);
+    const supportsFunctionCalling = !isMiniModel;
+    
+    if (supportsFunctionCalling) {
+      // Add function definitions for supported models
+      completionParams.tools = llmFunctionDefinitions.map(func => ({
+        type: "function",
+        function: {
+          name: func.name,
+          description: func.description,
+          parameters: func.parameters
+        }
+      }));
+    }
+
     // o1-mini and o3-mini models don't support system messages or response_format
     if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
       // For o1-mini/o3-mini, use only user role as these models don't support system or developer roles
@@ -501,6 +518,138 @@ export class MessagingService {
     
     const response = await openai.chat.completions.create(completionParams);
 
+    // Process function calls if present
+    if (response.choices[0].message.tool_calls && response.choices[0].message.tool_calls.length > 0) {
+      // Process each function call
+      const functionResults: Record<string, any> = {};
+      
+      for (const toolCall of response.choices[0].message.tool_calls) {
+        if (toolCall.type === 'function') {
+          const functionName = toolCall.function.name;
+          let functionArgs = {};
+          
+          try {
+            functionArgs = JSON.parse(toolCall.function.arguments);
+          } catch (error) {
+            console.error(`Failed to parse function arguments for ${functionName}:`, error);
+          }
+          
+          // Execute the corresponding function
+          try {
+            let result;
+            switch (functionName) {
+              case 'get_todays_notifications':
+                result = await llmFunctions.getTodaysNotifications({ userId: context.user.id });
+                break;
+              case 'get_task_list':
+                result = await llmFunctions.getTaskList({ userId: context.user.id }, functionArgs);
+                break;
+              case 'get_user_facts':
+                result = await llmFunctions.getUserFacts({ userId: context.user.id }, functionArgs);
+                break;
+              case 'get_todays_schedule':
+                result = await llmFunctions.getTodaysSchedule({ userId: context.user.id });
+                break;
+              default:
+                console.warn(`Unknown function called by LLM: ${functionName}`);
+                result = { error: `Unknown function: ${functionName}` };
+            }
+            
+            functionResults[toolCall.function.name] = result;
+          } catch (error) {
+            console.error(`Error executing function ${functionName}:`, error);
+            functionResults[toolCall.function.name] = { error: `Error executing function: ${error instanceof Error ? error.message : String(error)}` };
+          }
+        }
+      }
+      
+      // Now continue the conversation with the function results
+      console.log("Function results:", JSON.stringify(functionResults, null, 2));
+      
+      // Add the function results to the conversation
+      const functionCallMessages = response.choices[0].message.tool_calls?.map(toolCall => {
+        if (toolCall.type === 'function') {
+          return {
+            role: "assistant" as const,
+            tool_call_id: toolCall.id,
+            content: null,
+            tool_calls: [toolCall]
+          };
+        }
+        return null; // Explicitly return null for filtering
+      }).filter((msg): msg is NonNullable<typeof msg> => msg !== null) || [];
+      
+      const functionResultMessages = Object.entries(functionResults).map(([functionName, result]) => {
+        const toolCall = response.choices[0].message.tool_calls?.find(tc => 
+          tc.type === 'function' && tc.function.name === functionName
+        );
+        
+        if (toolCall) {
+          return {
+            role: "tool" as const,
+            tool_call_id: toolCall.id,
+            content: JSON.stringify(result)
+          };
+        }
+        return null; // Explicitly return null for filtering
+      }).filter((msg): msg is NonNullable<typeof msg> => msg !== null);
+      
+      // Continue the conversation with the function results
+      const functionUserMessage = isMiniModel ? 
+        // For o1-mini, we need to combine everything into a single user message
+        `Act as an ADHD coach helping with task management.
+         
+         Previous context:
+         ${prompt}
+         
+         User's message: ${context.userResponse}
+         
+         I requested the following information:
+         ${JSON.stringify(Object.keys(functionResults).map(fn => `Function: ${fn}`))}
+         
+         And received these results:
+         ${JSON.stringify(functionResults, null, 2)}
+         
+         Based on this information, please provide a helpful response as an ADHD coach.` :
+        // For standard models, use the standard message format
+        response.choices[0].message.content;
+      
+      const followUpMessages = isMiniModel ? 
+        [{ role: "user", content: functionUserMessage }] : 
+        [
+          ...completionParams.messages,
+          response.choices[0].message,
+          ...functionCallMessages,
+          ...functionResultMessages
+        ];
+      
+      const functionResponseParams = {
+        ...completionParams,
+        messages: followUpMessages
+      };
+      
+      // Remove any unsupported parameters for o1-mini model
+      if (isMiniModel) {
+        delete functionResponseParams.response_format;
+        delete functionResponseParams.temperature;
+        delete functionResponseParams.tools;
+      }
+      
+      // Send the follow-up request
+      console.log(`Sending follow-up request for ${isMiniModel ? 'mini model' : 'standard model'}`);
+      const functionResponse = await openai.chat.completions.create(functionResponseParams);
+      
+      // Use this as our final response
+      const content = functionResponse.choices[0].message.content;
+      if (!content)
+        return { message: "I couldn't generate a response. Please try again." };
+        
+      console.log("Function-based response:", content);
+      
+      return this.processLLMResponse(content);
+    }
+
+    // Handle standard (non-function) responses
     const content = response.choices[0].message.content;
     if (!content)
       return { message: "I couldn't generate a response. Please try again." };
@@ -510,6 +659,18 @@ export class MessagingService {
     console.log(content);
     console.log("========================================\n");
 
+    return this.processLLMResponse(content);
+  }
+
+  processLLMResponse(content: string): {
+    message: string;
+    scheduleUpdates?: ScheduleUpdate[];
+    scheduledMessages?: Array<{
+      type: string;
+      scheduledFor: string;
+      content: string;
+    }>;
+  } {
     try {
       // Clean up the content if it contains markdown formatting
       let cleanContent = content;
@@ -770,6 +931,7 @@ export class MessagingService {
       ];
       console.log("Using model with simple user role prompt for o1-mini model");
       // No temperature parameter - using default
+      // No response_format - not supported for o1-mini
     } else {
       // For standard models
       completionParams.messages = [
