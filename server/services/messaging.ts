@@ -1436,9 +1436,9 @@ export class MessagingService {
     
     // o1-mini and o3-mini models don't support system messages or response_format
     if (preferredModel === "o1-mini" || preferredModel === "o3-mini") {
-      // For o1-mini/o3-mini models, try using the developer role
+      // For o1-mini/o3-mini models, use only user role as these models don't support system or developer roles
       const instructionsAndText = `
-        Analyze the sentiment and urgency of this ADHD coaching response from a user. 
+        Act as a sentiment analysis tool. Analyze the sentiment and urgency of this ADHD coaching response from a user. 
         Return JSON with: type (positive/negative/neutral), needsFollowUp (boolean), urgency (1-5 where 5 is most urgent).
         
         User's response: ${text}
@@ -1448,11 +1448,10 @@ export class MessagingService {
       `;
       
       completionParams.messages = [
-        { role: "developer", content: "You are helping analyze user sentiment for an ADHD coaching app." },
         { role: "user", content: instructionsAndText }
       ];
       
-      console.log("Using model with developer role instead of system role");
+      console.log("Using model with simple user role prompt for o1-mini model");
       // No temperature parameter for o1-mini/o3-mini - using default
     } else {
       // For models that support system role and response_format
