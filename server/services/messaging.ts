@@ -942,6 +942,13 @@ export class MessagingService {
       completionParams.temperature = 0.7;
     }
     
+    // The o1-mini model doesn't support the temperature parameter,
+    // so we need to check and remove it if it's present but model is o1-mini/o3-mini
+    if ((preferredModel === "o1-mini" || preferredModel === "o3-mini") && 'temperature' in completionParams) {
+      delete completionParams.temperature;
+      console.log("Removed temperature parameter for o1-mini/o3-mini model compatibility");
+    }
+    
     const response = await openai.chat.completions.create(completionParams);
 
     const content = response.choices[0].message.content;
