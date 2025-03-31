@@ -129,6 +129,7 @@ export const messageSchedules = pgTable("message_schedules", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull(),
   type: text("type").notNull().default('follow_up'), // 'morning_message', 'follow_up', 'reminder'
+  title: text("title"), // Title to describe what the follow-up is for
   content: text("content"), // Optional content for the message
   scheduledFor: timestamp("scheduled_for").notNull(),
   sentAt: timestamp("sent_at"),

@@ -1551,7 +1551,7 @@ export class MessagingService {
     for (const schedule of pendingSchedules) {
       try {
         console.log(
-          `Processing schedule ${schedule.id} of type ${schedule.type} for user ${schedule.userId}`,
+          `Processing schedule ${schedule.id} of type ${schedule.type}${schedule.title ? ` (${schedule.title})` : ''} for user ${schedule.userId}`,
         );
 
         const [user] = await db

@@ -53,14 +53,20 @@ interface ScheduleItem {
 interface PendingNotification {
   id: number;
   userId: number;
-  messageType: string;
+  type: string;
+  title?: string;
+  content?: string;
   scheduledFor: string;
+  sentAt?: string;
   status: string;
-  context?: {
+  metadata?: {
     taskId?: number;
     rescheduled?: boolean;
     [key: string]: any;
   };
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string;
 }
 
 interface MessageHistoryItem {
@@ -204,8 +210,8 @@ export default function SchedulePage() {
                   <div>
                     {pendingNotifications.map((notification: PendingNotification) => {
                       // Find the associated task if it exists
-                      const relatedTask = notification.context?.taskId ? 
-                        scheduledTasks.find(t => t.id === notification.context?.taskId) : 
+                      const relatedTask = notification.metadata?.taskId ? 
+                        scheduledTasks.find(t => t.id === notification.metadata?.taskId) : 
                         undefined;
                       
                       // Format timing info
@@ -264,9 +270,15 @@ export default function SchedulePage() {
                             ) : (
                               // For general follow-ups
                               <div>
-                                {notification.messageType === 'morning_message' ? 
-                                  'Daily morning schedule check-in' : 
-                                  'General follow-up on your progress'}
+                                {notification.title ? (
+                                  <div className="font-medium text-foreground">{notification.title}</div>
+                                ) : (
+                                  <div>
+                                    {notification.type === 'morning_message' ? 
+                                      'Daily morning schedule check-in' : 
+                                      'General follow-up on your progress'}
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>

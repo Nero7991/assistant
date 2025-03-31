@@ -85,6 +85,7 @@ export class MessageScheduler {
       await db.insert(messageSchedules).values({
         userId,
         type: 'morning_message',
+        title: 'Test Morning Message',
         scheduledFor,
         status: 'pending',
         metadata: { type: 'test_message' },
@@ -207,6 +208,7 @@ export class MessageScheduler {
       await db.insert(messageSchedules).values({
         userId: user.userId,
         type: "morning_message",
+        title: "Daily Morning Schedule",
         scheduledFor: scheduledTime,
         status: "pending", 
         metadata: { 
@@ -228,8 +230,9 @@ export class MessageScheduler {
    * @param userId The user ID to schedule a follow-up for
    * @param delayMinutes How many minutes from now to schedule the follow-up
    * @param context Optional context information for the follow-up
+   * @param title Optional title to describe what the follow-up is for (e.g., "Task Reminder", "Project Update")
    */
-  async scheduleFollowUp(userId: number, delayMinutes: number, context: Record<string, any> = {}) {
+  async scheduleFollowUp(userId: number, delayMinutes: number, context: Record<string, any> = {}, title?: string) {
     try {
       // Check if the user already has a pending follow-up message
       const pendingFollowUps = await db
@@ -258,9 +261,23 @@ export class MessageScheduler {
       
       const scheduledFor = new Date(Date.now() + delayMinutes * 60000);
       
+      // Determine title based on context
+      let followUpTitle = title;
+      
+      // If no title provided but we have context with a taskId, use that for the title
+      if (!followUpTitle && context.taskId) {
+        followUpTitle = `Task Follow-up (ID: ${context.taskId})`;
+      }
+      
+      // Default title if none provided
+      if (!followUpTitle) {
+        followUpTitle = context.rescheduled ? "Schedule Check-in" : "Follow-up Check-in";
+      }
+      
       await db.insert(messageSchedules).values({
         userId,
         type: "follow_up",
+        title: followUpTitle,
         scheduledFor,
         status: "pending",
         metadata: { 
@@ -271,7 +288,7 @@ export class MessageScheduler {
         createdAt: new Date()
       });
       
-      console.log(`Scheduled follow-up for user ${userId} (${user.username}) at ${scheduledFor}`);
+      console.log(`Scheduled follow-up "${followUpTitle}" for user ${userId} (${user.username}) at ${scheduledFor}`);
     } catch (error) {
       console.error(`Error scheduling follow-up for user ${userId}:`, error);
     }
