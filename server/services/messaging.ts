@@ -465,6 +465,7 @@ export class MessagingService {
       completionParams.messages = [
         { role: "user", content: combinedUserMessage }
       ];
+      // No temperature parameter set - using default of 1
     } else {
       // For models that support system role, use normal message structure
       completionParams.messages = [
@@ -749,6 +750,8 @@ export class MessagingService {
       // Ensure the prompt is very clear about JSON format for models 
       // that don't support response_format parameter
       console.log("Using model without response_format support, relying on clear instructions");
+      // o1-mini and o3-mini don't support temperature parameter with value other than 1
+      // So we don't set it at all, letting it use the default
     }
     
     const response = await openai.chat.completions.create(completionParams);
@@ -1423,6 +1426,7 @@ export class MessagingService {
       ];
       
       console.log("Using model without system role support, adding instructions to user message");
+      // No temperature parameter for o1-mini/o3-mini - using default
     } else {
       // For models that support system role and response_format
       completionParams.messages = [
