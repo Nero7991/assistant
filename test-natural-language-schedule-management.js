@@ -238,7 +238,7 @@ async function createTasksAndSubtasks(userId) {
   }
 }
 
-async function waitForProcessing(userId, delay = 3000) {
+async function waitForProcessing(userId, delay = 10000) {
   console.log(`Waiting ${delay/1000} seconds for LLM processing...`);
   await new Promise(resolve => setTimeout(resolve, delay));
   
@@ -505,26 +505,26 @@ async function runTests() {
     // Step 2: Create test tasks and subtasks
     const taskData = await createTasksAndSubtasks(user.id);
     
-    // Only run one test at a time to avoid timeout issues
-    // Uncomment the test you want to run
+    // Choose which test to run by uncommenting just one of them
     
-    /* 
     // Test 1: Clear today's schedule items
     const clearResult = await testClearTodaySchedule(user.id);
     console.log(`Clear Schedule Test: ${clearResult.deletedCount > 0 ? 'SUCCESS ✅' : 'PARTIAL ⚠️'}`);
     
+    /*
     // Test 2: Add new schedule items
     const addResult = await testAddScheduleItems(user.id, taskData);
     console.log(`Add Schedule Items Test: ${addResult.addedCount > 0 ? 'SUCCESS ✅' : 'FAILED ❌'}`);
     
     // Test 3: Update some schedule items
+    // This test requires items from Test 2, so run Test 2 first
     const updateResult = await testUpdateScheduleItems(user.id, addResult.items);
     console.log(`Update Schedule Items Test: ${updateResult.success ? 'SUCCESS ✅' : 'FAILED ❌'}`);
-    */
     
     // Test 4: Manage message schedules
     const messageResult = await testManageMessageSchedules(user.id);
     console.log(`Message Schedules Test: ${messageResult.addedCount > 0 ? 'SUCCESS ✅' : 'FAILED ❌'}`);
+    */
     
     console.log('\n=== TEST COMPLETED ===');
     

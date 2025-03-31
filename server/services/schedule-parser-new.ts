@@ -317,20 +317,26 @@ export async function createDailyScheduleFromParsed(
       
       // Try to insert each valid schedule item
       for (const item of validItems) {
-        await db
-          .insert(scheduleItems)
-          .values({
-            userId: userId,
-            date: new Date(),
-            scheduleId: newSchedule.id,
-            taskId: item.taskId !== undefined ? item.taskId : null, // Make sure to use null if taskId is undefined
-            subtaskId: item.subtaskId !== undefined ? item.subtaskId : null, // Include the subtask ID if available
-            title: item.title,
-            description: item.description || null,
-            startTime: item.startTime,
-            endTime: item.endTime || null,
-            status: 'scheduled'
-          });
+        try {
+          await db
+            .insert(scheduleItems)
+            .values({
+              userId: userId,
+              date: new Date(),
+              scheduleId: newSchedule.id,
+              taskId: item.taskId !== undefined ? item.taskId : null, // Make sure to use null if taskId is undefined
+              subtaskId: item.subtaskId !== undefined ? item.subtaskId : null, // Include the subtask ID if available
+              title: item.title,
+              description: item.description || null,
+              startTime: item.startTime,
+              endTime: item.endTime || null,
+              status: 'scheduled'
+            });
+          console.log(`Successfully inserted schedule item: ${item.title} at ${item.startTime}`);
+        } catch (insertError) {
+          console.error(`Failed to insert schedule item ${item.title}:`, insertError);
+          // Continue with other items even if one fails
+        }
       }
       
       // Try to create initial revision
