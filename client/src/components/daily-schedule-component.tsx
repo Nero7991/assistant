@@ -53,20 +53,38 @@ export default function DailyScheduleComponent({
   className = '',
   tasks = []
 }: DailyScheduleComponentProps) {
-  // Group schedule items by time periods (morning, afternoon, evening)
-  const morningItems = scheduleItems.filter((item) => {
+  // Filter schedule items to only show items for today
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  
+  // Filter items for today
+  const todaysItems = scheduleItems.filter(item => {
+    if (!item.startTime) return false;
+    
+    // Parse the time and combine with today's date for comparison
+    const [hours, minutes] = item.startTime.split(':').map(Number);
+    const itemDate = new Date(today);
+    itemDate.setHours(hours, minutes, 0, 0);
+    
+    return itemDate >= today && itemDate < tomorrow;
+  });
+  
+  // Group today's schedule items by time periods
+  const morningItems = todaysItems.filter((item) => {
     const timeStr = item.startTime;
     const [hours] = timeStr.split(':').map(Number);
     return hours < 12;
   });
 
-  const afternoonItems = scheduleItems.filter((item) => {
+  const afternoonItems = todaysItems.filter((item) => {
     const timeStr = item.startTime;
     const [hours] = timeStr.split(':').map(Number);
     return hours >= 12 && hours < 17;
   });
 
-  const eveningItems = scheduleItems.filter((item) => {
+  const eveningItems = todaysItems.filter((item) => {
     const timeStr = item.startTime;
     const [hours] = timeStr.split(':').map(Number);
     return hours >= 17;
@@ -155,12 +173,12 @@ export default function DailyScheduleComponent({
       <CardHeader>
         <CardTitle>Daily Schedule</CardTitle>
         <CardDescription>
-          {scheduleDate} - {scheduleItems.length} activities scheduled
+          {scheduleDate} - {todaysItems.length} activities scheduled for today
         </CardDescription>
       </CardHeader>
       <CardContent>
         <ScrollArea className="h-[400px] pr-4">
-          {scheduleItems.length === 0 ? (
+          {todaysItems.length === 0 ? (
             <div className="flex flex-col items-center text-center py-8">
               <Clock className="h-12 w-12 text-muted-foreground mb-3" />
               <h3 className="text-lg font-medium">No activities scheduled</h3>

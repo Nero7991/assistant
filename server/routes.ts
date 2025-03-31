@@ -9,7 +9,7 @@ import { messageScheduler } from "./scheduler";
 import { messagingService } from "./services/messaging";
 import { generateTaskSuggestions } from "./services/task-suggestions";
 import { db } from "./db";
-import { eq, desc, and, gte } from "drizzle-orm";
+import { eq, desc, and, gte, lt } from "drizzle-orm";
 import { registerScheduleManagementAPI } from "./api/schedule-management";
 import OpenAI from "openai";
 
@@ -841,14 +841,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     
     try {
-      // Get pending message schedules
+      // Get today's date (start and end)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      
+      // Get pending message schedules for today only
       const pendingSchedules = await db
         .select()
         .from(messageSchedules)
         .where(
           and(
             eq(messageSchedules.userId, req.user.id),
-            eq(messageSchedules.status, 'pending')
+            eq(messageSchedules.status, 'pending'),
+            gte(messageSchedules.scheduledFor, today),
+            lt(messageSchedules.scheduledFor, tomorrow)
           )
         )
         .orderBy(messageSchedules.scheduledFor);
@@ -886,10 +895,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .orderBy(desc(messageHistory.createdAt))
         .limit(1);
       
-      // Get the latest daily schedule for today
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
+      // Already have 'today' defined above
       let dailyScheduleData = null;
       let scheduleItemsData: any[] = [];
       
