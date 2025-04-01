@@ -187,7 +187,7 @@ export default function SchedulePage() {
             <CardHeader>
               <CardTitle>
                 <div className="flex items-center">
-                  Upcoming Check-ins
+                  Reminders
                   {pendingNotifications && pendingNotifications.length > 0 && (
                     <Badge variant="secondary" className="ml-2">
                       {pendingNotifications.length}
@@ -196,14 +196,14 @@ export default function SchedulePage() {
                 </div>
               </CardTitle>
               <CardDescription>
-                Scheduled follow-ups and task reminders
+                Scheduled reminders, check-ins, and follow-ups
               </CardDescription>
             </CardHeader>
             <CardContent>
               {!pendingNotifications || pendingNotifications.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <Bell className="h-8 w-8 text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">No upcoming check-ins scheduled</p>
+                  <p className="text-muted-foreground">No reminders or check-ins scheduled</p>
                 </div>
               ) : (
                 <ScrollArea className="h-[400px]">
@@ -223,7 +223,12 @@ export default function SchedulePage() {
                           <div className="flex items-start justify-between mb-3">
                             <div className="flex items-center">
                               <Bell className="h-4 w-4 mr-2 text-muted-foreground" />
-                              <span className="font-medium">Check-in</span>
+                              <span className="font-medium">
+                                {notification.type?.includes('reminder') ? 'Reminder' : 
+                                 (notification.title?.toLowerCase().includes('check-in') || 
+                                  notification.title?.toLowerCase().includes('mid-task')) ? 'Mid-task Check-in' : 
+                                 notification.type?.includes('follow_up') ? 'Check-in' : 'Notification'}
+                              </span>
                             </div>
                             <div className="flex flex-col items-end text-right">
                               <span className="text-xs text-muted-foreground">
@@ -273,11 +278,18 @@ export default function SchedulePage() {
                                 {notification.title ? (
                                   <div className="font-medium text-foreground">{notification.title}</div>
                                 ) : (
-                                  <div>
+                                  <div className="font-medium text-foreground">
                                     {notification.type === 'morning_message' ? 
                                       'Daily morning schedule check-in' : 
-                                      'General follow-up on your progress'}
+                                      notification.type === 'reminder' ? 'Reminder' :
+                                      notification.type === 'follow_up' ? 'Follow-up check-in' :
+                                      'General notification'}
                                   </div>
+                                )}
+                                {notification.content && (
+                                  <p className="text-sm mt-1 line-clamp-3">
+                                    {notification.content}
+                                  </p>
                                 )}
                               </div>
                             )}

@@ -241,6 +241,11 @@ async function runTest() {
   }
 }
 
-// Run the test
-console.log(`Starting mid-task notification test at ${new Date().toLocaleString()}`);
-runTest().then(() => console.log('Test complete'));
+// Add type property
+export { runTest };
+
+// Run the test if called directly
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  console.log(`Starting mid-task notification test at ${new Date().toLocaleString()}`);
+  runTest().then(() => console.log('Test complete'));
+}

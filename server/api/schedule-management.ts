@@ -16,7 +16,7 @@ import {
   updateScheduleItem 
 } from "../services/schedule-service";
 import { db } from "../db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { users } from "@shared/schema";
 
 // Utility to parse a date from string or use current date
@@ -300,6 +300,29 @@ export function registerScheduleManagementAPI(app: Express) {
       console.error("Error soft-deleting message schedule:", error);
       res.status(500).json({ 
         error: "Failed to soft-delete message schedule",
+        details: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+
+  // Health check endpoint to get message schedules table structure
+  app.get("/api/schedules/messages/structure", async (req: Request, res: Response) => {
+    try {
+      // This is a simple way to get column names from Postgres information schema
+      const result = await db.execute(sql`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'message_schedules'
+      `);
+      
+      // Extract column names from the result
+      const columns = result.rows.map(row => row.column_name);
+      
+      res.status(200).json(columns);
+    } catch (error) {
+      console.error("Error getting message schedules table structure:", error);
+      res.status(500).json({ 
+        error: "Failed to get message schedules table structure",
         details: error instanceof Error ? error.message : String(error)
       });
     }
