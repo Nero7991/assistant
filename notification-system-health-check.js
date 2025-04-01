@@ -47,8 +47,8 @@ async function makeRequest(endpoint, method, body = null) {
 
 async function login() {
   const response = await makeRequest('/api/login', 'POST', {
-    username: 'testuser',
-    password: 'testpassword'
+    username: 'orencollaco',
+    password: 'password'
   });
   
   if (response.ok) {

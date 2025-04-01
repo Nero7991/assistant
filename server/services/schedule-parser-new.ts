@@ -1,4 +1,4 @@
-import { Task, Subtask, dailySchedules, scheduleItems, scheduleRevisions } from "@shared/schema";
+import { Task, Subtask, dailySchedules, scheduleItems, scheduleRevisions, messageSchedules } from "@shared/schema";
 import { db } from "../db";
 import { storage } from "../storage";
 import { eq } from "drizzle-orm";
@@ -20,8 +20,18 @@ interface ScheduleItem {
   endTime?: string;      // Format: "HH:MM" in 24-hour format (optional)
 }
 
+interface NotificationItem {
+  type: string;         // Type of notification: 'reminder', 'follow_up', etc.
+  scheduledFor: string; // Format: "HH:MM" in 24-hour format
+  title: string;        // Title of the notification 
+  content: string;      // Content of the notification
+  taskId?: number;      // Optional reference to a task
+  subtaskId?: number;   // Optional reference to a subtask
+}
+
 interface ParsedSchedule {
   scheduleItems: ScheduleItem[];
+  notificationItems: NotificationItem[];
   rawScheduleText: string;
 }
 
@@ -48,9 +58,27 @@ export function parseScheduleFromLLMResponse(llmResponse: string): ParsedSchedul
   
   // Parse the schedule items
   const scheduleItems: ScheduleItem[] = [];
+  const notificationItems: NotificationItem[] = [];
   const lines = scheduleText.split('\n');
   
-  for (const line of lines) {
+  // First, try to find a Notifications section
+  let notificationSectionIndex = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].trim().toLowerCase().startsWith('notification') || 
+        lines[i].trim().toLowerCase() === 'reminders:' ||
+        lines[i].trim().toLowerCase() === 'follow-ups:' ||
+        lines[i].trim().toLowerCase() === 'reminders' ||
+        lines[i].trim().toLowerCase() === 'follow-ups') {
+      notificationSectionIndex = i;
+      break;
+    }
+  }
+  
+  // Process regular schedule lines (before notifications section if one exists)
+  const scheduleEndIndex = notificationSectionIndex > -1 ? notificationSectionIndex : lines.length;
+  
+  for (let i = 0; i < scheduleEndIndex; i++) {
+    const line = lines[i];
     // Skip empty lines
     if (!line.trim()) continue;
     
@@ -96,11 +124,121 @@ export function parseScheduleFromLLMResponse(llmResponse: string): ParsedSchedul
         title = title.replace(/\s*\(Task ID:?\s*\d+\)/i, '').trim();
       }
       
+      // Determine if this item is a notification/reminder by title
+      const lowerTitle = title.toLowerCase();
+      const isNotification = 
+        lowerTitle.includes('reminder') || 
+        lowerTitle.includes('check-in') || 
+        lowerTitle.includes('check in') ||
+        lowerTitle.includes('follow-up') ||
+        lowerTitle.includes('follow up') ||
+        lowerTitle.includes('notification') ||
+        lowerTitle.includes('alert');
+      
       if (title && startTime) {
-        scheduleItems.push({
+        if (isNotification) {
+          // Process as notification
+          const notificationType = 
+            lowerTitle.includes('reminder') ? 'reminder' :
+            (lowerTitle.includes('check-in') || lowerTitle.includes('check in')) ? 'check_in' :
+            (lowerTitle.includes('follow-up') || lowerTitle.includes('follow up')) ? 'follow_up' :
+            'notification';
+          
+          // Extract content, which might be after a dash
+          const titleParts = title.split(' - ');
+          const notificationTitle = titleParts[0].trim();
+          const content = titleParts.length > 1 ? titleParts.slice(1).join(' - ').trim() : `${notificationTitle} for your scheduled activity`;
+          
+          notificationItems.push({
+            type: notificationType,
+            scheduledFor: startTime,
+            title: notificationTitle,
+            content,
+            taskId,
+            subtaskId
+          });
+        } else {
+          // Process as regular schedule item
+          scheduleItems.push({
+            title,
+            startTime,
+            endTime,
+            taskId,
+            subtaskId
+          });
+        }
+      }
+    }
+  }
+  
+  // Process notification section if it exists
+  if (notificationSectionIndex > -1) {
+    for (let i = notificationSectionIndex + 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      
+      // Skip section headers or non-notification items
+      if (line.toLowerCase().startsWith('notification') || !line.startsWith('-')) continue;
+      
+      // Extract time and notification content
+      // Format: "- 10:30 AM: Reminder for Project Planning"
+      const notificationMatch = line.match(/^-\s+(\d{1,2}:\d{2}(?:\s*(?:AM|PM|am|pm))?):?\s*(.*?)$/);
+      
+      if (notificationMatch) {
+        const timeStr = notificationMatch[1].trim();
+        let notificationText = notificationMatch[2].trim();
+        
+        // Convert time to standard format
+        const scheduledFor = convertToStandardTimeFormat(timeStr);
+        
+        // Parse notification type and content
+        let type = 'notification';
+        let title = notificationText;
+        let content = notificationText;
+        
+        // Try to extract type from content
+        if (notificationText.toLowerCase().includes('reminder')) {
+          type = 'reminder';
+        } else if (notificationText.toLowerCase().includes('check-in') || 
+                 notificationText.toLowerCase().includes('check in')) {
+          type = 'check_in';
+        } else if (notificationText.toLowerCase().includes('follow-up') ||
+                 notificationText.toLowerCase().includes('follow up')) {
+          type = 'follow_up';
+        }
+        
+        // Try to extract title and content if separated by " - "
+        const textParts = notificationText.split(' - ');
+        if (textParts.length > 1) {
+          title = textParts[0].trim();
+          content = textParts.slice(1).join(' - ').trim();
+        }
+        
+        // Extract task and subtask IDs if present
+        let taskId: number | undefined = undefined;
+        let subtaskId: number | undefined = undefined;
+        
+        const taskIdMatch = notificationText.match(/\(Task\s+ID:?\s*(\d+)\)/i);
+        if (taskIdMatch) {
+          taskId = parseInt(taskIdMatch[1], 10);
+          // Remove the task ID from displayed text
+          title = title.replace(/\s*\(Task\s+ID:?\s*\d+\)/i, '').trim();
+          content = content.replace(/\s*\(Task\s+ID:?\s*\d+\)/i, '').trim();
+        }
+        
+        const subtaskIdMatch = notificationText.match(/\(Subtask\s+ID:?\s*(\d+)\)/i);
+        if (subtaskIdMatch) {
+          subtaskId = parseInt(subtaskIdMatch[1], 10);
+          // Remove the subtask ID from displayed text
+          title = title.replace(/\s*\(Subtask\s+ID:?\s*\d+\)/i, '').trim();
+          content = content.replace(/\s*\(Subtask\s+ID:?\s*\d+\)/i, '').trim();
+        }
+        
+        notificationItems.push({
+          type,
+          scheduledFor,
           title,
-          startTime,
-          endTime,
+          content,
           taskId,
           subtaskId
         });
@@ -110,6 +248,7 @@ export function parseScheduleFromLLMResponse(llmResponse: string): ParsedSchedul
   
   return {
     scheduleItems,
+    notificationItems,
     rawScheduleText: scheduleText
   };
 }
@@ -259,6 +398,54 @@ export async function createDailyScheduleFromParsed(
         } catch (taskUpdateError) {
           console.error(`Error updating task ${item.taskId}:`, taskUpdateError);
         }
+      }
+    }
+    
+    // Process the notification items separately
+    console.log(`Processing ${parsedSchedule.notificationItems.length} notification items`);
+    
+    // Add notification items to the message_schedules table
+    for (const notification of parsedSchedule.notificationItems) {
+      try {
+        // Convert the time (like "14:30") to a Date object for today at that time
+        const scheduledTime = notification.scheduledFor;
+        const [hours, minutes] = scheduledTime.split(':').map(n => parseInt(n, 10));
+        
+        if (isNaN(hours) || isNaN(minutes)) {
+          console.error(`Invalid time format in notification: ${scheduledTime}`);
+          continue;
+        }
+        
+        // Create a date object for the scheduled time
+        const scheduledDateTime = new Date();
+        scheduledDateTime.setHours(hours, minutes, 0, 0);
+        
+        // If the time is in the past for today, schedule it for tomorrow
+        const now = new Date();
+        if (scheduledDateTime < now) {
+          scheduledDateTime.setDate(scheduledDateTime.getDate() + 1);
+          console.log(`Time ${scheduledTime} is in the past, scheduling for tomorrow instead`);
+        }
+        
+        // Add the notification to message_schedules table
+        await db.insert(messageSchedules).values({
+          userId: userId,
+          type: notification.type,
+          title: notification.title,
+          content: notification.content,
+          scheduledFor: scheduledDateTime,
+          status: 'pending',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          metadata: {
+            taskId: notification.taskId,
+            subtaskId: notification.subtaskId
+          } as any // Cast to any to avoid type issues with the JSON column
+        });
+        
+        console.log(`Created notification "${notification.title}" scheduled for ${scheduledDateTime.toISOString()}`);
+      } catch (error) {
+        console.error(`Error scheduling notification: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
     

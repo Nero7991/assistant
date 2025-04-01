@@ -444,11 +444,13 @@ export class MessagingService {
       6. Include clear titles explaining what each notification is for
       7. For mid-task check-ins, use supportive language like "How's it going with [task]?" or "Need any help staying focused?"
       
-      SCHEDULE CONFIRMATION:
-      - If the user confirms a proposed schedule, include "The final schedule is as follows:"
-      - After the schedule items, include a "Notifications:" section listing all scheduled notifications with their times
-      - For new schedule proposals, do NOT include the confirmation phrase
-      - For schedule proposals, add "PROPOSED_SCHEDULE_AWAITING_CONFIRMATION" at the end
+      SCHEDULE CONFIRMATION AND CHANGES:
+      - If the user makes any schedule change request (like "keep me free after 18:30" or similar), respond with a NEW PROPOSED schedule
+      - If the user responds to a proposed schedule with specific change requests, update the schedule and treat it as another proposal
+      - ONLY use "The final schedule is as follows:" when the user EXPLICITLY confirms a schedule (with messages like "looks good", "that works", "I like it", etc.)
+      - After schedule items in a confirmed schedule, include a "Notifications:" section listing all scheduled notifications with their times
+      - For ALL schedule proposals (including schedule changes), add "PROPOSED_SCHEDULE_AWAITING_CONFIRMATION" at the end
+      - Remember: as long as the user keeps requesting changes, keep providing updated proposals without the final marker
       - Example confirmed schedule format:
         "The final schedule is as follows:
         - 9:00 AM to 10:30 AM: Research Project
@@ -1139,8 +1141,14 @@ Now, please respond to this user message: "${context.userResponse}"`;
       Recent conversation history:
       ${formattedPreviousMessages}
 
-      VERY IMPORTANT INSTRUCTION:
-      This is a PROPOSED schedule that will require user confirmation. Do NOT include the final schedule marker ("The final schedule is as follows:") in your response. The system will add appropriate markers automatically after the user confirms the schedule.
+      VERY IMPORTANT INSTRUCTION ABOUT SCHEDULE CONFIRMATION FLOW:
+      1. This is a PROPOSED schedule that will require user confirmation 
+      2. Do NOT include the final schedule marker ("The final schedule is as follows:") in your response
+      3. Instead, end your response with "PROPOSED_SCHEDULE_AWAITING_CONFIRMATION"
+      4. The user must EXPLICITLY confirm the schedule before it becomes final
+      5. If the user asks for changes (like "keep me free after 6pm"), create a NEW proposed schedule
+      6. As long as the user keeps requesting changes, continue providing updated proposals
+      7. Only when the user expresses confirmation (like "looks good" or "I like this schedule") will the system mark it as final
 
       The user has asked to reschedule their day.
       
