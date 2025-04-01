@@ -369,7 +369,7 @@ export class LLMFunctions {
             id: item.id,
             title: item.title,
             description: item.description,
-            time: format(new Date(item.startTime), 'h:mm a'),
+            time: item.startTime ? format(new Date(item.startTime), 'h:mm a') : null,
             endTime: item.endTime ? format(new Date(item.endTime), 'h:mm a') : null,
             status: item.status,
             taskInfo: task ? {
@@ -422,7 +422,7 @@ export class LLMFunctions {
           id: item.id,
           title: item.title,
           description: item.description,
-          time: format(new Date(item.startTime), 'h:mm a'),
+          time: item.startTime ? format(new Date(item.startTime), 'h:mm a') : null,
           endTime: item.endTime ? format(new Date(item.endTime), 'h:mm a') : null,
           status: item.status,
           taskInfo

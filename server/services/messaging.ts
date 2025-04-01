@@ -428,15 +428,43 @@ export class MessagingService {
       
       RESPONSE CAPABILITIES:
       1. SCHEDULE TASKS: Use scheduleUpdates with action "reschedule" to set times for tasks
-      2. CREATE CHECK-INS: Include scheduledMessages to create follow-ups at specific times
+      2. CREATE NOTIFICATIONS: Include scheduledMessages to create follow-ups and reminders at specific times
       3. COMPLETE TASKS: Use scheduleUpdates with action "complete" to mark tasks as done
       4. CREATE NEW TASKS: Use scheduleUpdates with action "create" to add new tasks
       5. CLEAR SCHEDULE: Use appropriate scheduleUpdates to modify the user's day
       
+      NOTIFICATION GUIDELINES:
+      1. Always add appropriate follow-up notifications for tasks in the schedule
+      2. Schedule reminders shortly before tasks are due to start (around 15 minutes before)
+      3. IMPORTANT: For people with ADHD, it's crucial to schedule mid-task check-ins during longer tasks to maintain focus
+         - For tasks over 30 minutes, add at least one check-in message during the task (around halfway through)
+         - For tasks over 1 hour, add multiple check-ins (approximately every 25-30 minutes)
+      4. Add encouraging messages for task transitions to help with context switching
+      5. Suggest end-of-day reflection reminders as appropriate
+      6. Include clear titles explaining what each notification is for
+      7. For mid-task check-ins, use supportive language like "How's it going with [task]?" or "Need any help staying focused?"
+      
       SCHEDULE CONFIRMATION:
       - If the user confirms a proposed schedule, include "The final schedule is as follows:"
+      - After the schedule items, include a "Notifications:" section listing all scheduled notifications with their times
       - For new schedule proposals, do NOT include the confirmation phrase
       - For schedule proposals, add "PROPOSED_SCHEDULE_AWAITING_CONFIRMATION" at the end
+      - Example confirmed schedule format:
+        "The final schedule is as follows:
+        - 9:00 AM to 10:30 AM: Research Project
+        - 11:00 AM to 12:00 PM: Team Meeting
+        - 1:00 PM to 1:30 PM: Lunch Break
+        - 2:00 PM to 4:00 PM: Work on Development Task
+        
+        Notifications:
+        - 8:45 AM: Reminder to start Research Project
+        - 9:45 AM: Mid-task check-in for Research Project
+        - 10:45 AM: Reminder for upcoming Team Meeting
+        - 12:15 PM: Follow-up about Team Meeting outcomes
+        - 1:45 PM: Reminder to start Development Task
+        - 2:30 PM: First check-in on Development Task progress
+        - 3:15 PM: Second check-in on Development Task progress
+        - 4:15 PM: Follow-up on Development Task completion"
       
       ALWAYS FORMAT YOUR RESPONSE AS A JSON OBJECT:
       {
@@ -454,7 +482,14 @@ export class MessagingService {
           {
             "type": "follow_up",
             "scheduledFor": "20:30",  // 24-hour format
-            "content": "Brief description of what this reminder is about"
+            "title": "Check-in on Project Task",  // Clear title describing notification purpose
+            "content": "Time to check on your progress with the project task. How is it going so far?"
+          },
+          {
+            "type": "reminder",
+            "scheduledFor": "16:45",  // Usually 10-15 minutes before a scheduled task
+            "title": "Upcoming Meeting Reminder",
+            "content": "Your team meeting starts at 17:00. Time to prepare your notes."
           }
         ]
       }
@@ -711,6 +746,7 @@ Now, please respond to this user message: "${context.userResponse}"`;
       type: string;
       scheduledFor: string;
       content: string;
+      title?: string;
     }>;
   } {
     try {
@@ -745,7 +781,212 @@ Now, please respond to this user message: "${context.userResponse}"`;
           console.log(
             "Message contains final schedule marker - this is a CONFIRMATION",
           );
-          // No need to modify the message, it already has the correct marker
+          
+          // Add default notifications if none were provided
+          if (!parsed.scheduledMessages || parsed.scheduledMessages.length === 0) {
+            console.log("No notifications provided with confirmed schedule, generating default notifications");
+            
+            // Create default notifications based on the schedule
+            const defaultNotifications = [];
+            
+            if (parsed.scheduleUpdates && parsed.scheduleUpdates.length > 0) {
+              // Sort schedule updates by time
+              const sortedUpdates = [...parsed.scheduleUpdates]
+                .filter(update => update.scheduledTime && update.action === "reschedule")
+                .sort((a, b) => {
+                  // Convert HH:MM to minutes for comparison
+                  const timeA = a.scheduledTime.split(':').map(Number);
+                  const timeB = b.scheduledTime.split(':').map(Number);
+                  return (timeA[0] * 60 + timeA[1]) - (timeB[0] * 60 + timeB[1]);
+                });
+                
+              // Create reminders and mid-task check-ins for each task
+              for (const update of sortedUpdates) {
+                if (update.scheduledTime) {
+                  // Parse the time
+                  const [hours, minutes] = update.scheduledTime.split(':').map(Number);
+                  
+                  // Get task title if available
+                  let taskTitle = "your upcoming task";
+                  if (update.title) {
+                    taskTitle = update.title;
+                  } else if (update.taskId && typeof update.taskId === 'string') {
+                    // If taskId is a string, it might already be a descriptive name
+                    taskTitle = update.taskId;
+                  } else if (update.taskId) {
+                    // Look up the task title from the task ID and use it if available
+                    try {
+                      const matchingTask = parsed.scheduleUpdates.find((u: any) => 
+                        u.taskId === update.taskId && u.title);
+                      if (matchingTask?.title) {
+                        taskTitle = matchingTask.title;
+                      } else {
+                        taskTitle = 'Scheduled Activity';
+                      }
+                    } catch (err) {
+                      taskTitle = 'Scheduled Activity';
+                    }
+                  }
+                  
+                  // Create a reminder 15 minutes before
+                  const reminderMinutes = minutes - 15;
+                  const reminderHours = reminderMinutes < 0 
+                    ? hours - 1 
+                    : hours;
+                  const adjustedReminderMinutes = reminderMinutes < 0 
+                    ? 60 + reminderMinutes 
+                    : reminderMinutes;
+                  
+                  const reminderTime = `${reminderHours.toString().padStart(2, '0')}:${adjustedReminderMinutes.toString().padStart(2, '0')}`;
+                  
+                  defaultNotifications.push({
+                    type: "reminder",
+                    scheduledFor: reminderTime,
+                    title: `Reminder: ${taskTitle}`,
+                    content: `Your task "${taskTitle}" is starting in 15 minutes. Time to prepare!`
+                  });
+                  
+                  // Check if there's a next task to determine task duration
+                  const currentIndex = sortedUpdates.indexOf(update);
+                  const nextTask = sortedUpdates[currentIndex + 1];
+                  
+                  let taskDurationMinutes = 60; // Default to 1 hour if we can't determine
+                  
+                  if (nextTask && nextTask.scheduledTime) {
+                    const [nextHours, nextMinutes] = nextTask.scheduledTime.split(':').map(Number);
+                    const currentTimeInMinutes = hours * 60 + minutes;
+                    const nextTimeInMinutes = nextHours * 60 + nextMinutes;
+                    taskDurationMinutes = nextTimeInMinutes - currentTimeInMinutes;
+                  }
+                  
+                  // For tasks > 30 minutes, add a mid-task check-in
+                  if (taskDurationMinutes > 30) {
+                    // Add check-in halfway through the task
+                    const halfwayMinutes = Math.floor(taskDurationMinutes / 2);
+                    const checkInTotalMinutes = hours * 60 + minutes + halfwayMinutes;
+                    const checkInHours = Math.floor(checkInTotalMinutes / 60);
+                    const checkInMinutes = checkInTotalMinutes % 60;
+                    
+                    const checkInTime = `${checkInHours.toString().padStart(2, '0')}:${checkInMinutes.toString().padStart(2, '0')}`;
+                    
+                    defaultNotifications.push({
+                      type: "follow_up",
+                      scheduledFor: checkInTime,
+                      title: `Check-in on ${taskTitle}`,
+                      content: `How's your progress with "${taskTitle}"? Need any help staying focused?`
+                    });
+                    
+                    // For tasks > 60 minutes, add a second check-in at the 3/4 mark
+                    if (taskDurationMinutes > 60) {
+                      const threeQuarterMinutes = Math.floor(taskDurationMinutes * 0.75);
+                      const secondCheckInTotalMinutes = hours * 60 + minutes + threeQuarterMinutes;
+                      const secondCheckInHours = Math.floor(secondCheckInTotalMinutes / 60);
+                      const secondCheckInMinutes = secondCheckInTotalMinutes % 60;
+                      
+                      const secondCheckInTime = `${secondCheckInHours.toString().padStart(2, '0')}:${secondCheckInMinutes.toString().padStart(2, '0')}`;
+                      
+                      defaultNotifications.push({
+                        type: "follow_up",
+                        scheduledFor: secondCheckInTime,
+                        title: `Second check-in on ${taskTitle}`,
+                        content: `You're in the final stretch of "${taskTitle}"! How is it going?`
+                      });
+                    }
+                  }
+                }
+              }
+              
+              // Add a follow-up notification after the first task
+              if (sortedUpdates.length > 0) {
+                const firstTask = sortedUpdates[0];
+                if (firstTask.scheduledTime) {
+                  // Parse the time
+                  const [hours, minutes] = firstTask.scheduledTime.split(':').map(Number);
+                  
+                  // Create a follow-up 30 minutes after
+                  const followUpMinutes = minutes + 30;
+                  const followUpHours = followUpMinutes >= 60 
+                    ? hours + 1 
+                    : hours;
+                  const adjustedMinutes = followUpMinutes >= 60 
+                    ? followUpMinutes - 60 
+                    : followUpMinutes;
+                  
+                  const followUpTime = `${followUpHours.toString().padStart(2, '0')}:${adjustedMinutes.toString().padStart(2, '0')}`;
+                  
+                  defaultNotifications.push({
+                    type: "follow_up",
+                    scheduledFor: followUpTime,
+                    title: "Check-in",
+                    content: "How is your schedule going so far? Let me know if you need any adjustments."
+                  });
+                }
+              }
+              
+              // Add an end-of-day reflection
+              const lastTaskIndex = sortedUpdates.length - 1;
+              if (lastTaskIndex >= 0) {
+                const lastTask = sortedUpdates[lastTaskIndex];
+                if (lastTask.scheduledTime) {
+                  // Parse the time
+                  const [hours, minutes] = lastTask.scheduledTime.split(':').map(Number);
+                  
+                  // Create a reflection 1 hour after the last task
+                  const reflectionMinutes = minutes + 60;
+                  const reflectionHours = reflectionMinutes >= 60 
+                    ? hours + 1 
+                    : hours;
+                  const adjustedMinutes = reflectionMinutes >= 60 
+                    ? reflectionMinutes - 60 
+                    : reflectionMinutes;
+                  
+                  const reflectionTime = `${reflectionHours.toString().padStart(2, '0')}:${adjustedMinutes.toString().padStart(2, '0')}`;
+                  
+                  // Make sure reflection time is not after 22:30
+                  if (reflectionHours < 22 || (reflectionHours === 22 && adjustedMinutes <= 30)) {
+                    defaultNotifications.push({
+                      type: "reflection",
+                      scheduledFor: reflectionTime,
+                      title: "Daily Reflection",
+                      content: "Take a moment to reflect on what went well today and what you'd like to improve tomorrow."
+                    });
+                  } else {
+                    // Use 22:30 as the default reflection time if the calculated time is later
+                    defaultNotifications.push({
+                      type: "reflection",
+                      scheduledFor: "22:30",
+                      title: "Daily Reflection",
+                      content: "Take a moment to reflect on what went well today and what you'd like to improve tomorrow."
+                    });
+                  }
+                }
+              }
+            }
+            
+            parsed.scheduledMessages = defaultNotifications;
+            
+            // Add a notifications section to the message
+            if (defaultNotifications.length > 0) {
+              // Extract the existing schedule section
+              const scheduleSection = parsed.message.includes("The final schedule is as follows:")
+                ? parsed.message.split("The final schedule is as follows:")[1]
+                : '';
+              
+              // Create notifications section
+              let notificationsText = "\n\nNotifications:\n";
+              defaultNotifications.forEach(notification => {
+                notificationsText += `- ${notification.scheduledFor}: ${notification.title} - ${notification.content}\n`;
+              });
+              
+              // Combine the original message with the notifications section
+              if (parsed.message.includes("The final schedule is as follows:")) {
+                const beforeMarker = parsed.message.split("The final schedule is as follows:")[0];
+                parsed.message = beforeMarker + "The final schedule is as follows:" + scheduleSection + notificationsText;
+              } else {
+                parsed.message += notificationsText;
+              }
+            }
+          }
         } else {
           console.log(
             "Message does not contain final schedule marker - this is a PROPOSAL",
@@ -782,6 +1023,7 @@ Now, please respond to this user message: "${context.userResponse}"`;
       type: string;
       scheduledFor: string;
       content: string;
+      title?: string;
     }>;
   }> {
     const activeTasks = context.tasks.filter(
@@ -925,26 +1167,82 @@ Now, please respond to this user message: "${context.userResponse}"`;
       - End by asking if they want to confirm this schedule or make changes
       - Be realistic about what can be done in the remaining day
       - Only schedule tasks for today, not future days
+      - Use task names instead of Task IDs in the schedule display (e.g., "16:00: Research Project" instead of "16:00: Task (Task ID: 41)")
       - Always include a clear question asking for confirmation, like "Does this schedule work for you?" or "Would you like to make any changes to this schedule?"
       
       You MUST respond with a JSON object containing:
       1. A message field with your friendly schedule message including the bullet list and confirmation question
       2. A scheduleUpdates array with precise times for each task
-      3. A marker string that will be automatically detected: "PROPOSED_SCHEDULE_AWAITING_CONFIRMATION"
+      3. A scheduledMessages array with follow-up notifications for key tasks
+      4. A marker string that will be automatically detected: "PROPOSED_SCHEDULE_AWAITING_CONFIRMATION"
+      
+      NOTIFICATION GUIDELINES:
+      - Include appropriate follow-up notifications 15 minutes before each scheduled task
+      - For people with ADHD, mid-task check-ins are CRUCIAL for maintaining focus:
+        1. For tasks over 30 minutes, add at least one check-in message halfway through the task
+        2. For tasks over 1 hour, add multiple check-ins (approximately every 25-30 minutes)
+        3. Use supportive language like "How's it going with [task]?" or "Need any help staying focused?"
+      - Add a general check-in reminder approximately 1-2 hours after the first scheduled task
+      - Schedule an end-of-day reflection notification before their sleep time
+      - Add clear titles to each notification explaining what it's for (e.g., "Project Task Reminder" or "Mid-task Check-in")
+      - Make notification content brief but supportive and specific to the task
+      - For task reminders, use the actual task name instead of generic terms (e.g., "Reminder: Research Project" instead of "Task Reminder")
+      - Notifications MUST be included in confirmed schedules - this is required
+      - In the final schedule section, show all notifications with their times and titles
 
       Example of required response format:
       {
-        "message": "Here's a proposed schedule for your evening:\\n\\n- 19:30: Task A (Task ID: 123)\\n- 20:30: Short break\\n- 20:45: Task B (Task ID: 456)\\n\\nDoes this schedule work for you, or would you like to make any changes?\\n\\nPROPOSED_SCHEDULE_AWAITING_CONFIRMATION",
+        "message": "Here's a proposed schedule for your evening:\\n\\n- 19:30 to 20:30: Project Planning\\n- 20:30 to 20:45: Short break\\n- 20:45 to 22:15: Design User Interface\\n\\nDoes this schedule work for you, or would you like to make any changes?\\n\\nPROPOSED_SCHEDULE_AWAITING_CONFIRMATION",
         "scheduleUpdates": [
           {
             "taskId": 123,
             "action": "reschedule",
-            "scheduledTime": "19:30"
+            "scheduledTime": "19:30",
+            "title": "Project Planning"
           },
           {
             "taskId": 456,
             "action": "reschedule",
-            "scheduledTime": "20:45"
+            "scheduledTime": "20:45",
+            "title": "Design User Interface"
+          }
+        ],
+        "scheduledMessages": [
+          {
+            "type": "reminder",
+            "scheduledFor": "19:15",
+            "title": "Project Planning Reminder",
+            "content": "Your Project Planning task is starting in 15 minutes. Time to prepare!"
+          },
+          {
+            "type": "follow_up",
+            "scheduledFor": "20:00",
+            "title": "Mid-task Check-in: Project Planning",
+            "content": "How's your Project Planning going? Need any help staying focused?"
+          },
+          {
+            "type": "reminder",
+            "scheduledFor": "20:30",
+            "title": "Design User Interface Reminder",
+            "content": "Your Design UI task is starting in 15 minutes. Time to wrap up the current task!"
+          },
+          {
+            "type": "follow_up",
+            "scheduledFor": "21:30",
+            "title": "Mid-task Check-in: Design UI",
+            "content": "How are you progressing with the Design UI task? Need any support?"
+          },
+          {
+            "type": "follow_up", 
+            "scheduledFor": "22:00",
+            "title": "Final Stretch: Design UI",
+            "content": "You're in the final stretch of your Design UI task. How is it going?"
+          },
+          {
+            "type": "reflection",
+            "scheduledFor": "22:30",
+            "title": "Daily Reflection",
+            "content": "Take a moment to reflect on what went well today and what you'd like to improve tomorrow."
           }
         ]
       }
@@ -1443,13 +1741,22 @@ Now, please respond to this user message: "${context.userResponse}"`;
         console.log("Added system notification for task updates");
       }
 
-      // Analyze message sentiment to determine if we need a follow-up
-      const sentiment = await this.analyzeSentiment(response, userId);
-      if (sentiment.needsFollowUp) {
-        console.log(
-          `Scheduling follow-up based on ${sentiment.type} sentiment`,
-        );
-        await this.scheduleFollowUp(userId, sentiment.type);
+      // Process any scheduled messages in the response
+      if (responseResult.scheduledMessages && responseResult.scheduledMessages.length > 0) {
+        console.log(`Processing ${responseResult.scheduledMessages.length} scheduled messages from response`);
+        await this.processScheduledMessages(userId, responseResult.scheduledMessages);
+        console.log("Completed processing scheduled messages");
+      }
+      // Only analyze sentiment and schedule automatic follow-up if no explicit follow-ups were specified
+      else {
+        // Analyze message sentiment to determine if we need a follow-up
+        const sentiment = await this.analyzeSentiment(response, userId);
+        if (sentiment.needsFollowUp) {
+          console.log(
+            `Scheduling follow-up based on ${sentiment.type} sentiment`,
+          );
+          await this.scheduleFollowUp(userId, sentiment.type);
+        }
       }
 
       // Always store the coach's response in the message history
@@ -1478,12 +1785,19 @@ Now, please respond to this user message: "${context.userResponse}"`;
     }
   }
 
+  /**
+   * Process scheduled messages from the LLM response
+   * 
+   * @param userId The user ID to schedule messages for
+   * @param messages Array of message scheduling information
+   */
   async processScheduledMessages(
     userId: number,
     messages: Array<{
       type: string;
       scheduledFor: string;
       content: string;
+      title?: string;
     }>
   ): Promise<void> {
     try {
@@ -1526,6 +1840,7 @@ Now, please respond to this user message: "${context.userResponse}"`;
           await db.insert(messageSchedules).values({
             userId: userId,
             type: message.type || 'follow_up',
+            title: message.title || `Follow-up at ${message.scheduledFor}`,
             scheduledFor: scheduledDateTime,
             content: message.content || 'Check-in',
             status: 'pending',

@@ -87,6 +87,7 @@ export const tasks = pgTable("tasks", {
   recurrencePattern: text("recurrence_pattern"), // "daily", "weekly:1,3,5" (days), "monthly:15" (date), "none"
   completedAt: timestamp("completed_at"),
   metadata: jsonb("metadata"), // Type-specific data
+  deletedAt: timestamp("deleted_at"), // Soft delete field
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -102,6 +103,7 @@ export const subtasks = pgTable("subtasks", {
   scheduledTime: text("scheduled_time"), // Time of day in HH:MM format (e.g., "09:00")
   recurrencePattern: text("recurrence_pattern"), // "daily", "weekly:1,3,5" (days), "monthly:15" (date), "none"
   completedAt: timestamp("completed_at"),
+  deletedAt: timestamp("deleted_at"), // Soft delete field
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

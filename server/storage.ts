@@ -6,7 +6,7 @@ import {
   InsertDailySchedule, InsertScheduleItem, InsertScheduleRevision
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, gte, lte, inArray } from "drizzle-orm";
+import { eq, and, desc, gte, lte, inArray, isNull } from "drizzle-orm";
 import { 
   users, goals, checkIns, contactVerifications, knownUserFacts, tasks, subtasks, messageSchedules,
   dailySchedules, scheduleItems, scheduleRevisions 
@@ -273,16 +273,20 @@ export class DatabaseStorage implements IStorage {
 
   // Task management methods
   async getTasks(userId: number, type?: string): Promise<Task[]> {
-    let query = db
+    let conditions = [
+      eq(tasks.userId, userId),
+      isNull(tasks.deletedAt) // Only return non-deleted tasks
+    ];
+    
+    if (type) {
+      conditions.push(eq(tasks.taskType, type));
+    }
+    
+    return db
       .select()
       .from(tasks)
-      .where(eq(tasks.userId, userId));
-
-    if (type) {
-      query = query.where(eq(tasks.taskType, type));
-    }
-
-    return query.orderBy(tasks.createdAt);
+      .where(and(...conditions))
+      .orderBy(tasks.createdAt);
   }
 
   async createTask(task: InsertTask & { userId: number }): Promise<Task> {
@@ -311,7 +315,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteTask(id: number): Promise<void> {
-    await db.delete(tasks).where(eq(tasks.id, id));
+    // Implement soft deletion by setting the deletedAt timestamp
+    await db
+      .update(tasks)
+      .set({
+        deletedAt: new Date(),
+        updatedAt: new Date()
+      })
+      .where(eq(tasks.id, id));
   }
 
   async completeTask(id: number): Promise<Task> {
@@ -648,7 +659,10 @@ export class DatabaseStorage implements IStorage {
     return db
       .select()
       .from(subtasks)
-      .where(eq(subtasks.parentTaskId, taskId))
+      .where(and(
+        eq(subtasks.parentTaskId, taskId),
+        isNull(subtasks.deletedAt)  // Only return non-deleted subtasks
+      ))
       .orderBy(subtasks.createdAt);
   }
   
@@ -667,8 +681,12 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(subtasks)
       .where(
-        // Use 'inArray' operator to find subtasks with parentTaskId in the array of task IDs
-        inArray(subtasks.parentTaskId, taskIds)
+        and(
+          // Use 'inArray' operator to find subtasks with parentTaskId in the array of task IDs
+          inArray(subtasks.parentTaskId, taskIds),
+          // Only return non-deleted subtasks
+          isNull(subtasks.deletedAt)
+        )
       )
       .orderBy(subtasks.createdAt);
   }
@@ -699,7 +717,13 @@ export class DatabaseStorage implements IStorage {
   }
   
   async deleteSubtask(taskId: number, subtaskId: number): Promise<void> {
-    await db.delete(subtasks)
+    // Implement soft deletion for subtasks
+    await db
+      .update(subtasks)
+      .set({
+        deletedAt: new Date(),
+        updatedAt: new Date()
+      })
       .where(
         and(
           eq(subtasks.parentTaskId, taskId),
