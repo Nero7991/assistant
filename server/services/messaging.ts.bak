@@ -851,16 +851,14 @@ Now, please respond to this user message: "${context.userResponse}"`;
         // Try different methods to sanitize content
         try {
           // Method 1: Replace emoji and control characters with empty string using Unicode ranges
-          // Unicode surrogate pairs used for emoji
-          let sanitizedContent = cleanContent.replace(/[\uD800-\uDFFF]/g, "");
+          let sanitizedContent = cleanContent.replace(/[\uD800-\uDFFF]|\p{Emoji}/gu, "");
           
           // Method 2: Additional cleanup for other potential problematic characters
-          // Standard approach for removing emoji without requiring unicode flags
           sanitizedContent = sanitizedContent
-            .replace(/[\u1F300-\u1F6FF]/g, '') // Remove emoticons 
-            .replace(/[\u1F900-\u1F9FF]/g, '') // Remove supplemental symbols
-            .replace(/[\u2600-\u26FF]/g, '')   // Remove miscellaneous symbols
-            .replace(/[\u2700-\u27BF]/g, '');  // Remove dingbats
+            .replace(/[\u{1F300}-\u{1F6FF}]/gu, '') // Remove emoticons
+            .replace(/[\u{1F900}-\u{1F9FF}]/gu, '') // Remove supplemental symbols
+            .replace(/[\u{2600}-\u{26FF}]/gu, '')   // Remove miscellaneous symbols
+            .replace(/[\u{2700}-\u{27BF}]/gu, '');  // Remove dingbats
           
           const parsed = JSON.parse(sanitizedContent);
           console.log("Successfully parsed JSON after sanitizing control characters");
@@ -900,6 +898,275 @@ Now, please respond to this user message: "${context.userResponse}"`;
     } catch (error) {
       console.error("Failed to parse LLM response as JSON:", error);
       return { message: content };
+    }
+  }
+
+  processLLMResponse(content: string): {
+    message: string;
+    scheduleUpdates?: ScheduleUpdate[];
+    scheduledMessages?: Array<{
+      type: string;
+      scheduledFor: string;
+      content: string;
+      title?: string;
+    }>;
+  } {
+    try {
+      // Parse JSON content
+      const parsed = JSON.parse(content);
+      
+      // Process the response to ensure proper formatting
+      if (parsed.scheduleUpdates && parsed.scheduleUpdates.length > 0) {
+        console.log("Processing message with schedule updates");
+
+        // Check if this is a confirmation (contains the final schedule marker)
+        const isConfirmation = parsed.message.includes(
+          "The final schedule is as follows:",
+        );
+
+        if (isConfirmation) {
+          console.log(
+            "Message contains final schedule marker - this is a CONFIRMATION",
+          );
+          
+          // Add default notifications if none were provided
+          if (!parsed.scheduledMessages || parsed.scheduledMessages.length === 0) {
+            console.log("No notifications provided with confirmed schedule, generating default notifications");
+            
+            // Create default notifications based on the schedule
+            const defaultNotifications = [];
+            
+            if (parsed.scheduleUpdates && parsed.scheduleUpdates.length > 0) {
+              // Sort schedule updates by time
+              const sortedUpdates = [...parsed.scheduleUpdates]
+                .filter(update => update.scheduledTime && update.action === "reschedule")
+                .sort((a, b) => {
+                  // Convert HH:MM to minutes for comparison
+                  const timeA = a.scheduledTime.split(':').map(Number);
+                  const timeB = b.scheduledTime.split(':').map(Number);
+                  return (timeA[0] * 60 + timeA[1]) - (timeB[0] * 60 + timeB[1]);
+                });
+                
+              // Create reminders and mid-task check-ins for each task
+              for (const update of sortedUpdates) {
+                if (update.scheduledTime) {
+                  // Parse the time
+                  const [hours, minutes] = update.scheduledTime.split(':').map(Number);
+                  
+                  // Get task title if available
+                  let taskTitle = "your upcoming task";
+                  if (update.title) {
+                    taskTitle = update.title;
+                  } else if (update.taskId && typeof update.taskId === 'string') {
+                    // If taskId is a string, it might already be a descriptive name
+                    taskTitle = update.taskId;
+                  } else if (update.taskId) {
+                    // Look up the task title from the task ID and use it if available
+                    try {
+                      const matchingTask = parsed.scheduleUpdates.find((u: any) => 
+                        u.taskId === update.taskId && u.title);
+                      if (matchingTask?.title) {
+                        taskTitle = matchingTask.title;
+                      } else {
+                        taskTitle = 'Scheduled Activity';
+                      }
+                    } catch (err) {
+                      taskTitle = 'Scheduled Activity';
+                    }
+                  }
+                  
+                  // Create a reminder 15 minutes before
+                  const reminderMinutes = minutes - 15;
+                  const reminderHours = reminderMinutes < 0 
+                    ? hours - 1 
+                    : hours;
+                  const adjustedReminderMinutes = reminderMinutes < 0 
+                    ? 60 + reminderMinutes 
+                    : reminderMinutes;
+                  
+                  const reminderTime = `${reminderHours.toString().padStart(2, '0')}:${adjustedReminderMinutes.toString().padStart(2, '0')}`;
+                  
+                  defaultNotifications.push({
+                    type: "reminder",
+                    scheduledFor: reminderTime,
+                    title: `Reminder: ${taskTitle}`,
+                    content: `Your task "${taskTitle}" is starting in 15 minutes. Time to prepare!`
+                  });
+                  
+                  // Check if there's a next task to determine task duration
+                  const currentIndex = sortedUpdates.indexOf(update);
+                  const nextTask = sortedUpdates[currentIndex + 1];
+                  
+                  let taskDurationMinutes = 60; // Default to 1 hour if we can't determine
+                  
+                  if (nextTask && nextTask.scheduledTime) {
+                    const [nextHours, nextMinutes] = nextTask.scheduledTime.split(':').map(Number);
+                    const currentTimeInMinutes = hours * 60 + minutes;
+                    const nextTimeInMinutes = nextHours * 60 + nextMinutes;
+                    taskDurationMinutes = nextTimeInMinutes - currentTimeInMinutes;
+                  }
+                  
+                  // For tasks > 30 minutes, add a mid-task check-in
+                  if (taskDurationMinutes > 30) {
+                    // Add check-in halfway through the task
+                    const halfwayMinutes = Math.floor(taskDurationMinutes / 2);
+                    const checkInTotalMinutes = hours * 60 + minutes + halfwayMinutes;
+                    const checkInHours = Math.floor(checkInTotalMinutes / 60);
+                    const checkInMinutes = checkInTotalMinutes % 60;
+                    
+                    const checkInTime = `${checkInHours.toString().padStart(2, '0')}:${checkInMinutes.toString().padStart(2, '0')}`;
+                    
+                    defaultNotifications.push({
+                      type: "follow_up",
+                      scheduledFor: checkInTime,
+                      title: `Check-in on ${taskTitle}`,
+                      content: `How's your progress with "${taskTitle}"? Need any help staying focused?`
+                    });
+                    
+                    // For tasks > 60 minutes, add a second check-in at the 3/4 mark
+                    if (taskDurationMinutes > 60) {
+                      const threeQuarterMinutes = Math.floor(taskDurationMinutes * 0.75);
+                      const secondCheckInTotalMinutes = hours * 60 + minutes + threeQuarterMinutes;
+                      const secondCheckInHours = Math.floor(secondCheckInTotalMinutes / 60);
+                      const secondCheckInMinutes = secondCheckInTotalMinutes % 60;
+                      
+                      const secondCheckInTime = `${secondCheckInHours.toString().padStart(2, '0')}:${secondCheckInMinutes.toString().padStart(2, '0')}`;
+                      
+                      defaultNotifications.push({
+                        type: "follow_up",
+                        scheduledFor: secondCheckInTime,
+                        title: `Second check-in on ${taskTitle}`,
+                        content: `You're in the final stretch of "${taskTitle}"! How is it going?`
+                      });
+                    }
+                  }
+                }
+              }
+              
+              // Add a follow-up notification after the first task
+              if (sortedUpdates.length > 0) {
+                const firstTask = sortedUpdates[0];
+                if (firstTask.scheduledTime) {
+                  // Parse the time
+                  const [hours, minutes] = firstTask.scheduledTime.split(':').map(Number);
+                  
+                  // Create a follow-up 30 minutes after
+                  const followUpMinutes = minutes + 30;
+                  const followUpHours = followUpMinutes >= 60 
+                    ? hours + 1 
+                    : hours;
+                  const adjustedMinutes = followUpMinutes >= 60 
+                    ? followUpMinutes - 60 
+                    : followUpMinutes;
+                  
+                  const followUpTime = `${followUpHours.toString().padStart(2, '0')}:${adjustedMinutes.toString().padStart(2, '0')}`;
+                  
+                  defaultNotifications.push({
+                    type: "follow_up",
+                    scheduledFor: followUpTime,
+                    title: "Check-in",
+                    content: "How is your schedule going so far? Let me know if you need any adjustments."
+                  });
+                }
+              }
+              
+              // Add an end-of-day reflection
+              const lastTaskIndex = sortedUpdates.length - 1;
+              if (lastTaskIndex >= 0) {
+                const lastTask = sortedUpdates[lastTaskIndex];
+                if (lastTask.scheduledTime) {
+                  // Parse the time
+                  const [hours, minutes] = lastTask.scheduledTime.split(':').map(Number);
+                  
+                  // Create a reflection 1 hour after the last task
+                  const reflectionMinutes = minutes + 60;
+                  const reflectionHours = reflectionMinutes >= 60 
+                    ? hours + 1 
+                    : hours;
+                  const adjustedMinutes = reflectionMinutes >= 60 
+                    ? reflectionMinutes - 60 
+                    : reflectionMinutes;
+                  
+                  const reflectionTime = `${reflectionHours.toString().padStart(2, '0')}:${adjustedMinutes.toString().padStart(2, '0')}`;
+                  
+                  // Make sure reflection time is not after 22:30
+                  if (reflectionHours < 22 || (reflectionHours === 22 && adjustedMinutes <= 30)) {
+                    defaultNotifications.push({
+                      type: "reflection",
+                      scheduledFor: reflectionTime,
+                      title: "Daily Reflection",
+                      content: "Take a moment to reflect on what went well today and what you'd like to improve tomorrow."
+                    });
+                  } else {
+                    // Use 22:30 as the default reflection time if the calculated time is later
+                    defaultNotifications.push({
+                      type: "reflection",
+                      scheduledFor: "22:30",
+                      title: "Daily Reflection",
+                      content: "Take a moment to reflect on what went well today and what you'd like to improve tomorrow."
+                    });
+                  }
+                }
+              }
+            }
+            
+            parsed.scheduledMessages = defaultNotifications;
+            
+            // Add a notifications section to the message
+            if (defaultNotifications.length > 0) {
+              // Extract the existing schedule section
+              const scheduleSection = parsed.message.includes("The final schedule is as follows:")
+                ? parsed.message.split("The final schedule is as follows:")[1]
+                : '';
+              
+              // Create notifications section
+              let notificationsText = "\n\nNotifications:\n";
+              defaultNotifications.forEach(notification => {
+                notificationsText += `- ${notification.scheduledFor}: ${notification.title} - ${notification.content}\n`;
+              });
+              
+              // Combine the original message with the notifications section
+              if (parsed.message.includes("The final schedule is as follows:")) {
+                const beforeMarker = parsed.message.split("The final schedule is as follows:")[0];
+                parsed.message = beforeMarker + "The final schedule is as follows:" + scheduleSection + notificationsText;
+              } else {
+                parsed.message += notificationsText;
+              }
+            }
+          }
+        } else {
+          console.log(
+            "Message does not contain final schedule marker - this is a PROPOSAL",
+          );
+
+          // Make sure we don't have any final schedule markers in proposals
+          if (parsed.message.includes("The final schedule is as follows:")) {
+            parsed.message = parsed.message.replace(
+              "The final schedule is as follows:",
+              "Here's a proposed schedule:",
+            );
+            console.log(
+              "Replaced final schedule marker with proposed schedule text",
+            );
+          }
+        }
+      }
+
+      return {
+        message: parsed.message,
+        scheduleUpdates: parsed.scheduleUpdates || [],
+        scheduledMessages: parsed.scheduledMessages || [],
+      };
+    } catch (error) {
+      console.error("Error processing JSON response:", error);
+      if (parsed && parsed.message) {
+        return { 
+          message: parsed.message,
+          scheduleUpdates: parsed.scheduleUpdates || [],
+          scheduledMessages: parsed.scheduledMessages || [],
+        };
+      }
+      return { message: "I encountered an issue processing your schedule. Let me know if you'd like to try again." };
     }
   }
 

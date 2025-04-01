@@ -1,0 +1,157 @@
+===== MESSAGING DEBUG: RAW LLM RESPONSE =====
+```json
+{
+  "message": "Hi orencollaco! 😊 Here's a proposed schedule for your evening, keeping you free until 22:00:
+
+- **17:30 to 18:30**: Continue Research and Planning (Task ID: 41)
+- **18:30 to 18:45**: Short Break
+- **18:45 to 19:45**: Set Up Development Environment (Task ID: 42)
+- **19:45 to 20:00**: Short Break
+- **20:00 to 21:00**: Develop Backend API (Task ID: 44)
+- **21:00 to 21:15**: Take magnesium supplements (Task ID: 20)
+- **21:15 to 22:00**: Design User Interface (Task ID: 43)
+- **22:00**: Daily Reflection
+
+Does this schedule work for you, or would you like to make any changes?
+
+PROPOSED_SCHEDULE_AWAITING_CONFIRMATION",
+  "scheduleUpdates": [
+    {
+      "taskId": 41,
+      "action": "reschedule",
+      "scheduledTime": "17:30"
+    },
+    {
+      "taskId": 42,
+      "action": "reschedule",
+      "scheduledTime": "18:45"
+    },
+    {
+      "taskId": 44,
+      "action": "reschedule",
+      "scheduledTime": "20:00"
+    },
+    {
+      "taskId": 20,
+      "action": "reschedule",
+      "scheduledTime": "21:00"
+    },
+    {
+      "taskId": 43,
+      "action": "reschedule",
+      "scheduledTime": "21:15"
+    }
+  ],
+  "scheduledMessages": [
+    {
+      "type": "reminder",
+      "scheduledFor": "17:15",
+      "title": "Upcoming Task Reminder",
+      "content": "Your 'Continue Research and Planning' task starts at 17:30."
+    },
+    {
+      "type": "encouragement",
+      "scheduledFor": "17:30",
+      "title": "Task Start",
+      "content": "Let's start Continue Research and Planning!"
+    },
+    {
+      "type": "follow_up",
+      "scheduledFor": "18:00",
+      "title": "Mid-task Check-in",
+      "content": "How's it going with Continue Research and Planning?"
+    },
+    {
+      "type": "reminder",
+      "scheduledFor": "18:30",
+      "title": "Short Break Reminder",
+      "content": "Your Short Break starts at 18:30."
+    },
+    {
+      "type": "reminder",
+      "scheduledFor": "18:30",
+      "title": "Task Reminder",
+      "content": "Your 'Set Up Development Environment' task starts at 18:45."
+    },
+    {
+      "type": "encouragement",
+      "scheduledFor": "18:45",
+      "title": "Task Start",
+      "content": "Let's start Set Up Development Environment!"
+    },
+    {
+      "type": "follow_up",
+      "scheduledFor": "19:15",
+      "title": "Mid-task Check-in",
+      "content": "How's it going with Set Up Development Environment?"
+    },
+    {
+      "type": "reminder",
+      "scheduledFor": "19:45",
+      "title": "Short Break Reminder",
+      "content": "Your Short Break starts at 19:45."
+    },
+    {
+      "type": "reminder",
+      "scheduledFor": "19:45",
+      "title": "Task Reminder",
+      "content": "Your 'Develop Backend API' task starts at 20:00."
+    },
+    {
+      "type": "encouragement",
+      "scheduledFor": "20:00",
+      "title": "Task Start",
+      "content": "Let's start Develop Backend API!"
+    },
+    {
+      "type": "follow_up",
+      "scheduledFor": "20:30",
+      "title": "Mid-task Check-in",
+      "content": "How's it going with Develop Backend API?"
+    },
+    {
+      "type": "reminder",
+      "scheduledFor": "21:00",
+      "title": "Supplement Reminder",
+      "content": "Time to take your magnesium supplements."
+    },
+    {
+      "type": "reminder",
+      "scheduledFor": "21:00",
+      "title": "Task Reminder",
+      "content": "Your 'Design User Interface' task starts at 21:15."
+    },
+    {
+      "type": "encouragement",
+      "scheduledFor": "21:15",
+      "title": "Task Start",
+      "content": "Let's start Design User Interface!"
+    },
+    {
+      "type": "follow_up",
+      "scheduledFor": "21:45",
+      "title": "Mid-task Check-in",
+      "content": "How's it going with Design User Interface?"
+    },
+    {
+      "type": "reminder",
+      "scheduledFor": "22:00",
+      "title": "Daily Reflection Reminder",
+      "content": "Time for Daily Reflection."
+    }
+  ]
+}
+```
+========================================
+
+Failed to parse LLM response as JSON: SyntaxError: Bad control character in string literal in JSON at position 109
+    at JSON.parse (<anonymous>)
+    at MessagingService.processLLMResponse (/home/runner/workspace/server/services/messaging.ts:761:27)
+    at MessagingService.generateResponseMessage (/home/runner/workspace/server/services/messaging.ts:741:17)
+    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+    at async MessagingService.handleUserResponse (/home/runner/workspace/server/services/messaging.ts:1643:26)
+    at async <anonymous> (/home/runner/workspace/server/routes.ts:1460:7)
+Detected proposed schedule awaiting confirmation - not processing yet
+Using user's preferred model: o1-mini for sentiment analysis
+Using model with user role prompt for o1-mini model
+Successfully sent truncated WhatsApp message to +17323187616
