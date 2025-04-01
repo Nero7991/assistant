@@ -1620,7 +1620,7 @@ export class MessagingService {
         { role: "user", content: instructionsAndText }
       ];
       
-      console.log("Using model with simple user role prompt for o1-mini model");
+      console.log("Using model with user role prompt for o1-mini model");
       // No temperature parameter for o1-mini/o3-mini - using default
     } else {
       // For models that support system role and response_format
