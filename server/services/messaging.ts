@@ -1056,7 +1056,9 @@ Now, please respond to this user message: "${context.userResponse}"`;
 
       IMPORTANT RULES:
       - Be friendly but concise (max 800 characters)
-      - Format your message as a short greeting followed by a bullet list of scheduled tasks with times
+      - Format your message as a short greeting followed by a COMPLETE bullet list of scheduled tasks with times
+      - The bullet list MUST use this format: "- HH:MM: Task Name" (with the dash, time, and colon)
+      - Include ALL the scheduled tasks in bullet format in your message, not just a brief summary
       - End by asking if they want to confirm this schedule or make changes
       - Be realistic about what can be done in the remaining day
       - Only schedule tasks for today, not future days
@@ -1085,7 +1087,7 @@ Now, please respond to this user message: "${context.userResponse}"`;
 
       Example of required response format:
       {
-        "message": "Here's a proposed schedule for your evening:\\n\\n- 19:30 to 20:30: Project Planning\\n- 20:30 to 20:45: Short break\\n- 20:45 to 22:15: Design User Interface\\n\\nDoes this schedule work for you, or would you like to make any changes?\\n\\nPROPOSED_SCHEDULE_AWAITING_CONFIRMATION",
+        "message": "Here's a proposed schedule for your evening:\\n\\n- 19:30: Project Planning\\n- 20:30: Short break\\n- 20:45: Design User Interface\\n\\nDoes this schedule work for you, or would you like to make any changes?\\n\\nPROPOSED_SCHEDULE_AWAITING_CONFIRMATION",
         "scheduleUpdates": [
           {
             "taskId": 123,

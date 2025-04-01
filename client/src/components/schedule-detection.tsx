@@ -145,8 +145,13 @@ export function ScheduleDetection({ messageContent, messageId, userId }: Schedul
   const processedMessagesRef = useRef<Record<string, boolean>>({});
   
   useEffect(() => {
-    // Check for schedule marker in the message content
-    const SCHEDULE_MARKER = "The final schedule is as follows:";
+    // Check for various schedule markers in the message content
+    const SCHEDULE_MARKERS = [
+      "The final schedule is as follows:",
+      "Here's your updated plan:",
+      "Here's a proposed schedule",
+      "I've adjusted your schedule"
+    ];
     
     // Create a storage key using the messageId which is much more reliable than content hashing
     const storageKey = `processed_schedule_${messageId}`;
@@ -163,15 +168,24 @@ export function ScheduleDetection({ messageContent, messageId, userId }: Schedul
     }
     
     // Debug log for message detection
-    console.log(`Checking message ${messageId} for schedule marker:`, {
+    console.log(`Checking message ${messageId} for schedule markers:`, {
       hasMessage: !!messageContent,
       messageLength: messageContent ? messageContent.length : 0,
       contentPreview: messageContent ? messageContent.substring(0, 50) + "..." : "",
     });
     
-    // Only process if there's a message and it contains the marker
-    if (messageContent && messageContent.toLowerCase().includes(SCHEDULE_MARKER.toLowerCase())) {
-      console.log(`Schedule marker found in message ${messageId}!`);
+    // Check if the message contains any of our schedule markers or contains bullet points with times
+    const containsScheduleMarker = SCHEDULE_MARKERS.some(marker => 
+      messageContent?.toLowerCase().includes(marker.toLowerCase())
+    );
+    
+    // Check for bullet list pattern with times (e.g., "- 09:30: Task name")
+    const bulletListPattern = /[-•*]\s*\d{1,2}:\d{2}\s*:?\s*\w+/;
+    const containsBulletList = bulletListPattern.test(messageContent || '');
+    
+    // Only process if there's a message and it contains a marker or bullet list
+    if (messageContent && (containsScheduleMarker || containsBulletList)) {
+      console.log(`Schedule marker or bullet list found in message ${messageId}!`);
       
       // Check if we've already processed this message (either in memory or in session storage)
       const alreadyProcessed = processedMessagesRef.current[messageId] || sessionStorage.getItem(storageKey);
