@@ -8,9 +8,45 @@ import {
   goals,
   scheduleItems,
   users,
-  dailySchedules
+  dailySchedules 
 } from '@shared/schema';
 import { format } from 'date-fns';
+
+// Define simplified types for use in this file
+type Task = {
+  id?: number;
+  userId: number;
+  title: string;
+  description?: string | null;
+  taskType: string;
+  status: string;
+  priority?: number | null;
+  estimatedDuration?: string | null;
+  deadline?: Date | null;
+  scheduledTime?: string | null;
+  recurrencePattern?: string | null;
+  completedAt?: Date | null;
+  metadata?: any;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt?: Date | null;
+};
+
+type Subtask = {
+  id?: number;
+  parentTaskId: number;
+  title: string;
+  description?: string | null;
+  status: string;
+  estimatedDuration?: string | null;
+  deadline?: Date | null;
+  scheduledTime?: string | null;
+  recurrencePattern?: string | null;
+  completedAt?: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt?: Date | null;
+};
 
 /**
  * LLM Functions
@@ -90,18 +126,22 @@ export class LLMFunctions {
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
 
+      // Build conditions for the query
+      const conditions = [
+        sql`${messageSchedules.userId} = ${context.userId}`,
+        sql`${messageSchedules.status} = ${'pending'}`,
+        sql`${messageSchedules.deletedAt} IS NULL`,
+        sql`${messageSchedules.scheduledFor} >= ${today}::timestamp`,
+        sql`${messageSchedules.scheduledFor} < ${tomorrow}::timestamp`
+      ];
+      
+      // Combine conditions with AND
+      const whereClause = sql.join(conditions, sql` AND `);
+
       const pendingSchedules = await db
         .select()
         .from(messageSchedules)
-        .where(
-          and(
-            eq(messageSchedules.userId, context.userId),
-            eq(messageSchedules.status, 'pending'),
-            isNull(messageSchedules.deletedAt),
-            gte(messageSchedules.scheduledFor, today),
-            lt(messageSchedules.scheduledFor, tomorrow)
-          )
-        )
+        .where(whereClause)
         .orderBy(messageSchedules.scheduledFor);
 
       // Format the results to be more readable
@@ -129,44 +169,60 @@ export class LLMFunctions {
     try {
       const status = params.status || 'active';
       
-      let query = db
+      // Build conditions for the task query
+      let conditions = [
+        sql`${tasks.userId} = ${context.userId}`,
+        sql`${tasks.deletedAt} IS NULL`
+      ];
+      
+      // Add status condition
+      if (status === 'active') {
+        conditions.push(sql`${tasks.completedAt} IS NULL`);
+      } else if (status === 'completed') {
+        conditions.push(sql`${tasks.completedAt} IS NOT NULL`);
+      }
+      // For 'all' status, no additional condition needed
+      
+      // Combine conditions with AND
+      const whereClause = sql.join(conditions, sql` AND `);
+      
+      // Get all tasks with the appropriate filters
+      const taskList = await db
         .select()
         .from(tasks)
-        .where(
-          and(
-            eq(tasks.userId, context.userId),
-            isNull(tasks.deletedAt)
-          )
-        );
-        
-      // Apply status filter if not 'all'
-      if (status === 'active') {
-        query = query.where(isNull(tasks.completedAt));
-      } else if (status === 'completed') {
-        query = query.where(isNull(tasks.completedAt).not());
-      }
-      
-      const taskList = await query;
+        .where(whereClause);
       
       // For each task, get its subtasks
-      const result = await Promise.all(taskList.map(async (task) => {
+      const result = await Promise.all(taskList.map(async (task: Task) => {
+        // Skip tasks with no ID
+        if (!task.id) {
+          return {
+            ...task,
+            subtasks: []
+          };
+        }
+        
+        // Construct subtasks query
+        const subtasksConditions = [
+          sql`${subtasks.parentTaskId} = ${task.id}`,
+          sql`${subtasks.deletedAt} IS NULL`
+        ];
+        
+        const subtasksWhereClause = sql.join(subtasksConditions, sql` AND `);
+        
+        // Get the subtasks for this task
         const subtaskList = await db
           .select()
           .from(subtasks)
-          .where(
-            and(
-              eq(subtasks.taskId, task.id!),
-              isNull(subtasks.deletedAt)
-            )
-          );
+          .where(subtasksWhereClause);
           
         return {
           ...task,
-          subtasks: subtaskList.map(st => ({
+          subtasks: subtaskList.map((st: Subtask) => ({
             id: st.id,
             title: st.title,
             status: st.completedAt ? 'completed' : 'active',
-            dueDate: st.dueDate ? format(new Date(st.dueDate), 'yyyy-MM-dd') : null
+            deadline: st.deadline ? format(new Date(st.deadline), 'yyyy-MM-dd') : null
           }))
         };
       }));
@@ -183,17 +239,25 @@ export class LLMFunctions {
    */
   async getUserFacts(context: LLMFunctionContext, params: { category?: string }) {
     try {
-      let query = db
-        .select()
-        .from(knownUserFacts)
-        .where(eq(knownUserFacts.userId, context.userId));
-        
+      // Build the condition for the where clause
+      let conditions = [
+        sql`${knownUserFacts.userId} = ${context.userId}`
+      ];
+      
       // Apply category filter if provided
       if (params.category) {
-        query = query.where(eq(knownUserFacts.category, params.category));
+        conditions.push(sql`${knownUserFacts.category} = ${params.category}`);
       }
       
-      const facts = await query;
+      // Combine conditions with AND
+      const whereClause = sql.join(conditions, sql` AND `);
+      
+      // Execute the query
+      const facts = await db
+        .select()
+        .from(knownUserFacts)
+        .where(whereClause);
+      
       return facts;
     } catch (error) {
       console.error('Error getting user facts:', error);
@@ -206,13 +270,23 @@ export class LLMFunctions {
    */
   async getTodaysSchedule(context: LLMFunctionContext) {
     try {
-      const now = context.date || new Date();
+      // Ensure we're working with a proper Date object
+      let now: Date;
+      if (context.date && context.date instanceof Date) {
+        now = context.date;
+      } else {
+        now = new Date();
+      }
+      
       const today = new Date(now);
       today.setHours(0, 0, 0, 0);
       
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
 
+      // Format date as string in a way that PostgreSQL can handle
+      const todayStr = format(today, 'yyyy-MM-dd');
+      
       // Get the daily schedule for today
       const [dailySchedule] = await db
         .select()
@@ -220,8 +294,7 @@ export class LLMFunctions {
         .where(
           and(
             eq(dailySchedules.userId, context.userId),
-            gte(sql`${dailySchedules.date}::date`, sql`${today}::date`),
-            lt(sql`${dailySchedules.date}::date`, sql`${tomorrow}::date`)
+            sql`date_trunc('day', ${dailySchedules.date}::timestamp) = date_trunc('day', ${format(today, 'yyyy-MM-dd')}::timestamp)`
           )
         )
         .limit(1);
@@ -242,9 +315,8 @@ export class LLMFunctions {
           .where(
             and(
               eq(scheduleItems.userId, context.userId),
-              isNull(scheduleItems.deletedAt),
-              gte(sql`${scheduleItems.startTime}::date`, sql`${today}::date`),
-              lt(sql`${scheduleItems.startTime}::date`, sql`${tomorrow}::date`)
+              sql`${scheduleItems.deletedAt} IS NULL`,
+              sql`date_trunc('day', ${scheduleItems.date}::timestamp) = date_trunc('day', ${format(today, 'yyyy-MM-dd')}::timestamp)`
             )
           )
           .orderBy(scheduleItems.startTime);
@@ -261,27 +333,38 @@ export class LLMFunctions {
           .map(item => item.taskId)
           .filter((id): id is number => id !== null);
 
-        const relatedTasks = taskIds.length > 0 
-          ? await db
+        // Use a different query approach to get related tasks
+        let relatedTasks: any[] = [];
+        if (taskIds.length > 0) {
+          // For each task ID, perform an individual query
+          for (const taskId of taskIds) {
+            const [task] = await db
               .select()
               .from(tasks)
               .where(
                 and(
+                  eq(tasks.id, taskId),
                   eq(tasks.userId, context.userId),
-                  isNull(tasks.deletedAt)
+                  sql`${tasks.deletedAt} IS NULL`
                 )
-              )
-              .where(tasks.id.in(taskIds))
-          : [];
+              );
+            
+            if (task) {
+              relatedTasks.push(task);
+            }
+          }
+        }
 
-        const tasksById = relatedTasks.reduce((acc, task) => {
-          acc[task.id!] = task;
+        const tasksById = relatedTasks.reduce((acc: Record<number, any>, task: any) => {
+          if (task && task.id !== undefined) {
+            acc[task.id] = task;
+          }
           return acc;
         }, {} as Record<number, typeof relatedTasks[0]>);
 
         // Format the schedule items with task info
         const formattedItems = scheduleItemsResult.map(item => {
-          const task = item.taskId ? tasksById[item.taskId] : null;
+          const task = item.taskId && tasksById[item.taskId] ? tasksById[item.taskId] : null;
           return {
             id: item.id,
             title: item.title,
@@ -311,7 +394,7 @@ export class LLMFunctions {
         .where(
           and(
             eq(scheduleItems.scheduleId, dailySchedule.id),
-            isNull(scheduleItems.deletedAt)
+            sql`${scheduleItems.deletedAt} IS NULL`
           )
         )
         .orderBy(scheduleItems.startTime);
@@ -324,7 +407,7 @@ export class LLMFunctions {
           const [task] = await db
             .select()
             .from(tasks)
-            .where(eq(tasks.id, item.taskId!));
+            .where(sql`${tasks.id} = ${item.taskId}`);
             
           if (task) {
             taskInfo = {

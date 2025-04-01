@@ -1,0 +1,12 @@
+[
+  {
+    "query": "What's on my schedule for today?",
+    "response": "Error: Received HTML response instead of JSON",
+    "timestamp": "2025-04-01T18:36:53.267Z"
+  },
+  {
+    "query": "Can you reschedule my EU Visa task to 4pm today?",
+    "response": "Error: Received HTML response instead of JSON",
+    "timestamp": "2025-04-01T18:37:02.256Z"
+  }
+]

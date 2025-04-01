@@ -407,6 +407,18 @@ export class MessagingService {
       
       The user just messaged you: "${context.userResponse}"
       
+      YOU HAVE ACCESS TO THE FOLLOWING FUNCTIONS:
+      1. get_todays_notifications() - Returns notifications scheduled for today
+      2. get_task_list({ status }) - Returns tasks with optional status filter ('active', 'completed', 'all')
+      3. get_user_facts({ category }) - Returns known facts about the user, optionally filtered by category
+      4. get_todays_schedule() - Returns the schedule for today
+      
+      IMPORTANT: HOW TO CALL FUNCTIONS:
+      - If you need any information from these sources, use the appropriate function
+      - Ask one question at a time that requires access to this data
+      - For example: If the user asks "What's on my schedule today?", call get_todays_schedule()
+      - After you receive data, incorporate it into your response in a helpful way
+      
       CONTEXT ANALYSIS INSTRUCTIONS:
       1. Understand the user's intention from their natural language request
       2. If user wants to add a reminder, check-in, or follow-up, create an appropriate scheduleUpdate
@@ -496,7 +508,20 @@ export class MessagingService {
       console.log("Using model with simple user role prompt for o1-mini model");
       
       // Combine the instructions into the user message for models that don't support system role
-      const combinedUserMessage = `Act as an ADHD coach helping with task management. ${prompt}\n\nUser's message: ${context.userResponse}`;
+      const combinedUserMessage = `Act as an ADHD coach helping with task management.
+
+${prompt}
+
+SPECIAL INSTRUCTIONS FOR FUNCTION CALLING:
+Since you can't directly call functions, here's what to do:
+1. If you need to get today's schedule, say "I need to get your schedule" in your response
+2. If you need to get task information, say "I need to check your tasks" in your response
+3. If you need user facts, say "I need to review your preferences" in your response
+4. If you need notifications, say "I need to check your notifications" in your response
+
+I'll make sure to provide that information to you in a follow-up message.
+
+Now, please respond to this user message: "${context.userResponse}"`;
       
       // Set only compatible parameters using user role
       completionParams.messages = [
@@ -567,37 +592,9 @@ export class MessagingService {
       console.log("Function results:", JSON.stringify(functionResults, null, 2));
       
       // Add the function results to the conversation
-      const functionCallMessages = response.choices[0].message.tool_calls?.map(toolCall => {
-        if (toolCall.type === 'function') {
-          return {
-            role: "assistant" as const,
-            tool_call_id: toolCall.id,
-            content: null,
-            tool_calls: [toolCall]
-          };
-        }
-        return null; // Explicitly return null for filtering
-      }).filter((msg): msg is NonNullable<typeof msg> => msg !== null) || [];
-      
-      const functionResultMessages = Object.entries(functionResults).map(([functionName, result]) => {
-        const toolCall = response.choices[0].message.tool_calls?.find(tc => 
-          tc.type === 'function' && tc.function.name === functionName
-        );
-        
-        if (toolCall) {
-          return {
-            role: "tool" as const,
-            tool_call_id: toolCall.id,
-            content: JSON.stringify(result)
-          };
-        }
-        return null; // Explicitly return null for filtering
-      }).filter((msg): msg is NonNullable<typeof msg> => msg !== null);
-      
-      // Continue the conversation with the function results
-      const functionUserMessage = isMiniModel ? 
+      if (isMiniModel) {
         // For o1-mini, we need to combine everything into a single user message
-        `Act as an ADHD coach helping with task management.
+        const functionUserMessage = `Act as an ADHD coach helping with task management.
          
          Previous context:
          ${prompt}
@@ -605,52 +602,97 @@ export class MessagingService {
          User's message: ${context.userResponse}
          
          I requested the following information:
-         ${JSON.stringify(Object.keys(functionResults).map(fn => `Function: ${fn}`))}
+         ${Object.keys(functionResults).map(fn => `Function: ${fn}`).join("\n")}
          
          And received these results:
          ${JSON.stringify(functionResults, null, 2)}
          
-         Based on this information, please provide a helpful response as an ADHD coach.` :
-        // For standard models, use the standard message format
-        response.choices[0].message.content;
-      
-      const followUpMessages = isMiniModel ? 
-        [{ role: "user", content: functionUserMessage }] : 
-        [
-          ...completionParams.messages,
-          response.choices[0].message,
-          ...functionCallMessages,
-          ...functionResultMessages
-        ];
-      
-      const functionResponseParams = {
-        ...completionParams,
-        messages: followUpMessages
-      };
-      
-      // Remove any unsupported parameters for o1-mini model
-      if (isMiniModel) {
-        delete functionResponseParams.response_format;
-        delete functionResponseParams.temperature;
-        delete functionResponseParams.tools;
-      }
-      
-      // Send the follow-up request
-      console.log(`Sending follow-up request for ${isMiniModel ? 'mini model' : 'standard model'}`);
-      const functionResponse = await openai.chat.completions.create(functionResponseParams);
-      
-      // Use this as our final response
-      const content = functionResponse.choices[0].message.content;
-      if (!content)
-        return { message: "I couldn't generate a response. Please try again." };
+         Based on this information, please provide a helpful response as an ADHD coach.`;
         
-      console.log("Function-based response:", content);
-      
-      return this.processLLMResponse(content);
+        const followUpMessages = [{ role: "user", content: functionUserMessage }];
+        
+        const functionResponseParams: any = {
+          model: completionParams.model,
+          messages: followUpMessages
+        };
+        
+        console.log(`Sending follow-up request for mini model`);
+        const functionResponse = await openai.chat.completions.create(functionResponseParams);
+        
+        // Use this as our final response
+        const content = functionResponse.choices[0].message.content;
+        if (!content)
+          return { message: "I couldn't generate a response. Please try again." };
+          
+        console.log("Function-based response:", content);
+        
+        return this.processLLMResponse(content);
+      } else {
+        // For standard models, use the OpenAI function calling protocol
+        try {
+          // First, add the assistant message with tool calls
+          const messages = [
+            ...completionParams.messages,
+            response.choices[0].message
+          ];
+          
+          // Then add each tool response separately for ALL tool calls
+          if (response.choices[0].message.tool_calls) {
+            for (const toolCall of response.choices[0].message.tool_calls) {
+              if (toolCall.type === 'function') {
+                const functionName = toolCall.function.name;
+                const result = functionResults[functionName] || { error: "Function not executed" };
+                
+                messages.push({
+                  role: "tool" as const,
+                  tool_call_id: toolCall.id,
+                  content: JSON.stringify(result)
+                });
+              }
+            }
+          }
+          
+          // Log the complete messages array for debugging
+          console.log("Function call messages:", JSON.stringify(messages.map(m => ({
+            role: m.role,
+            tool_call_id: 'tool_call_id' in m ? m.tool_call_id : undefined,
+            content_length: m.content ? m.content.length : 0,
+            tool_calls: 'tool_calls' in m ? m.tool_calls?.length : undefined
+          })), null, 2));
+          
+          // Continue the conversation with the function results
+          const functionResponseParams: any = {
+            model: completionParams.model,
+            messages: messages,
+            temperature: 0.7,
+            response_format: { type: "json_object" },
+          };
+          
+          console.log(`Sending follow-up request for standard model`);
+          const functionResponse = await openai.chat.completions.create(functionResponseParams);
+          
+          // Use this as our final response
+          const content = functionResponse.choices[0].message.content;
+          if (!content)
+            return { message: "I couldn't generate a response. Please try again." };
+            
+          console.log("Function-based response:", content);
+          
+          return this.processLLMResponse(content);
+        } catch (error) {
+          console.error("Error in function call processing:", error);
+          // Fallback to standard response without function calling
+          return {
+            message: "I encountered an issue while processing your request. Let me try to help anyway: " +
+                     "Based on the information available, I can help you manage your tasks and schedule. " +
+                     "What specifically would you like assistance with today?"
+          };
+        }
+      }
     }
 
     // Handle standard (non-function) responses
-    const content = response.choices[0].message.content;
+    const content = response.choices[0].message.content || "";
     if (!content)
       return { message: "I couldn't generate a response. Please try again." };
 
@@ -1140,6 +1182,15 @@ export class MessagingService {
       console.log(
         `Processing response from user ${userId}: "${response.substring(0, 50)}..."`,
       );
+      
+      // Store the user's message first
+      await db.insert(messageHistory).values({
+        userId,
+        content: response,
+        type: "user_message",
+        status: "received",
+        createdAt: new Date(),
+      });
 
       // Get user information
       const user = await storage.getUser(userId);
@@ -1219,11 +1270,75 @@ export class MessagingService {
       );
       console.log("========================================\n");
 
-      // Generate the response using our unified approach
-      const responseResult = await this.generateResponseMessage(
-        messageContext,
-        existingScheduleUpdates,
+      // Check if this is a mini model response requesting functions
+      const isFunctionRequest = (
+        response.includes("I need to get your schedule") ||
+        response.includes("I need to check your tasks") ||
+        response.includes("I need to review your preferences") ||
+        response.includes("I need to check your notifications")
       );
+      
+      const preferredModel = await this.getUserPreferredModel(userId);
+      const isMiniModel = ["o1-mini", "o3-mini"].includes(preferredModel);
+      
+      let responseResult;
+      
+      if (isMiniModel && isFunctionRequest) {
+        console.log("Detected function request from o1-mini model, fetching requested data");
+        
+        // Create a response with all the data the mini model might need
+        let functionResults: Record<string, any> = {};
+        
+        if (response.includes("I need to get your schedule")) {
+          functionResults["get_todays_schedule"] = await llmFunctions.getTodaysSchedule({ userId });
+        }
+        
+        if (response.includes("I need to check your tasks")) {
+          functionResults["get_task_list"] = await llmFunctions.getTaskList({ userId }, { status: 'active' });
+        }
+        
+        if (response.includes("I need to review your preferences")) {
+          functionResults["get_user_facts"] = await llmFunctions.getUserFacts({ userId }, {});
+        }
+        
+        if (response.includes("I need to check your notifications")) {
+          functionResults["get_todays_notifications"] = await llmFunctions.getTodaysNotifications({ userId });
+        }
+        
+        // Create a special prompt with all the requested information
+        const functionUserMessage = `Act as an ADHD coach helping with task management.
+         
+         I requested the following information:
+         ${Object.keys(functionResults).map(fn => `Function: ${fn}`).join("\n")}
+         
+         And received these results:
+         ${JSON.stringify(functionResults, null, 2)}
+         
+         The user previously said: "${response}"
+         
+         Based on this information, please provide a helpful response as an ADHD coach.
+         Remember to format your response as a JSON object with message, scheduleUpdates, and scheduledMessages.`;
+        
+        // Create a new context with this as the user message
+        const functionContext: MessageContext = {
+          ...messageContext,
+          userResponse: functionUserMessage
+        };
+        
+        // Generate the response 
+        responseResult = await this.generateResponseMessage(
+          functionContext,
+          existingScheduleUpdates,
+        );
+        
+        console.log("Generated function-augmented response for o1-mini model");
+      } else {
+        // Generate the normal response
+        responseResult = await this.generateResponseMessage(
+          messageContext,
+          existingScheduleUpdates,
+        );
+      }
 
       // Check if the response contains a confirmed schedule (has the marker)
       const hasConfirmedSchedule = responseResult.message.includes(
