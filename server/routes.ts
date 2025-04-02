@@ -426,6 +426,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(subtasks);
   });
 
+  // Direct subtask creation endpoint
+  app.post("/api/subtasks", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    const { parentTaskId, ...subtaskData } = req.body;
+    
+    if (!parentTaskId) {
+      return res.status(400).json({ message: "parentTaskId is required" });
+    }
+    
+    try {
+      const parsed = insertSubtaskSchema.safeParse(subtaskData);
+      if (!parsed.success) {
+        return res.status(400).json(parsed.error);
+      }
+      
+      const subtask = await storage.createSubtask(parentTaskId, parsed.data);
+      res.status(201).json(subtask);
+    } catch (error) {
+      console.error("Error creating subtask:", error);
+      res.status(500).json({ message: "Failed to create subtask", error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  });
+
   // Add route to mark subtask as complete
   app.post("/api/subtasks/:id/complete", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);

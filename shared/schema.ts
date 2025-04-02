@@ -345,7 +345,7 @@ export const insertSubtaskSchema = createInsertSchema(subtasks)
     title: z.string().min(1, "Title is required"),
     description: z.string().optional(),
     estimatedDuration: z.string().regex(/^\d+[mhdwMy]$/, "Duration must be in a valid format (e.g., 30m, 2h, 3d)"),
-    deadline: z.coerce.date(),
+    deadline: z.coerce.date().optional().nullable(),
     scheduledTime: z.string().regex(timeRegex, "Time must be in 24-hour format (HH:MM)").optional(),
     recurrencePattern: z.string().optional(),
   });

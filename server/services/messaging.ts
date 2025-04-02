@@ -43,8 +43,15 @@ export interface MessageContext {
     | "follow_up"
     | "response"
     | "reschedule"
-    | "schedule_confirmation_response";
+    | "schedule_confirmation_response"
+    | "agent_mode";
   userResponse?: string;
+  agentModeHistory?: Array<{
+    action: string;
+    params?: Record<string, any>;
+    result: any;
+    timestamp: string;
+  }>;
 }
 
 export interface ScheduleUpdate {
@@ -325,6 +332,12 @@ export class MessagingService {
       type: string;
       scheduledFor: string;
       content: string;
+      title?: string;
+    }>;
+    agentMode?: boolean;
+    requiredActions?: Array<{
+      name: string;
+      params?: Record<string, any>;
     }>;
   }> {
     if (!context.userResponse) {
@@ -405,6 +418,16 @@ export class MessagingService {
       Recent conversation history (newest first):
       ${formattedPreviousMessages}
       
+      ${context.agentModeHistory && context.agentModeHistory.length > 0 ? 
+        `AGENT MODE HISTORY:
+        ${context.agentModeHistory.map(entry => 
+          `- Action: ${entry.action}
+           Params: ${JSON.stringify(entry.params || {})}
+           Result: ${JSON.stringify(entry.result)}
+           Timestamp: ${entry.timestamp}`
+        ).join('\n\n')}
+        ` : ''}
+      
       The user just messaged you: "${context.userResponse}"
       
       YOU HAVE ACCESS TO THE FOLLOWING FUNCTIONS:
@@ -468,9 +491,50 @@ export class MessagingService {
         - 3:15 PM: Second check-in on Development Task progress
         - 4:15 PM: Follow-up on Development Task completion"
       
+      ${context.messageType === "agent_mode" ? 
+        `AGENT MODE INSTRUCTIONS:
+        - You are in AGENT MODE, meaning you can request additional information and take multiple turns to provide a complete response
+        - When you need more information to provide a better response, use the requiredActions field to request specific data
+        - You can request multiple pieces of data in a single response, and they will be provided in the next turn
+        - In agent mode, your message should ask the user clear questions to gather the information you need
+        - Example agent mode response:
+          {
+            "message": "I need to check a few things to help with your schedule. Let me look at your current tasks and today's schedule first.",
+            "agentMode": true,
+            "requiredActions": [
+              {
+                "name": "get_todays_schedule"
+              },
+              {
+                "name": "get_task_list",
+                "params": {
+                  "status": "active"
+                }
+              }
+            ]
+          }
+        - After you have all the information you need, you should provide a complete response using the standard format above
+        - To exit agent mode when you have all the needed information, simply omit the agentMode and requiredActions fields
+        ` : ''
+      }
+      
       ALWAYS FORMAT YOUR RESPONSE AS A JSON OBJECT:
       {
         "message": "Your conversational response to the user",
+        ${context.messageType === "agent_mode" ? 
+          `"agentMode": true,  // Include this only in agent mode
+        "requiredActions": [  // Include only in agent mode when you need more data
+          {
+            "name": "get_todays_schedule" // Function to call, no parameters 
+          },
+          {
+            "name": "get_task_list",
+            "params": {
+              "status": "active"  // With parameters as needed
+            }
+          }
+        ],` : ''
+        }
         "scheduleUpdates": [  // For updating tasks or creating new ones
           {
             "taskId": 123,   // Task ID or descriptive string for new tasks
@@ -750,6 +814,11 @@ Now, please respond to this user message: "${context.userResponse}"`;
       content: string;
       title?: string;
     }>;
+    agentMode?: boolean;
+    requiredActions?: Array<{
+      name: string;
+      params?: Record<string, any>;
+    }>;
   } {
     try {
       // Clean up the content if it contains markdown formatting
@@ -762,6 +831,17 @@ Now, please respond to this user message: "${context.userResponse}"`;
       try {
         // First try direct parsing
         const parsed = JSON.parse(cleanContent);
+        
+        // Check for agent mode - support both camelCase and snake_case properties
+        if (parsed.agentMode === true || parsed.agent_mode === true) {
+          const requiredActions = parsed.requiredActions || parsed.required_actions || [];
+          console.log("LLM requested agent mode. Required actions:", requiredActions);
+          return {
+            message: parsed.message || "I need to gather some information to help you better.",
+            agentMode: true,
+            requiredActions: requiredActions
+          };
+        }
         
         // Ensure schedule proposals have the proper marker
         if (
@@ -792,7 +872,12 @@ Now, please respond to this user message: "${context.userResponse}"`;
               console.log("No notifications provided with confirmed schedule, generating default notifications");
               
               // Create default notifications based on the schedule
-              const defaultNotifications = [];
+              const defaultNotifications: Array<{
+                type: string;
+                scheduledFor: string;
+                content: string;
+                title?: string;
+              }> = [];
               
               // [Default notification generation code stays the same]
               // ...
@@ -843,6 +928,8 @@ Now, please respond to this user message: "${context.userResponse}"`;
           message: parsed.message,
           scheduleUpdates: parsed.scheduleUpdates || [],
           scheduledMessages: parsed.scheduledMessages || [],
+          agentMode: parsed.agentMode || false,
+          requiredActions: parsed.requiredActions || []
         };
       } catch (jsonError) {
         // If standard parsing fails, try a more direct approach by handling control characters
@@ -869,6 +956,8 @@ Now, please respond to this user message: "${context.userResponse}"`;
             message: parsed.message,
             scheduleUpdates: parsed.scheduleUpdates || [],
             scheduledMessages: parsed.scheduledMessages || [],
+            agentMode: parsed.agentMode || false,
+            requiredActions: parsed.requiredActions || []
           };
         } catch (e) {
           console.error("Failed to parse even with sanitization:", e);
@@ -889,6 +978,8 @@ Now, please respond to this user message: "${context.userResponse}"`;
               message: parsed.message,
               scheduleUpdates: parsed.scheduleUpdates || [],
               scheduledMessages: parsed.scheduledMessages || [],
+              agentMode: parsed.agentMode || false,
+              requiredActions: parsed.requiredActions || []
             };
           } catch (finalError) {
             console.error("All JSON parsing attempts failed:", finalError);
@@ -897,8 +988,9 @@ Now, please respond to this user message: "${context.userResponse}"`;
           }
         }
       }
-    } catch (error) {
-      console.error("Failed to parse LLM response as JSON:", error);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("Failed to parse LLM response as JSON:", errorMessage);
       return { message: content };
     }
   }
@@ -911,6 +1003,11 @@ Now, please respond to this user message: "${context.userResponse}"`;
       scheduledFor: string;
       content: string;
       title?: string;
+    }>;
+    agentMode?: boolean;
+    requiredActions?: Array<{
+      name: string;
+      params?: Record<string, any>;
     }>;
   }> {
     const activeTasks = context.tasks.filter(
@@ -1215,6 +1312,8 @@ Now, please respond to this user message: "${context.userResponse}"`;
         message: parsed.message,
         scheduleUpdates: parsed.scheduleUpdates,
         scheduledMessages: parsed.scheduledMessages || [],
+        agentMode: parsed.agentMode || false,
+        requiredActions: parsed.requiredActions || []
       };
     } catch (error) {
       console.error("Failed to parse LLM response as JSON:", error);
@@ -1406,12 +1505,31 @@ Now, please respond to this user message: "${context.userResponse}"`;
         .orderBy(desc(messageHistory.createdAt))
         .limit(20); // Increased to 20 to match the generateResponseMessage
 
-      // Check if the last assistant message has schedule updates in the metadata
-      // that should be passed along to the response generation
+      // Check if the last assistant message has agent mode or schedule updates in the metadata
       const lastAssistantMessage = previousMessages.find(
         (msg) => msg.type === "response" || msg.type === "coach_response",
       );
 
+      // Check for agent mode in previous message
+      let isAgentMode = false;
+      let agentModeHistory: Array<{action: string; result: any; timestamp: string}> = [];
+      
+      if (lastAssistantMessage?.metadata) {
+        const metadata = lastAssistantMessage.metadata as {
+          agentMode?: boolean;
+          agentModeHistory?: Array<{action: string; result: any; timestamp: string}>;
+          scheduleUpdates?: any[];
+        };
+        
+        // Check for agent mode
+        if (metadata.agentMode === true) {
+          isAgentMode = true;
+          agentModeHistory = metadata.agentModeHistory || [];
+          console.log("Continuing in agent mode from previous message");
+        }
+      }
+
+      // Check for schedule updates
       let existingScheduleUpdates: ScheduleUpdate[] = [];
       if (lastAssistantMessage?.metadata) {
         const metadata = lastAssistantMessage.metadata as {
@@ -1444,8 +1562,9 @@ Now, please respond to this user message: "${context.userResponse}"`;
         facts: userFacts,
         previousMessages,
         currentDateTime,
-        messageType: "response", // We'll let the LLM determine the actual type
+        messageType: isAgentMode ? "agent_mode" : "response",
         userResponse: response,
+        agentModeHistory: agentModeHistory
       };
 
       // DEBUG: Print the messaging context before generating response
@@ -1656,6 +1775,60 @@ Now, please respond to this user message: "${context.userResponse}"`;
 
       // Always store the coach's response in the message history
       // This is needed for both the web UI and WhatsApp
+      const metadata: any = { 
+        scheduleUpdates: responseResult.scheduleUpdates || []
+      };
+      
+      // Add agent mode metadata if applicable
+      if (responseResult.agentMode) {
+        metadata.agentMode = true;
+        metadata.requiredActions = responseResult.requiredActions || [];
+        
+        // Update agent mode history
+        if (!metadata.agentModeHistory) {
+          metadata.agentModeHistory = agentModeHistory || [];
+        }
+        
+        // If there are required actions, add them to the agent mode history
+        if (responseResult.requiredActions && responseResult.requiredActions.length > 0) {
+          // Execute each required action and add to history
+          for (const action of responseResult.requiredActions) {
+            try {
+              let result;
+              // Execute the specified function based on the action name
+              if (action.name === 'get_todays_schedule') {
+                result = await llmFunctions.getTodaysSchedule({ userId });
+              } else if (action.name === 'get_task_list') {
+                result = await llmFunctions.getTaskList({ userId }, action.params || {});
+              } else if (action.name === 'get_user_facts') {
+                result = await llmFunctions.getUserFacts({ userId }, action.params || {});
+              } else if (action.name === 'get_todays_notifications') {
+                result = await llmFunctions.getTodaysNotifications({ userId });
+              } else {
+                result = { error: `Unknown action: ${action.name}` };
+              }
+              
+              // Add to history
+              metadata.agentModeHistory.push({
+                action: action.name,
+                params: action.params || {},
+                result,
+                timestamp: new Date().toISOString()
+              });
+            } catch (error: unknown) {
+              const errorMessage = error instanceof Error ? error.message : String(error);
+              console.error(`Error executing agent mode action ${action.name}:`, error);
+              metadata.agentModeHistory.push({
+                action: action.name,
+                params: action.params || {},
+                result: { error: `Failed to execute: ${errorMessage}` },
+                timestamp: new Date().toISOString()
+              });
+            }
+          }
+        }
+      }
+      
       const coachMessageInsert = await db
         .insert(messageHistory)
         .values({
@@ -1663,7 +1836,7 @@ Now, please respond to this user message: "${context.userResponse}"`;
           content: responseResult.message,
           type: "coach_response",
           status: "sent",
-          metadata: { scheduleUpdates: responseResult.scheduleUpdates } as any,
+          metadata,
           createdAt: new Date(),
         })
         .returning({ id: messageHistory.id });
