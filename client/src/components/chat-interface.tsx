@@ -134,9 +134,28 @@ export function ChatInterface() {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
   
-  // Function to clean up confirmation markers for display purposes
+  // Function to clean up confirmation markers and format JSON responses for display purposes
   const cleanMessageContent = (content: string) => {
-    return content.replace("PROPOSED_SCHEDULE_AWAITING_CONFIRMATION", "");
+    // First clean up confirmation markers
+    let cleanContent = content.replace("PROPOSED_SCHEDULE_AWAITING_CONFIRMATION", "");
+    
+    // Check if the content might be JSON
+    if (cleanContent.includes('"scheduleUpdates"') || cleanContent.includes('"scheduledMessages"')) {
+      try {
+        // Try to parse the content as JSON
+        const parsed = JSON.parse(cleanContent);
+        
+        // Extract just the message part for display
+        if (parsed && parsed.message) {
+          return parsed.message;
+        }
+      } catch (error) {
+        console.log("Not valid JSON or failed to parse", error);
+        // If it's not valid JSON, just return the original content
+      }
+    }
+    
+    return cleanContent;
   };
   
   return (

@@ -148,9 +148,21 @@ export function ScheduleDetection({ messageContent, messageId, userId }: Schedul
     // Check for various schedule markers in the message content
     const SCHEDULE_MARKERS = [
       "The final schedule is as follows:",
+      "Here's a proposed schedule:",
+      "Here's your proposed schedule:",
+      "Here's the proposed plan:",
+      "Here's a schedule proposal for you:",
+      "I've prepared this schedule for you:",
+      "Here's what I suggest for your schedule:",
+      "Your updated schedule:",
       "Here's your updated plan:",
-      "Here's a proposed schedule",
-      "I've adjusted your schedule"
+      "I've adjusted your schedule",
+      "I'll adjust your schedule",
+      "proposed plan",
+      "proposed schedule", 
+      "scheduleUpdates", // For detecting JSON format
+      "scheduledMessages", // For detecting JSON format
+      // Add more markers as needed to catch all variations
     ];
     
     // Create a storage key using the messageId which is much more reliable than content hashing
@@ -183,9 +195,28 @@ export function ScheduleDetection({ messageContent, messageId, userId }: Schedul
     const bulletListPattern = /[-•*]\s*\d{1,2}:\d{2}\s*:?\s*\w+/;
     const containsBulletList = bulletListPattern.test(messageContent || '');
     
-    // Only process if there's a message and it contains a marker or bullet list
-    if (messageContent && (containsScheduleMarker || containsBulletList)) {
-      console.log(`Schedule marker or bullet list found in message ${messageId}!`);
+    // Additional patterns to catch more time formats - optional AM/PM format
+    const timePattern1 = /\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)?/;
+    const timePattern2 = /\d{1,2}\s*(?:AM|PM|am|pm)/;
+    
+    // Look for schedule-like content such as multiple times in a message
+    const timeMatches = messageContent?.match(new RegExp(`${timePattern1.source}|${timePattern2.source}`, 'g')) || [];
+    const containsMultipleTimeReferences = timeMatches.length >= 3; // If 3+ time references, likely a schedule
+    
+    // Check if message might be JSON (from LLM)
+    const jsonPattern = /"scheduleUpdates"\s*:\s*\[|"scheduledMessages"\s*:\s*\[/;
+    const containsJsonSchedule = jsonPattern.test(messageContent || '');
+    
+    // Only process if there's a message and it contains a marker, bullet list, or multiple time references
+    if (messageContent && (containsScheduleMarker || containsBulletList || containsMultipleTimeReferences || containsJsonSchedule)) {
+      console.log(`Schedule detected in message ${messageId}!`, {
+        hasScheduleMarker: containsScheduleMarker,
+        hasBulletList: containsBulletList,
+        hasMultipleTimeReferences: containsMultipleTimeReferences,
+        containsJsonSchedule,
+        timeReferencesCount: timeMatches.length,
+        timeReferences: timeMatches.slice(0, 5) // Log first 5 time matches for debugging
+      });
       
       // Check if we've already processed this message (either in memory or in session storage)
       const alreadyProcessed = processedMessagesRef.current[messageId] || sessionStorage.getItem(storageKey);

@@ -18,6 +18,7 @@ import {
 import { db } from "../db";
 import { eq, and, lte, desc, gt, isNull } from "drizzle-orm";
 import { storage } from "../storage";
+import { FINAL_SCHEDULE_MARKER } from "./schedule-parser-new";
 import {
   parseScheduleFromLLMResponse,
   createDailyScheduleFromParsed,
@@ -418,6 +419,15 @@ export class MessagingService {
       Recent conversation history (newest first):
       ${formattedPreviousMessages}
       
+      VERY IMPORTANT: When you propose a new schedule, use the exact wording "Here's a proposed schedule:" or "Here's your proposed schedule:" or "Here's the proposed plan:" followed by the schedule details in bullet points. This specific marker is required for the scheduling system to properly detect and display the schedule to the user.
+
+      For example:
+      "Here's a proposed schedule:
+      • 9:00 AM: Morning routine
+      • 10:00 AM: Work on project (Task ID: 5)
+      • 12:00 PM: Lunch break
+      • 1:00 PM: Exercise (Task ID: 8)"
+      
       ${context.agentModeHistory && context.agentModeHistory.length > 0 ? 
         `AGENT MODE HISTORY:
         ${context.agentModeHistory.map(entry => 
@@ -470,7 +480,7 @@ export class MessagingService {
       SCHEDULE CONFIRMATION AND CHANGES:
       - If the user makes any schedule change request (like "keep me free after 18:30" or similar), respond with a NEW PROPOSED schedule
       - If the user responds to a proposed schedule with specific change requests, update the schedule and treat it as another proposal
-      - ONLY use "The final schedule is as follows:" when the user EXPLICITLY confirms a schedule (with messages like "looks good", "that works", "I like it", etc.)
+      - ONLY use ${FINAL_SCHEDULE_MARKER} when the user EXPLICITLY confirms a schedule (with messages like "looks good", "that works", "I like it", etc.)
       - After schedule items in a confirmed schedule, include a "Notifications:" section listing all scheduled notifications with their times
       - For ALL schedule proposals (including schedule changes), add "PROPOSED_SCHEDULE_AWAITING_CONFIRMATION" at the end
       - Remember: as long as the user keeps requesting changes, keep providing updated proposals without the final marker
@@ -847,7 +857,7 @@ Now, please respond to this user message: "${context.userResponse}"`;
         if (
           parsed.scheduleUpdates &&
           parsed.scheduleUpdates.length > 0 &&
-          !parsed.message.includes("The final schedule is as follows:") &&
+          !parsed.message.includes(FINAL_SCHEDULE_MARKER) &&
           !parsed.message.includes("PROPOSED_SCHEDULE_AWAITING_CONFIRMATION")
         ) {
           parsed.message += "\n\nPROPOSED_SCHEDULE_AWAITING_CONFIRMATION";
@@ -859,7 +869,7 @@ Now, please respond to this user message: "${context.userResponse}"`;
 
           // Check if this is a confirmation (contains the final schedule marker)
           const isConfirmation = parsed.message.includes(
-            "The final schedule is as follows:",
+            FINAL_SCHEDULE_MARKER
           );
 
           if (isConfirmation) {
@@ -887,8 +897,8 @@ Now, please respond to this user message: "${context.userResponse}"`;
               // Add a notifications section to the message
               if (defaultNotifications.length > 0) {
                 // Extract the existing schedule section
-                const scheduleSection = parsed.message.includes("The final schedule is as follows:")
-                  ? parsed.message.split("The final schedule is as follows:")[1]
+                const scheduleSection = parsed.message.includes(FINAL_SCHEDULE_MARKER)
+                  ? parsed.message.split(FINAL_SCHEDULE_MARKER)[1]
                   : '';
                 
                 // Create notifications section
@@ -898,9 +908,9 @@ Now, please respond to this user message: "${context.userResponse}"`;
                 });
                 
                 // Combine the original message with the notifications section
-                if (parsed.message.includes("The final schedule is as follows:")) {
-                  const beforeMarker = parsed.message.split("The final schedule is as follows:")[0];
-                  parsed.message = beforeMarker + "The final schedule is as follows:" + scheduleSection + notificationsText;
+                if (parsed.message.includes(FINAL_SCHEDULE_MARKER)) {
+                  const beforeMarker = parsed.message.split(FINAL_SCHEDULE_MARKER)[0];
+                  parsed.message = beforeMarker + FINAL_SCHEDULE_MARKER + scheduleSection + notificationsText;
                 } else {
                   parsed.message += notificationsText;
                 }
@@ -912,10 +922,10 @@ Now, please respond to this user message: "${context.userResponse}"`;
             );
 
             // Make sure we don't have any final schedule markers in proposals
-            if (parsed.message.includes("The final schedule is as follows:")) {
+            if (parsed.message.includes(FINAL_SCHEDULE_MARKER)) {
               parsed.message = parsed.message.replace(
-                "The final schedule is as follows:",
-                "Here's a proposed schedule:",
+                FINAL_SCHEDULE_MARKER,
+                "Here's a proposed schedule:"
               );
               console.log(
                 "Replaced final schedule marker with proposed schedule text",
@@ -1125,7 +1135,7 @@ Now, please respond to this user message: "${context.userResponse}"`;
 
       VERY IMPORTANT INSTRUCTION ABOUT SCHEDULE CONFIRMATION FLOW:
       1. This is a PROPOSED schedule that will require user confirmation 
-      2. Do NOT include the final schedule marker ("The final schedule is as follows:") in your response
+      2. Do NOT include the final schedule marker ("${FINAL_SCHEDULE_MARKER}") in your response
       3. Instead, end your response with "PROPOSED_SCHEDULE_AWAITING_CONFIRMATION"
       4. The user must EXPLICITLY confirm the schedule before it becomes final
       5. If the user asks for changes (like "keep me free after 6pm"), create a NEW proposed schedule
@@ -1654,7 +1664,7 @@ Now, please respond to this user message: "${context.userResponse}"`;
 
       // Check if the response contains a confirmed schedule (has the marker)
       const hasConfirmedSchedule = responseResult.message.includes(
-        "The final schedule is as follows:",
+        FINAL_SCHEDULE_MARKER
       );
 
       if (hasConfirmedSchedule) {

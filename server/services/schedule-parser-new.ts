@@ -8,8 +8,23 @@ interface TaskWithSubtasks extends Task {
   subtasks?: Subtask[];
 }
 
-// Marker that signals the start of the final schedule in the LLM response
-export const SCHEDULE_MARKER = "The final schedule is as follows:";
+// Markers that signal the start of schedules in the LLM response
+export const SCHEDULE_MARKERS = [
+  "The final schedule is as follows:",
+  "Here's a proposed schedule:",
+  "Here's your proposed schedule:",
+  "Here's the proposed plan:",
+  "Here's a schedule proposal for you:",
+  "I've prepared this schedule for you:",
+  "Here's what I suggest for your schedule:",
+  "Your updated schedule:",
+  "Here's your updated plan:",
+  "I've adjusted your schedule",
+  "I'll adjust your schedule",
+  "proposed plan"
+];
+
+export const FINAL_SCHEDULE_MARKER = "The final schedule is as follows:";
 
 interface ScheduleItem {
   taskId?: number;       // Link to existing task or null for standalone items
@@ -42,19 +57,36 @@ interface ParsedSchedule {
  * @returns ParsedSchedule if a schedule was found, null otherwise
  */
 export function parseScheduleFromLLMResponse(llmResponse: string): ParsedSchedule | null {
-  // Check if response contains the schedule marker (case insensitive)
+  // Check if response contains any of the schedule markers (case insensitive)
   const lowerCaseResponse = llmResponse.toLowerCase();
-  const lowerCaseMarker = SCHEDULE_MARKER.toLowerCase();
-  const markerIndex = lowerCaseResponse.indexOf(lowerCaseMarker);
-  if (markerIndex === -1) {
+  
+  // Find the first marker that appears in the response
+  let foundMarker = null;
+  let markerIndex = -1;
+  
+  for (const marker of SCHEDULE_MARKERS) {
+    const lowerCaseMarker = marker.toLowerCase();
+    const index = lowerCaseResponse.indexOf(lowerCaseMarker);
+    
+    if (index !== -1 && (markerIndex === -1 || index < markerIndex)) {
+      markerIndex = index;
+      foundMarker = marker;
+    }
+  }
+  
+  // If no marker was found, return null
+  if (markerIndex === -1 || !foundMarker) {
     return null;
   }
   
   // Get the actual position in the original text
-  const actualMarkerIndex = llmResponse.indexOf(llmResponse.substring(markerIndex, markerIndex + SCHEDULE_MARKER.length));
+  const actualMarkerIndex = llmResponse.indexOf(llmResponse.substring(markerIndex, markerIndex + foundMarker.length));
+  
+  // Check if this is a final schedule or a proposed schedule
+  const isFinalSchedule = foundMarker.toLowerCase() === FINAL_SCHEDULE_MARKER.toLowerCase();
   
   // Extract the schedule part starting from the marker
-  const scheduleText = llmResponse.substring(actualMarkerIndex + SCHEDULE_MARKER.length).trim();
+  const scheduleText = llmResponse.substring(actualMarkerIndex + foundMarker.length).trim();
   
   // Parse the schedule items
   const scheduleItems: ScheduleItem[] = [];

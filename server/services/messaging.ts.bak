@@ -18,6 +18,7 @@ import {
 import { db } from "../db";
 import { eq, and, lte, desc, gt, isNull } from "drizzle-orm";
 import { storage } from "../storage";
+import { FINAL_SCHEDULE_MARKER } from "./schedule-parser-new";
 import {
   parseScheduleFromLLMResponse,
   createDailyScheduleFromParsed,
@@ -43,8 +44,15 @@ export interface MessageContext {
     | "follow_up"
     | "response"
     | "reschedule"
-    | "schedule_confirmation_response";
+    | "schedule_confirmation_response"
+    | "agent_mode";
   userResponse?: string;
+  agentModeHistory?: Array<{
+    action: string;
+    params?: Record<string, any>;
+    result: any;
+    timestamp: string;
+  }>;
 }
 
 export interface ScheduleUpdate {
@@ -325,6 +333,12 @@ export class MessagingService {
       type: string;
       scheduledFor: string;
       content: string;
+      title?: string;
+    }>;
+    agentMode?: boolean;
+    requiredActions?: Array<{
+      name: string;
+      params?: Record<string, any>;
     }>;
   }> {
     if (!context.userResponse) {
@@ -405,6 +419,25 @@ export class MessagingService {
       Recent conversation history (newest first):
       ${formattedPreviousMessages}
       
+      VERY IMPORTANT: When you propose a new schedule, use the exact wording "Here's a proposed schedule:" or "Here's your proposed schedule:" or "Here's the proposed plan:" followed by the schedule details in bullet points. This specific marker is required for the scheduling system to properly detect and display the schedule to the user.
+
+      For example:
+      "Here's a proposed schedule:
+      • 9:00 AM: Morning routine
+      • 10:00 AM: Work on project (Task ID: 5)
+      • 12:00 PM: Lunch break
+      • 1:00 PM: Exercise (Task ID: 8)"
+      
+      ${context.agentModeHistory && context.agentModeHistory.length > 0 ? 
+        `AGENT MODE HISTORY:
+        ${context.agentModeHistory.map(entry => 
+          `- Action: ${entry.action}
+           Params: ${JSON.stringify(entry.params || {})}
+           Result: ${JSON.stringify(entry.result)}
+           Timestamp: ${entry.timestamp}`
+        ).join('\n\n')}
+        ` : ''}
+      
       The user just messaged you: "${context.userResponse}"
       
       YOU HAVE ACCESS TO THE FOLLOWING FUNCTIONS:
@@ -468,9 +501,50 @@ export class MessagingService {
         - 3:15 PM: Second check-in on Development Task progress
         - 4:15 PM: Follow-up on Development Task completion"
       
+      ${context.messageType === "agent_mode" ? 
+        `AGENT MODE INSTRUCTIONS:
+        - You are in AGENT MODE, meaning you can request additional information and take multiple turns to provide a complete response
+        - When you need more information to provide a better response, use the requiredActions field to request specific data
+        - You can request multiple pieces of data in a single response, and they will be provided in the next turn
+        - In agent mode, your message should ask the user clear questions to gather the information you need
+        - Example agent mode response:
+          {
+            "message": "I need to check a few things to help with your schedule. Let me look at your current tasks and today's schedule first.",
+            "agentMode": true,
+            "requiredActions": [
+              {
+                "name": "get_todays_schedule"
+              },
+              {
+                "name": "get_task_list",
+                "params": {
+                  "status": "active"
+                }
+              }
+            ]
+          }
+        - After you have all the information you need, you should provide a complete response using the standard format above
+        - To exit agent mode when you have all the needed information, simply omit the agentMode and requiredActions fields
+        ` : ''
+      }
+      
       ALWAYS FORMAT YOUR RESPONSE AS A JSON OBJECT:
       {
         "message": "Your conversational response to the user",
+        ${context.messageType === "agent_mode" ? 
+          `"agentMode": true,  // Include this only in agent mode
+        "requiredActions": [  // Include only in agent mode when you need more data
+          {
+            "name": "get_todays_schedule" // Function to call, no parameters 
+          },
+          {
+            "name": "get_task_list",
+            "params": {
+              "status": "active"  // With parameters as needed
+            }
+          }
+        ],` : ''
+        }
         "scheduleUpdates": [  // For updating tasks or creating new ones
           {
             "taskId": 123,   // Task ID or descriptive string for new tasks
@@ -750,6 +824,11 @@ Now, please respond to this user message: "${context.userResponse}"`;
       content: string;
       title?: string;
     }>;
+    agentMode?: boolean;
+    requiredActions?: Array<{
+      name: string;
+      params?: Record<string, any>;
+    }>;
   } {
     try {
       // Clean up the content if it contains markdown formatting
@@ -762,6 +841,17 @@ Now, please respond to this user message: "${context.userResponse}"`;
       try {
         // First try direct parsing
         const parsed = JSON.parse(cleanContent);
+        
+        // Check for agent mode - support both camelCase and snake_case properties
+        if (parsed.agentMode === true || parsed.agent_mode === true) {
+          const requiredActions = parsed.requiredActions || parsed.required_actions || [];
+          console.log("LLM requested agent mode. Required actions:", requiredActions);
+          return {
+            message: parsed.message || "I need to gather some information to help you better.",
+            agentMode: true,
+            requiredActions: requiredActions
+          };
+        }
         
         // Ensure schedule proposals have the proper marker
         if (
@@ -792,7 +882,12 @@ Now, please respond to this user message: "${context.userResponse}"`;
               console.log("No notifications provided with confirmed schedule, generating default notifications");
               
               // Create default notifications based on the schedule
-              const defaultNotifications = [];
+              const defaultNotifications: Array<{
+                type: string;
+                scheduledFor: string;
+                content: string;
+                title?: string;
+              }> = [];
               
               // [Default notification generation code stays the same]
               // ...
@@ -843,6 +938,8 @@ Now, please respond to this user message: "${context.userResponse}"`;
           message: parsed.message,
           scheduleUpdates: parsed.scheduleUpdates || [],
           scheduledMessages: parsed.scheduledMessages || [],
+          agentMode: parsed.agentMode || false,
+          requiredActions: parsed.requiredActions || []
         };
       } catch (jsonError) {
         // If standard parsing fails, try a more direct approach by handling control characters
@@ -851,14 +948,16 @@ Now, please respond to this user message: "${context.userResponse}"`;
         // Try different methods to sanitize content
         try {
           // Method 1: Replace emoji and control characters with empty string using Unicode ranges
-          let sanitizedContent = cleanContent.replace(/[\uD800-\uDFFF]|\p{Emoji}/gu, "");
+          // Unicode surrogate pairs used for emoji
+          let sanitizedContent = cleanContent.replace(/[\uD800-\uDFFF]/g, "");
           
           // Method 2: Additional cleanup for other potential problematic characters
+          // Standard approach for removing emoji without requiring unicode flags
           sanitizedContent = sanitizedContent
-            .replace(/[\u{1F300}-\u{1F6FF}]/gu, '') // Remove emoticons
-            .replace(/[\u{1F900}-\u{1F9FF}]/gu, '') // Remove supplemental symbols
-            .replace(/[\u{2600}-\u{26FF}]/gu, '')   // Remove miscellaneous symbols
-            .replace(/[\u{2700}-\u{27BF}]/gu, '');  // Remove dingbats
+            .replace(/[\u1F300-\u1F6FF]/g, '') // Remove emoticons 
+            .replace(/[\u1F900-\u1F9FF]/g, '') // Remove supplemental symbols
+            .replace(/[\u2600-\u26FF]/g, '')   // Remove miscellaneous symbols
+            .replace(/[\u2700-\u27BF]/g, '');  // Remove dingbats
           
           const parsed = JSON.parse(sanitizedContent);
           console.log("Successfully parsed JSON after sanitizing control characters");
@@ -867,6 +966,8 @@ Now, please respond to this user message: "${context.userResponse}"`;
             message: parsed.message,
             scheduleUpdates: parsed.scheduleUpdates || [],
             scheduledMessages: parsed.scheduledMessages || [],
+            agentMode: parsed.agentMode || false,
+            requiredActions: parsed.requiredActions || []
           };
         } catch (e) {
           console.error("Failed to parse even with sanitization:", e);
@@ -887,6 +988,8 @@ Now, please respond to this user message: "${context.userResponse}"`;
               message: parsed.message,
               scheduleUpdates: parsed.scheduleUpdates || [],
               scheduledMessages: parsed.scheduledMessages || [],
+              agentMode: parsed.agentMode || false,
+              requiredActions: parsed.requiredActions || []
             };
           } catch (finalError) {
             console.error("All JSON parsing attempts failed:", finalError);
@@ -895,278 +998,10 @@ Now, please respond to this user message: "${context.userResponse}"`;
           }
         }
       }
-    } catch (error) {
-      console.error("Failed to parse LLM response as JSON:", error);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error("Failed to parse LLM response as JSON:", errorMessage);
       return { message: content };
-    }
-  }
-
-  processLLMResponse(content: string): {
-    message: string;
-    scheduleUpdates?: ScheduleUpdate[];
-    scheduledMessages?: Array<{
-      type: string;
-      scheduledFor: string;
-      content: string;
-      title?: string;
-    }>;
-  } {
-    try {
-      // Parse JSON content
-      const parsed = JSON.parse(content);
-      
-      // Process the response to ensure proper formatting
-      if (parsed.scheduleUpdates && parsed.scheduleUpdates.length > 0) {
-        console.log("Processing message with schedule updates");
-
-        // Check if this is a confirmation (contains the final schedule marker)
-        const isConfirmation = parsed.message.includes(
-          "The final schedule is as follows:",
-        );
-
-        if (isConfirmation) {
-          console.log(
-            "Message contains final schedule marker - this is a CONFIRMATION",
-          );
-          
-          // Add default notifications if none were provided
-          if (!parsed.scheduledMessages || parsed.scheduledMessages.length === 0) {
-            console.log("No notifications provided with confirmed schedule, generating default notifications");
-            
-            // Create default notifications based on the schedule
-            const defaultNotifications = [];
-            
-            if (parsed.scheduleUpdates && parsed.scheduleUpdates.length > 0) {
-              // Sort schedule updates by time
-              const sortedUpdates = [...parsed.scheduleUpdates]
-                .filter(update => update.scheduledTime && update.action === "reschedule")
-                .sort((a, b) => {
-                  // Convert HH:MM to minutes for comparison
-                  const timeA = a.scheduledTime.split(':').map(Number);
-                  const timeB = b.scheduledTime.split(':').map(Number);
-                  return (timeA[0] * 60 + timeA[1]) - (timeB[0] * 60 + timeB[1]);
-                });
-                
-              // Create reminders and mid-task check-ins for each task
-              for (const update of sortedUpdates) {
-                if (update.scheduledTime) {
-                  // Parse the time
-                  const [hours, minutes] = update.scheduledTime.split(':').map(Number);
-                  
-                  // Get task title if available
-                  let taskTitle = "your upcoming task";
-                  if (update.title) {
-                    taskTitle = update.title;
-                  } else if (update.taskId && typeof update.taskId === 'string') {
-                    // If taskId is a string, it might already be a descriptive name
-                    taskTitle = update.taskId;
-                  } else if (update.taskId) {
-                    // Look up the task title from the task ID and use it if available
-                    try {
-                      const matchingTask = parsed.scheduleUpdates.find((u: any) => 
-                        u.taskId === update.taskId && u.title);
-                      if (matchingTask?.title) {
-                        taskTitle = matchingTask.title;
-                      } else {
-                        taskTitle = 'Scheduled Activity';
-                      }
-                    } catch (err) {
-                      taskTitle = 'Scheduled Activity';
-                    }
-                  }
-                  
-                  // Create a reminder 15 minutes before
-                  const reminderMinutes = minutes - 15;
-                  const reminderHours = reminderMinutes < 0 
-                    ? hours - 1 
-                    : hours;
-                  const adjustedReminderMinutes = reminderMinutes < 0 
-                    ? 60 + reminderMinutes 
-                    : reminderMinutes;
-                  
-                  const reminderTime = `${reminderHours.toString().padStart(2, '0')}:${adjustedReminderMinutes.toString().padStart(2, '0')}`;
-                  
-                  defaultNotifications.push({
-                    type: "reminder",
-                    scheduledFor: reminderTime,
-                    title: `Reminder: ${taskTitle}`,
-                    content: `Your task "${taskTitle}" is starting in 15 minutes. Time to prepare!`
-                  });
-                  
-                  // Check if there's a next task to determine task duration
-                  const currentIndex = sortedUpdates.indexOf(update);
-                  const nextTask = sortedUpdates[currentIndex + 1];
-                  
-                  let taskDurationMinutes = 60; // Default to 1 hour if we can't determine
-                  
-                  if (nextTask && nextTask.scheduledTime) {
-                    const [nextHours, nextMinutes] = nextTask.scheduledTime.split(':').map(Number);
-                    const currentTimeInMinutes = hours * 60 + minutes;
-                    const nextTimeInMinutes = nextHours * 60 + nextMinutes;
-                    taskDurationMinutes = nextTimeInMinutes - currentTimeInMinutes;
-                  }
-                  
-                  // For tasks > 30 minutes, add a mid-task check-in
-                  if (taskDurationMinutes > 30) {
-                    // Add check-in halfway through the task
-                    const halfwayMinutes = Math.floor(taskDurationMinutes / 2);
-                    const checkInTotalMinutes = hours * 60 + minutes + halfwayMinutes;
-                    const checkInHours = Math.floor(checkInTotalMinutes / 60);
-                    const checkInMinutes = checkInTotalMinutes % 60;
-                    
-                    const checkInTime = `${checkInHours.toString().padStart(2, '0')}:${checkInMinutes.toString().padStart(2, '0')}`;
-                    
-                    defaultNotifications.push({
-                      type: "follow_up",
-                      scheduledFor: checkInTime,
-                      title: `Check-in on ${taskTitle}`,
-                      content: `How's your progress with "${taskTitle}"? Need any help staying focused?`
-                    });
-                    
-                    // For tasks > 60 minutes, add a second check-in at the 3/4 mark
-                    if (taskDurationMinutes > 60) {
-                      const threeQuarterMinutes = Math.floor(taskDurationMinutes * 0.75);
-                      const secondCheckInTotalMinutes = hours * 60 + minutes + threeQuarterMinutes;
-                      const secondCheckInHours = Math.floor(secondCheckInTotalMinutes / 60);
-                      const secondCheckInMinutes = secondCheckInTotalMinutes % 60;
-                      
-                      const secondCheckInTime = `${secondCheckInHours.toString().padStart(2, '0')}:${secondCheckInMinutes.toString().padStart(2, '0')}`;
-                      
-                      defaultNotifications.push({
-                        type: "follow_up",
-                        scheduledFor: secondCheckInTime,
-                        title: `Second check-in on ${taskTitle}`,
-                        content: `You're in the final stretch of "${taskTitle}"! How is it going?`
-                      });
-                    }
-                  }
-                }
-              }
-              
-              // Add a follow-up notification after the first task
-              if (sortedUpdates.length > 0) {
-                const firstTask = sortedUpdates[0];
-                if (firstTask.scheduledTime) {
-                  // Parse the time
-                  const [hours, minutes] = firstTask.scheduledTime.split(':').map(Number);
-                  
-                  // Create a follow-up 30 minutes after
-                  const followUpMinutes = minutes + 30;
-                  const followUpHours = followUpMinutes >= 60 
-                    ? hours + 1 
-                    : hours;
-                  const adjustedMinutes = followUpMinutes >= 60 
-                    ? followUpMinutes - 60 
-                    : followUpMinutes;
-                  
-                  const followUpTime = `${followUpHours.toString().padStart(2, '0')}:${adjustedMinutes.toString().padStart(2, '0')}`;
-                  
-                  defaultNotifications.push({
-                    type: "follow_up",
-                    scheduledFor: followUpTime,
-                    title: "Check-in",
-                    content: "How is your schedule going so far? Let me know if you need any adjustments."
-                  });
-                }
-              }
-              
-              // Add an end-of-day reflection
-              const lastTaskIndex = sortedUpdates.length - 1;
-              if (lastTaskIndex >= 0) {
-                const lastTask = sortedUpdates[lastTaskIndex];
-                if (lastTask.scheduledTime) {
-                  // Parse the time
-                  const [hours, minutes] = lastTask.scheduledTime.split(':').map(Number);
-                  
-                  // Create a reflection 1 hour after the last task
-                  const reflectionMinutes = minutes + 60;
-                  const reflectionHours = reflectionMinutes >= 60 
-                    ? hours + 1 
-                    : hours;
-                  const adjustedMinutes = reflectionMinutes >= 60 
-                    ? reflectionMinutes - 60 
-                    : reflectionMinutes;
-                  
-                  const reflectionTime = `${reflectionHours.toString().padStart(2, '0')}:${adjustedMinutes.toString().padStart(2, '0')}`;
-                  
-                  // Make sure reflection time is not after 22:30
-                  if (reflectionHours < 22 || (reflectionHours === 22 && adjustedMinutes <= 30)) {
-                    defaultNotifications.push({
-                      type: "reflection",
-                      scheduledFor: reflectionTime,
-                      title: "Daily Reflection",
-                      content: "Take a moment to reflect on what went well today and what you'd like to improve tomorrow."
-                    });
-                  } else {
-                    // Use 22:30 as the default reflection time if the calculated time is later
-                    defaultNotifications.push({
-                      type: "reflection",
-                      scheduledFor: "22:30",
-                      title: "Daily Reflection",
-                      content: "Take a moment to reflect on what went well today and what you'd like to improve tomorrow."
-                    });
-                  }
-                }
-              }
-            }
-            
-            parsed.scheduledMessages = defaultNotifications;
-            
-            // Add a notifications section to the message
-            if (defaultNotifications.length > 0) {
-              // Extract the existing schedule section
-              const scheduleSection = parsed.message.includes("The final schedule is as follows:")
-                ? parsed.message.split("The final schedule is as follows:")[1]
-                : '';
-              
-              // Create notifications section
-              let notificationsText = "\n\nNotifications:\n";
-              defaultNotifications.forEach(notification => {
-                notificationsText += `- ${notification.scheduledFor}: ${notification.title} - ${notification.content}\n`;
-              });
-              
-              // Combine the original message with the notifications section
-              if (parsed.message.includes("The final schedule is as follows:")) {
-                const beforeMarker = parsed.message.split("The final schedule is as follows:")[0];
-                parsed.message = beforeMarker + "The final schedule is as follows:" + scheduleSection + notificationsText;
-              } else {
-                parsed.message += notificationsText;
-              }
-            }
-          }
-        } else {
-          console.log(
-            "Message does not contain final schedule marker - this is a PROPOSAL",
-          );
-
-          // Make sure we don't have any final schedule markers in proposals
-          if (parsed.message.includes("The final schedule is as follows:")) {
-            parsed.message = parsed.message.replace(
-              "The final schedule is as follows:",
-              "Here's a proposed schedule:",
-            );
-            console.log(
-              "Replaced final schedule marker with proposed schedule text",
-            );
-          }
-        }
-      }
-
-      return {
-        message: parsed.message,
-        scheduleUpdates: parsed.scheduleUpdates || [],
-        scheduledMessages: parsed.scheduledMessages || [],
-      };
-    } catch (error) {
-      console.error("Error processing JSON response:", error);
-      if (parsed && parsed.message) {
-        return { 
-          message: parsed.message,
-          scheduleUpdates: parsed.scheduleUpdates || [],
-          scheduledMessages: parsed.scheduledMessages || [],
-        };
-      }
-      return { message: "I encountered an issue processing your schedule. Let me know if you'd like to try again." };
     }
   }
 
@@ -1178,6 +1013,11 @@ Now, please respond to this user message: "${context.userResponse}"`;
       scheduledFor: string;
       content: string;
       title?: string;
+    }>;
+    agentMode?: boolean;
+    requiredActions?: Array<{
+      name: string;
+      params?: Record<string, any>;
     }>;
   }> {
     const activeTasks = context.tasks.filter(
@@ -1323,7 +1163,9 @@ Now, please respond to this user message: "${context.userResponse}"`;
 
       IMPORTANT RULES:
       - Be friendly but concise (max 800 characters)
-      - Format your message as a short greeting followed by a bullet list of scheduled tasks with times
+      - Format your message as a short greeting followed by a COMPLETE bullet list of scheduled tasks with times
+      - The bullet list MUST use this format: "- HH:MM: Task Name" (with the dash, time, and colon)
+      - Include ALL the scheduled tasks in bullet format in your message, not just a brief summary
       - End by asking if they want to confirm this schedule or make changes
       - Be realistic about what can be done in the remaining day
       - Only schedule tasks for today, not future days
@@ -1352,7 +1194,7 @@ Now, please respond to this user message: "${context.userResponse}"`;
 
       Example of required response format:
       {
-        "message": "Here's a proposed schedule for your evening:\\n\\n- 19:30 to 20:30: Project Planning\\n- 20:30 to 20:45: Short break\\n- 20:45 to 22:15: Design User Interface\\n\\nDoes this schedule work for you, or would you like to make any changes?\\n\\nPROPOSED_SCHEDULE_AWAITING_CONFIRMATION",
+        "message": "Here's a proposed schedule for your evening:\\n\\n- 19:30: Project Planning\\n- 20:30: Short break\\n- 20:45: Design User Interface\\n\\nDoes this schedule work for you, or would you like to make any changes?\\n\\nPROPOSED_SCHEDULE_AWAITING_CONFIRMATION",
         "scheduleUpdates": [
           {
             "taskId": 123,
@@ -1480,6 +1322,8 @@ Now, please respond to this user message: "${context.userResponse}"`;
         message: parsed.message,
         scheduleUpdates: parsed.scheduleUpdates,
         scheduledMessages: parsed.scheduledMessages || [],
+        agentMode: parsed.agentMode || false,
+        requiredActions: parsed.requiredActions || []
       };
     } catch (error) {
       console.error("Failed to parse LLM response as JSON:", error);
@@ -1671,12 +1515,31 @@ Now, please respond to this user message: "${context.userResponse}"`;
         .orderBy(desc(messageHistory.createdAt))
         .limit(20); // Increased to 20 to match the generateResponseMessage
 
-      // Check if the last assistant message has schedule updates in the metadata
-      // that should be passed along to the response generation
+      // Check if the last assistant message has agent mode or schedule updates in the metadata
       const lastAssistantMessage = previousMessages.find(
         (msg) => msg.type === "response" || msg.type === "coach_response",
       );
 
+      // Check for agent mode in previous message
+      let isAgentMode = false;
+      let agentModeHistory: Array<{action: string; result: any; timestamp: string}> = [];
+      
+      if (lastAssistantMessage?.metadata) {
+        const metadata = lastAssistantMessage.metadata as {
+          agentMode?: boolean;
+          agentModeHistory?: Array<{action: string; result: any; timestamp: string}>;
+          scheduleUpdates?: any[];
+        };
+        
+        // Check for agent mode
+        if (metadata.agentMode === true) {
+          isAgentMode = true;
+          agentModeHistory = metadata.agentModeHistory || [];
+          console.log("Continuing in agent mode from previous message");
+        }
+      }
+
+      // Check for schedule updates
       let existingScheduleUpdates: ScheduleUpdate[] = [];
       if (lastAssistantMessage?.metadata) {
         const metadata = lastAssistantMessage.metadata as {
@@ -1709,8 +1572,9 @@ Now, please respond to this user message: "${context.userResponse}"`;
         facts: userFacts,
         previousMessages,
         currentDateTime,
-        messageType: "response", // We'll let the LLM determine the actual type
+        messageType: isAgentMode ? "agent_mode" : "response",
         userResponse: response,
+        agentModeHistory: agentModeHistory
       };
 
       // DEBUG: Print the messaging context before generating response
@@ -1921,6 +1785,60 @@ Now, please respond to this user message: "${context.userResponse}"`;
 
       // Always store the coach's response in the message history
       // This is needed for both the web UI and WhatsApp
+      const metadata: any = { 
+        scheduleUpdates: responseResult.scheduleUpdates || []
+      };
+      
+      // Add agent mode metadata if applicable
+      if (responseResult.agentMode) {
+        metadata.agentMode = true;
+        metadata.requiredActions = responseResult.requiredActions || [];
+        
+        // Update agent mode history
+        if (!metadata.agentModeHistory) {
+          metadata.agentModeHistory = agentModeHistory || [];
+        }
+        
+        // If there are required actions, add them to the agent mode history
+        if (responseResult.requiredActions && responseResult.requiredActions.length > 0) {
+          // Execute each required action and add to history
+          for (const action of responseResult.requiredActions) {
+            try {
+              let result;
+              // Execute the specified function based on the action name
+              if (action.name === 'get_todays_schedule') {
+                result = await llmFunctions.getTodaysSchedule({ userId });
+              } else if (action.name === 'get_task_list') {
+                result = await llmFunctions.getTaskList({ userId }, action.params || {});
+              } else if (action.name === 'get_user_facts') {
+                result = await llmFunctions.getUserFacts({ userId }, action.params || {});
+              } else if (action.name === 'get_todays_notifications') {
+                result = await llmFunctions.getTodaysNotifications({ userId });
+              } else {
+                result = { error: `Unknown action: ${action.name}` };
+              }
+              
+              // Add to history
+              metadata.agentModeHistory.push({
+                action: action.name,
+                params: action.params || {},
+                result,
+                timestamp: new Date().toISOString()
+              });
+            } catch (error: unknown) {
+              const errorMessage = error instanceof Error ? error.message : String(error);
+              console.error(`Error executing agent mode action ${action.name}:`, error);
+              metadata.agentModeHistory.push({
+                action: action.name,
+                params: action.params || {},
+                result: { error: `Failed to execute: ${errorMessage}` },
+                timestamp: new Date().toISOString()
+              });
+            }
+          }
+        }
+      }
+      
       const coachMessageInsert = await db
         .insert(messageHistory)
         .values({
@@ -1928,7 +1846,7 @@ Now, please respond to this user message: "${context.userResponse}"`;
           content: responseResult.message,
           type: "coach_response",
           status: "sent",
-          metadata: { scheduleUpdates: responseResult.scheduleUpdates } as any,
+          metadata,
           createdAt: new Date(),
         })
         .returning({ id: messageHistory.id });
