@@ -9,14 +9,23 @@ console.log("Initializing Twilio client with:", {
   phoneNumber: process.env.TWILIO_PHONE_NUMBER
 });
 
-if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN || !process.env.TWILIO_PHONE_NUMBER) {
-  throw new Error("Missing required Twilio credentials");
+let client: any = null;
+let twilioPhone = "+18557270654"; // Production WhatsApp business number
+
+// Only initialize Twilio if credentials are available
+if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER) {
+  client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+  twilioPhone = process.env.TWILIO_PHONE_NUMBER;
+} else {
+  console.log("Twilio credentials not found - messaging features will be disabled");
 }
 
-const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-const twilioPhone = "+18557270654"; // Production WhatsApp business number
-
 export async function sendWhatsAppMessage(to: string, code: string): Promise<boolean> {
+  if (!client) {
+    console.log("[DEV] Would send WhatsApp message:", { to, code });
+    return true;
+  }
+  
   try {
     console.log("Attempting to send WhatsApp message to:", to);
     const formattedNumber = to.startsWith("+") ? to : `+${to}`;
