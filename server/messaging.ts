@@ -38,18 +38,17 @@ export async function sendWhatsAppMessage(to: string, code: string): Promise<boo
       hasAuthToken: !!process.env.TWILIO_AUTH_TOKEN
     });
 
-    // Build message request parameters
+    // Build message request parameters using the OTP template
     const messageRequest = {
       to: toWhatsApp,
       from: fromWhatsApp,
-      contentSid: "HX02fff4396367e72b923720ae12920172",
+      contentSid: "HXe3a9d41c8e65346abaa70daaa14f698a", // verify_otp template SID
       contentVariables: JSON.stringify({
-        "1": "User",
-        "2": `verification code: ${code}`
+        "1": code // Pass the generated OTP code as variable {{1}}
       })
     };
 
-    console.log("Twilio WhatsApp request parameters:", messageRequest);
+    console.log("Twilio WhatsApp OTP request parameters:", messageRequest);
 
     const response = await client.messages.create(messageRequest);
 
