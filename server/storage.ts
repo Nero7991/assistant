@@ -33,6 +33,7 @@ export interface IStorage {
 
   // Task management methods
   getTasks(userId: number, type?: string): Promise<Task[]>;
+  getTask(id: number): Promise<Task | undefined>;
   createTask(task: InsertTask & { userId: number }): Promise<Task>;
   updateTask(id: number, task: Partial<Task>): Promise<Task>;
   deleteTask(id: number): Promise<void>;
@@ -287,6 +288,15 @@ export class DatabaseStorage implements IStorage {
       .from(tasks)
       .where(and(...conditions))
       .orderBy(tasks.createdAt);
+  }
+
+  async getTask(id: number): Promise<Task | undefined> {
+    const [task] = await db
+      .select()
+      .from(tasks)
+      .where(eq(tasks.id, id))
+      .limit(1);
+    return task as Task | undefined; // Cast to Task type
   }
 
   async createTask(task: InsertTask & { userId: number }): Promise<Task> {

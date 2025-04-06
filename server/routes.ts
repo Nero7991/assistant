@@ -330,6 +330,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.json(tasks);
   });
 
+  // GET specific task by ID
+  app.get("/api/tasks/:id", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const taskId = parseInt(req.params.id);
+      if (isNaN(taskId)) {
+        return res.status(400).json({ message: "Invalid task ID" });
+      }
+      const task = await storage.getTask(taskId);
+      if (!task || task.userId !== req.user.id) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      res.json(task);
+    } catch (error) {
+      console.error(`Error fetching task ${req.params.id}:`, error);
+      res.status(500).json({ message: "Failed to fetch task" });
+    }
+  });
+
   // Task creation endpoint with task suggestions
   app.post("/api/tasks", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
