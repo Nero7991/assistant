@@ -13,7 +13,7 @@ const BASE_URL = 'http://localhost:5000'; // Assuming server runs on port 5000
 // --- Test Configuration ---
 const TEST_USERNAME = 'llm_test_user'; // Use the user created in integration tests or another dedicated test user
 const TEST_PASSWORD = 'hashed_password'; // Ensure this matches the test user's password
-const PROCESSING_DELAY = 45000; // Milliseconds to wait for LLM processing (Increased to 45s)
+const PROCESSING_DELAY = 20000; // Milliseconds to wait for LLM processing (Increased to 45s)
 
 // --- Helper Functions ---
 
@@ -148,41 +148,43 @@ async function cleanupTaskByName(name) {
 // --- Test Suite --- 
 
 async function runTests() {
-    console.log("\n===== STARTING E2E Agentic Task Tests (CREATE ONLY - Test 2) =====\n");
+    console.log("\n===== STARTING E2E Agentic Task Tests =====\n");
     await login();
 
     // --- CREATE TASK Tests --- 
     console.log("\n--- Testing Task Creation ---");
     const newTaskTitle = "E2E Test: Schedule meeting with marketing";
 
-    /* // Temporarily disable Test 1
-    console.log("\nTest 1: Create task (minimal info - expects clarification or default)");
+    // Test Case 1 (Now provides taskType)
+    console.log("\nTest 1: Create task (providing type)");
     await cleanupTaskByName(newTaskTitle); // Ensure clean state
-    await sendMessage(`Add task: ${newTaskTitle}`);
+    // Provide task type directly in the message
+    await sendMessage(`Add task: ${newTaskTitle}, Type: daily`); 
     await waitForProcessing('Create Task 1');
     let createdTasks = await getTasks('active');
     let task1 = createdTasks.find(t => t.title === newTaskTitle);
-    // TODO: Add assertions here based on expected outcome (was it created with default?)
-    console.log(`[Result 1] Task found: ${task1 ? JSON.stringify(task1) : 'null'}`);
+    // Now we expect the task to be created with the specified type
+    assert(task1, `Test 1 Failed: Task '${newTaskTitle}' not found after sending message with type.`);
+    assert.equal(task1.taskType, 'daily', `Test 1 Failed: Task type is not 'daily'`);
+    console.log(`[Result 1] Task created successfully with provided type: ${JSON.stringify(task1)}`);
     if (task1) await deleteTask(task1.id); // Cleanup
-    */
 
     // Test Case 2 (More specific info - using direct phrasing)
     console.log("\nTest 2: Create task (direct phrasing)");
     await cleanupTaskByName(newTaskTitle); // Ensure clean state
     // Use a more structured input to minimize NLU ambiguity
-    await sendMessage(`Create Task - Title: ${newTaskTitle}, Type: one-time`); 
+    await sendMessage(`Create Task - Title: ${newTaskTitle}, Type: daily`); 
     await waitForProcessing('Create Task 2');
     let createdTasks2 = await getTasks('active'); // Use distinct variable name
     let task2 = createdTasks2.find(t => t.title === newTaskTitle);
     assert(task2, `Test 2 Failed: Task '${newTaskTitle}' not found after sending direct message.`);
-    assert.equal(task2.taskType, 'one-time', `Test 2 Failed: Task type is not 'one-time'`);
+    assert.equal(task2.taskType, 'daily', `Test 2 Failed: Task type is not 'daily'`);
     console.log("[Result 2] Task created successfully with correct type using direct phrasing."); // Updated log
     if (task2) await deleteTask(task2.id); // Cleanup
     
     // Add more create_task variations here...
 
-    /* // Temporarily disable Update tests
+    // --- UPDATE TASK Tests --- 
     console.log("\n--- Testing Task Update ---");
     const updateTaskTitle = "E2E Task to Update";
     
@@ -190,8 +192,8 @@ async function runTests() {
     console.log("\nTest Update 1: Change task title");
     await cleanupTaskByName(updateTaskTitle); // Clean potential leftovers
     await cleanupTaskByName("Updated Title via E2E");
-    // Create the initial task directly via API for a known state
-    const initialTask = await makeRequest('/api/tasks', 'POST', { title: updateTaskTitle, taskType: 'one-time', userId: (await login()).id }); 
+    // Create the initial task directly via API for a known state - Use valid taskType
+    const initialTask = await makeRequest('/api/tasks', 'POST', { title: updateTaskTitle, taskType: 'daily', userId: (await login()).id }); 
     assert(initialTask && initialTask.id, "Failed to create initial task for update test");
     
     await sendMessage(`Update the task '${updateTaskTitle}' title to 'Updated Title via E2E'`);
@@ -203,17 +205,16 @@ async function runTests() {
     console.log("[Result Update 1] Task title updated successfully.");
     if (finalTask) await deleteTask(finalTask.id); // Cleanup
     // Add more update tests...
-    */
     
-    /* // Temporarily disable Delete tests
+    // --- DELETE TASK Tests --- 
     console.log("\n--- Testing Task Deletion ---");
     const deleteTaskTitle = "E2E Task to Delete";
     
     // Test Case (Delete task)
     console.log("\nTest Delete 1: Delete a task");
     await cleanupTaskByName(deleteTaskTitle); // Ensure no leftovers before test
-    // Create task via API
-    const taskToDelete = await makeRequest('/api/tasks', 'POST', { title: deleteTaskTitle, taskType: 'one-time', userId: (await login()).id });
+    // Create task via API - Use valid taskType
+    const taskToDelete = await makeRequest('/api/tasks', 'POST', { title: deleteTaskTitle, taskType: 'daily', userId: (await login()).id });
     assert(taskToDelete && taskToDelete.id, "Failed to create task for delete test");
     
     await sendMessage(`Delete the task '${deleteTaskTitle}'`);
@@ -223,9 +224,8 @@ async function runTests() {
     assert(!deletedTaskCheck, `Test Delete 1 Failed: Task ID ${taskToDelete.id} still found after deletion attempt.`);
     console.log("[Result Delete 1] Task deleted successfully.");
     // Add more delete tests...
-    */
 
-    console.log("\n===== E2E Agentic Task Tests (CREATE ONLY - Test 2) COMPLETED =====\n");
+    console.log("\n===== E2E Agentic Task Tests COMPLETED =====\n");
 }
 
 // Run the tests

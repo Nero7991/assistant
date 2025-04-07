@@ -6,7 +6,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
-import { ScheduleDetection } from "@/components/schedule-detection";
 
 interface Message {
   id: string;
@@ -198,7 +197,7 @@ export function ChatInterface() {
               key={msg.id} 
               className={cn(
                 "flex max-w-[80%] items-start gap-2",
-                msg.sender === 'user' ? "ml-auto" : "mr-auto"
+                msg.sender === 'user' ? "ml-auto flex-row-reverse" : "mr-auto"
               )}
             >
               {msg.sender === 'assistant' && (
@@ -207,6 +206,12 @@ export function ChatInterface() {
                 </div>
               )}
               
+              {msg.sender === 'user' && (
+                <div className="flex-shrink-0 mt-1">
+                  <UserCircle2 className="h-8 w-8 p-1 text-primary" />
+                </div>
+              )}
+
               <div 
                 className={cn(
                   "rounded-lg p-3",
@@ -217,19 +222,7 @@ export function ChatInterface() {
               >
                 <div className="whitespace-pre-wrap">{cleanMessageContent(msg.content)}</div>
                 
-                {/* Schedule detection for assistant messages */}
-                {msg.sender === 'assistant' && user && (
-                  <>
-                    {/* Add debug output to browser console */}
-                    {console.log(`[${new Date().toISOString()}] Rendering ScheduleDetection for message ID:${msg.id} (${msg.content.length} chars)`)}
-                    <ScheduleDetection 
-                      key={`schedule-detection-${msg.id}`} 
-                      messageId={msg.id}
-                      messageContent={msg.content}
-                      userId={user.id}
-                    />
-                  </>
-                )}
+                {/* No Schedule detection rendering block */}
                 
                 {/* No confirmation buttons needed - using natural language detection */}
                 
@@ -240,12 +233,6 @@ export function ChatInterface() {
                   {formatTime(msg.timestamp)}
                 </div>
               </div>
-              
-              {msg.sender === 'user' && (
-                <div className="flex-shrink-0 mt-1">
-                  <UserCircle2 className="h-8 w-8 p-1 text-primary" />
-                </div>
-              )}
             </div>
           ))
         )}

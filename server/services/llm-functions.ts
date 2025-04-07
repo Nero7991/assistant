@@ -123,8 +123,8 @@ export const llmFunctionDefinitions = [
         },
         taskType: { 
           type: 'string', 
-          description: 'The type of the task (e.g., \'one-time\', \'recurring\', \'routine\', \'daily\').',
-          enum: ['one-time', 'recurring', 'routine', 'daily'] 
+          description: "The category/type of the task (e.g., daily task, project, goal). Recurrence is handled separately.",
+          enum: ['daily', 'personal_project', 'long_term_project', 'life_goal'] // Use schema enum
         },
         description: { 
           type: 'string', 
@@ -132,14 +132,24 @@ export const llmFunctionDefinitions = [
         },
         scheduledTime: { 
           type: 'string', 
-          description: 'Optional scheduled time (e.g., \'14:30\', \'tomorrow evening\').' 
+          description: "Optional scheduled time (e.g., '14:30', 'evening'). Relevant mainly for 'daily' tasks."
         },
         recurrencePattern: { 
           type: 'string', 
-          description: 'Optional recurrence pattern (e.g., \'daily\', \'weekdays\', \'weekly\').' 
+          description: "Optional recurrence pattern (e.g., 'daily', 'weekly:1,3,5' for MWF, 'monthly:15', 'none')."
+        },
+        // Add other relevant properties if needed, e.g., estimatedDuration, deadline
+        estimatedDuration: { 
+          type: 'string',
+          description: "Optional estimated duration (e.g., '30m', '2h' for daily; '3d', '2w' for projects; '6M' for long-term; '1y' for goals)."
+        },
+        deadline: {
+          type: 'string',
+          format: 'date',
+          description: "Optional deadline (YYYY-MM-DD)."
         }
       },
-      required: ['title', 'taskType'],
+      required: ['title', 'taskType'], // Title and type category are essential
     },
   },
   {
@@ -693,7 +703,7 @@ export class LLMFunctions {
         description: params.description || null,
         taskType: params.taskType,
         // Convert dueDate string to Date object if present
-        deadline: params.dueDate ? new Date(params.dueDate) : null, 
+        deadline: params.deadline ? new Date(params.deadline) : null, 
         scheduledTime: params.scheduledTime || null,
         // TODO: Handle other potential params like priority, recurrence, etc.
         status: 'active', // Default status

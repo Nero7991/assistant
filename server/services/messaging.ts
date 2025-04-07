@@ -171,7 +171,7 @@ export class MessagingService {
       *   get_task_list(): Returns tasks. Can filter by status (e.g., 'active', 'completed').
       *   get_user_facts(): Returns known facts about the user. Can filter by category.
       *   get_todays_schedule(): Returns the schedule for today.
-      *   create_task(): Creates a new task. Requires title and taskType. IMPORTANT: Must call 'get_task_list' first to check for duplicates.
+      *   create_task(): Creates a new task. Requires title and taskType (category: 'daily', 'personal_project', 'long_term_project', 'life_goal'). Frequency is set via recurrencePattern. IMPORTANT: Must call 'get_task_list' first to check for duplicates.
       *   update_task(): Updates an existing task by ID. Requires taskId and updates object.
       *   delete_task(): Deletes a task by ID. Requires taskId.
       *   create_subtask(): Creates a new subtask. Requires parentTaskId and title.
@@ -201,9 +201,12 @@ export class MessagingService {
 
       OTHER IMPORTANT NOTES:
       *   Trust function results over potentially outdated chat history.
-      *   Valid 'taskType' values: 'one-time', 'recurring', 'routine', 'daily'.
-      *   Be concise, friendly, and clear. Use Markdown in the 'message' field for formatting if helpful (like bulleted schedules).
+      *   Valid 'taskType' values are the categories: 'daily', 'personal_project', 'long_term_project', 'life_goal'.
+      *   Task frequency is set using the 'recurrencePattern' parameter (e.g., 'daily', 'weekly:1,3,5', 'none').
+      *   PRIORITIZE using the specific functions (create_task, update_task, etc.) for modifying data.
       *   Do not invent information. Use functions or ask the user.
+      *   For dates/times provided vaguely (e.g., "tomorrow afternoon", "Friday"), ask for clarification (e.g., "What specific date do you mean for Friday?", "What time tomorrow afternoon?").
+      *   Confirm understanding before executing actions, especially deletions (e.g., "Just to confirm, you want me to delete the task 'xyz' (ID: 123)?").
     `;
   }
 
@@ -306,7 +309,7 @@ export class MessagingService {
   }
 
   // --- Refactored handleUserResponse (Main Orchestrator) ---
-  async handleUserResponse(userId: number, userMessageContent: string): Promise<void> {
+  async handleUserResponse(userId: number, userMessageContent: string): Promise<string | null> {
     console.log(`Processing response from user ${userId}: "${userMessageContent.substring(0, 50)}..."`);
 
     // 1. Store User Message
@@ -314,7 +317,7 @@ export class MessagingService {
 
     // 2. Prepare Initial Context & History
     const user = await storage.getUser(userId);
-    if (!user) { console.error(`User not found: ${userId}`); return; }
+    if (!user) { console.error(`User not found: ${userId}`); return null; }
     const userTasks = await storage.getTasks(userId); // Get current tasks for context
     const userFacts = await storage.getKnownUserFacts(userId);
     const dbHistory = await db.select().from(messageHistory).where(eq(messageHistory.userId, userId)).orderBy(desc(messageHistory.createdAt)).limit(20);
@@ -348,6 +351,7 @@ export class MessagingService {
     let loopCount = 0;
     const MAX_LOOPS = 5; // Prevent infinite loops
     let currentFunctionResults: Record<string, any> | undefined = undefined; // Store results between loops
+    let finalAssistantMessage: string | null = null; // Variable to hold the final message
 
     while (loopCount < MAX_LOOPS) {
         loopCount++;
@@ -425,6 +429,9 @@ export class MessagingService {
         } else {
             // --- No Function Call Requested - Final Response ---
             console.log("LLM provided final response (no function_call field). Processing final actions.");
+            
+            // Store the final message content to be returned
+            finalAssistantMessage = processedResult.message;
 
             // K. Perform Actions based on Final Processed Result
             // (Schedule updates, message scheduling, sentiment, etc. - Logic remains similar)
@@ -471,6 +478,10 @@ export class MessagingService {
             // For now, we assume metadata like proposal updates are stored when generated.
             // Let's log the final message content being sent.
             console.log(`Final message content for user ${userId}: ${processedResult.message.substring(0, 100)}...`);
+            
+            // --- ADDING DEBUG LOG --- 
+            console.log(`[DEBUG] Saving final assistant message to DB. Content: "${processedResult.message}"`);
+            // -----------------------
 
             // M. Send Final Message to User
             if (user.phoneNumber && user.contactPreference === "whatsapp") {
@@ -491,6 +502,8 @@ export class MessagingService {
             await this.sendWhatsAppMessage(user.phoneNumber, fallbackMsg);
          }
     }
+    
+    return finalAssistantMessage; // Return the final message content
   }
 
   // --- Refactored handleSystemMessage ---

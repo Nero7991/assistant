@@ -1036,6 +1036,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // NEW Endpoint for Synchronous Chat Response
+  app.post("/api/chat/sync-response", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+
+    try {
+      const { message } = req.body;
+
+      if (!message || typeof message !== 'string' || message.trim().length === 0) {
+        return res.status(400).json({ error: "Message content is required and cannot be empty." });
+      }
+
+      const userId = req.user.id;
+      console.log(`Handling sync chat request for user ${userId}: "${message.substring(0, 50)}..."`);
+
+      // Note: handleUserResponse now saves the user message internally first.
+      // No need to save it explicitly here.
+
+      // Process the message and wait for the final assistant response string
+      const finalAssistantMessageContent = await messagingService.handleUserResponse(userId, message);
+
+      if (finalAssistantMessageContent === null) {
+        // Handle cases where handleUserResponse returned null (e.g., user not found)
+        // It might have already logged the error, but we send a generic server error back.
+        return res.status(500).json({ error: "Failed to process message due to an internal error." });
+      }
+      
+      // Send the final assistant message back to the client
+      res.status(200).json({ assistantMessage: finalAssistantMessageContent });
+
+    } catch (error) {
+      console.error("Error handling synchronous chat request:", error);
+      const errorMsg = error instanceof Error ? error.message : "Failed to process chat message";
+      res.status(500).json({ error: errorMsg });
+    }
+  });
+
   // Reschedule day endpoint
   app.post("/api/chat/reschedule-day", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
@@ -1231,9 +1267,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         };
       });
       
-      // Return the most recent messages first in the UI, but they'll be sorted
-      // properly for display in the ChatPage component
-      res.json(transformedHistory);
+      // --- ADDING DEBUG LOG --- 
+      console.log(`[DEBUG] GET /api/messages response for user ${req.user.id}. Sending ${transformedHistory.length} messages (chronological). Last message sender: ${transformedHistory[transformedHistory.length-1]?.sender}, content: "${transformedHistory[transformedHistory.length-1]?.content.substring(0, 50)}..."`);
+      // -----------------------
+      
+      res.json(transformedHistory.reverse());  // Reverse to get chronological order
     } catch (error) {
       console.error("Error fetching message history:", error);
       res.status(500).json({ error: "Failed to fetch message history" });
@@ -1341,6 +1379,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           metadata: msg.metadata || {}
         };
       });
+      
+      // --- ADDING DEBUG LOG --- 
+      console.log(`[DEBUG] GET /api/messages response for user ${req.user.id}. Sending ${transformedMessages.length} messages (chronological). Last message sender: ${transformedMessages[transformedMessages.length-1]?.sender}, content: "${transformedMessages[transformedMessages.length-1]?.content.substring(0, 50)}..."`);
+      // -----------------------
       
       res.json(transformedMessages.reverse());  // Reverse to get chronological order
     } catch (error) {
