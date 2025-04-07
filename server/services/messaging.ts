@@ -474,17 +474,35 @@ export class MessagingService {
             }
 
             // L. Save Final Assistant Message to History
-            // The message was already added in step E, but we might update metadata here?
-            // For now, we assume metadata like proposal updates are stored when generated.
-            // Let's log the final message content being sent.
-            console.log(`Final message content for user ${userId}: ${processedResult.message.substring(0, 100)}...`);
-            
-            // --- ADDING DEBUG LOG --- 
-            console.log(`[DEBUG] Saving final assistant message to DB. Content: "${processedResult.message}"`);
-            // -----------------------
+             console.log(`[DEBUG] Saving final assistant message to DB. Content: "${finalAssistantMessage}"`);
 
-            // M. Send Final Message to User
-            if (user.phoneNumber && user.contactPreference === "whatsapp") {
+             // Metadata and confirmation checks are already done in the surrounding scope
+             // let finalMetadata: any = {}; // REMOVED Redeclaration
+             // const isConfirmation = finalAssistantMessage.includes(FINAL_SCHEDULE_MARKER); // REMOVED Redeclaration
+             // const isProposal = finalAssistantMessage.includes("PROPOSED_SCHEDULE_AWAITING_CONFIRMATION"); // REMOVED Redeclaration
+             
+             // Use existing finalMetadata
+             let metadataToSave = finalMetadata; // Rename for clarity inside try block if needed, or use directly
+
+             try {
+                 const insertResult = await db.insert(messageHistory).values({
+                    userId: userId,
+                    content: finalAssistantMessage,
+                    type: "coach_response",
+                    status: "sent",
+                    metadata: Object.keys(metadataToSave).length > 0 ? metadataToSave : undefined,
+                    createdAt: new Date(),
+                 }).returning({ insertedId: messageHistory.id });
+                 
+                 console.log(`[DEBUG] Successfully inserted coach_response message with ID: ${insertResult[0]?.insertedId}`);
+                 
+             } catch (dbError) {
+                 console.error(`[CRITICAL] Failed to save final assistant message to DB for user ${userId}:`, dbError);
+                 // Consider returning an error state later if needed.
+             }
+
+            // M. Send Final Message to User (Keep this for now for WhatsApp)
+            if (user.phoneNumber && user.contactPreference === 'whatsapp') {
                 await this.sendWhatsAppMessage(user.phoneNumber, processedResult.message);
             }
 

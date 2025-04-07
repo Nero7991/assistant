@@ -75,26 +75,65 @@ export function ChatInterface() {
     }
   });
   
-  // Send message mutation
+  // Send message mutation (using synchronous endpoint)
   const sendMessageMutation = useMutation({
     mutationFn: async (content: string) => {
-      const res = await fetch("/api/messages", {
+      // Use the new synchronous endpoint
+      const res = await fetch("/api/chat/sync-response", { 
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content })
+        body: JSON.stringify({ message: content })
       });
-      if (!res.ok) throw new Error("Failed to send message");
-      return res.json();
+      
+      if (!res.ok) {
+        let errorMsg = "Failed to send message";
+        try {
+          const errorData = await res.json();
+          errorMsg = errorData.error || errorMsg; 
+        } catch (e) { /* Ignore parsing error */ }
+        console.error(`Error sending message: Status ${res.status}, Message: ${errorMsg}`);
+        throw new Error(errorMsg);
+      }
+      
+      // Expect { assistantMessage: "..." } on success
+      const responseData = await res.json(); 
+      if (!responseData || typeof responseData.assistantMessage !== 'string') {
+           console.error("Invalid response structure from /api/chat/sync-response:", responseData);
+           throw new Error("Received an invalid response from the server.");
+      }
+      
+      // Return the user message and the received assistant message for onSuccess
+      return { 
+        userMessageContent: content, 
+        assistantMessageContent: responseData.assistantMessage 
+      };
     },
     onSuccess: (data) => {
-      // Add both messages to the local cache immediately for a smoother UX
-      // This way we don't have to wait for the next refetch
+      // Restore manual cache update for immediate UI feedback
       const currentMessages = queryClient.getQueryData<Message[]>(["/api/messages"]) || [];
+      const now = new Date().toISOString();
+      const userMsgForCache: Message = {
+          id: `temp-user-${Date.now()}`,
+          content: data.userMessageContent,
+          sender: 'user',
+          timestamp: now
+      };
+      const assistantMsgForCache: Message = {
+          id: `temp-assistant-${Date.now()}`,
+          content: data.assistantMessageContent,
+          sender: 'assistant',
+          timestamp: now
+      };
       queryClient.setQueryData(["/api/messages"], [
         ...currentMessages,
-        data.userMessage,
-        data.assistantMessage
+        userMsgForCache,
+        assistantMsgForCache
       ]);
+      console.log("Sync message success. Manually updated cache.");
+     
+       // Remove immediate invalidation to prevent race condition
+       // queryClient.invalidateQueries({ queryKey: ["/api/messages"] });
+       // console.log("Sync message success. Invalidating messages query to refetch.", data);
     },
     onError: (error: Error) => {
       toast({

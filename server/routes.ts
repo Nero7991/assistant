@@ -1258,7 +1258,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         return {
-          id: msg.id,
+          id: String(msg.id),
           userId: msg.userId,
           content: msg.content,
           direction,
@@ -1372,7 +1372,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Transform the results to match the expected format in the chat UI
       const transformedMessages = messages.map(msg => {
         return {
-          id: msg.id,
+          id: String(msg.id),
           content: msg.content,
           sender: msg.type === 'user_message' ? 'user' : 'assistant',
           timestamp: msg.createdAt.toISOString(),
@@ -1501,7 +1501,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Transform the system message to match the expected format in the chat UI
       const transformedMessage = {
-        id: assistantMessage.id,
+        id: String(assistantMessage.id),
         content: assistantMessage.content,
         sender: 'assistant',
         timestamp: assistantMessage.createdAt.toISOString(),
@@ -1560,14 +1560,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Return both messages in the expected format for the chat UI
       res.status(201).json({
         userMessage: {
-          id: userMessage.id,
+          id: String(userMessage.id),
           content: userMessage.content,
           sender: 'user',
           timestamp: userMessage.createdAt.toISOString(),
           metadata: userMessage.metadata || {}
         },
         assistantMessage: {
-          id: assistantMessage.id,
+          id: String(assistantMessage.id),
           content: assistantMessage.content,
           sender: 'assistant',
           timestamp: assistantMessage.createdAt.toISOString(),
