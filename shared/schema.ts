@@ -292,55 +292,72 @@ export const RecurrenceType = {
 
 // Time validation regex for HH:MM format (24-hour)
 const timeRegex = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+const timeRegexError = "Time must be in 24-hour format (HH:MM)";
 
-// Base task schema
-const baseTaskSchema = {
+// Base task schema fields
+const baseTaskSchemaFields = {
   title: z.string().min(1, "Title is required"),
   description: z.string().optional(),
   priority: z.number().min(1).max(5).optional(),
   status: z.enum(['active', 'completed', 'archived']).default('active'),
-  scheduledTime: z.string().regex(timeRegex, "Time must be in 24-hour format (HH:MM)").optional(),
+  // Allow empty string OR valid HH:MM format, and make the whole field optional
+  scheduledTime: z.union([z.string().regex(timeRegex, timeRegexError), z.literal('')]).optional(),
   recurrencePattern: z.string().optional(),
 };
 
-// Task-type specific schemas
+// Task-type specific schemas (no longer need refine for scheduledTime)
 export const dailyTaskSchema = z.object({
-  ...baseTaskSchema,
+  ...baseTaskSchemaFields,
   taskType: z.literal(TaskType.DAILY),
-  estimatedDuration: z.string().regex(/^\d+[mh]$/, "Duration must be in minutes (m) or hours (h)"),
+  estimatedDuration: z.string().regex(/^\d+[mh]$/, "Duration must be minutes (m) or hours (h)"),
   deadline: z.date().optional(),
-  // For daily tasks, we encourage scheduling
-  scheduledTime: z.string().regex(timeRegex, "Time must be in 24-hour format (HH:MM)").optional(),
-  recurrencePattern: z.string().optional(),
 });
 
 export const personalProjectSchema = z.object({
-  ...baseTaskSchema,
+  ...baseTaskSchemaFields,
   taskType: z.literal(TaskType.PERSONAL_PROJECT),
-  estimatedDuration: z.string().regex(/^\d+[dw]$/, "Duration must be in days (d) or weeks (w)"),
+  estimatedDuration: z.string().regex(/^\d+[dw]$/, "Duration must be days (d) or weeks (w)"),
   deadline: z.date().optional(),
 });
 
 export const longTermProjectSchema = z.object({
-  ...baseTaskSchema,
+  ...baseTaskSchemaFields,
   taskType: z.literal(TaskType.LONG_TERM_PROJECT),
-  estimatedDuration: z.string().regex(/^\d+[mM]$/, "Duration must be in months (M)"),
+  estimatedDuration: z.string().regex(/^\d+[mM]$/, "Duration must be months (M)"),
   deadline: z.date().optional(),
 });
 
 export const lifeGoalSchema = z.object({
-  ...baseTaskSchema,
+  ...baseTaskSchemaFields,
   taskType: z.literal(TaskType.LIFE_GOAL),
-  estimatedDuration: z.string().regex(/^\d+[yY]$/, "Duration must be in years (y)").optional(),
+  estimatedDuration: z.string().regex(/^\d+[yY]$/, "Duration must be years (y)").optional(),
 });
 
-// Combined task schema using discriminated union
+// Combined task schema using discriminated union and refinement
 export const insertTaskSchema = z.discriminatedUnion("taskType", [
   dailyTaskSchema,
   personalProjectSchema,
   longTermProjectSchema,
   lifeGoalSchema,
-]);
+])
+.superRefine((data, ctx) => {
+  // REMOVED Rule 1 for scheduledTime as z.union handles it now.
+  
+  // Rule 2: Ensure estimatedDuration format matches taskType (Example)
+  if (data.taskType === TaskType.DAILY && data.estimatedDuration && !/^\d+[mh]$/.test(data.estimatedDuration)) {
+     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Daily task duration must be in minutes (m) or hours (h)", path: ["estimatedDuration"] });
+  }
+  if (data.taskType === TaskType.PERSONAL_PROJECT && data.estimatedDuration && !/^\d+[dw]$/.test(data.estimatedDuration)) {
+     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Personal project duration must be in days (d) or weeks (w)", path: ["estimatedDuration"] });
+  }
+  // Add similar checks for LONG_TERM_PROJECT (months) and LIFE_GOAL (years) if needed
+   if (data.taskType === TaskType.LONG_TERM_PROJECT && data.estimatedDuration && !/^\d+[mM]$/.test(data.estimatedDuration)) {
+     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Long term project duration must be months (M)", path: ["estimatedDuration"] });
+  }
+  if (data.taskType === TaskType.LIFE_GOAL && data.estimatedDuration && !/^\d+[yY]$/.test(data.estimatedDuration)) {
+     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Life goal duration must be years (y)", path: ["estimatedDuration"] });
+  }
+});
 
 // Update the insertSubtaskSchema to properly handle date strings and scheduling
 export const insertSubtaskSchema = createInsertSchema(subtasks)
@@ -349,13 +366,16 @@ export const insertSubtaskSchema = createInsertSchema(subtasks)
     description: true,
     estimatedDuration: true,
     deadline: true,
+    // Add scheduledTime and recurrencePattern if needed for subtasks
+    scheduledTime: true,
+    recurrencePattern: true,
   })
   .extend({
     title: z.string().min(1, "Title is required"),
     description: z.string().optional(),
     estimatedDuration: z.string().regex(/^\d+[mhdwMy]$/, "Duration must be in a valid format (e.g., 30m, 2h, 3d)"),
     deadline: z.coerce.date().optional().nullable(),
-    scheduledTime: z.string().regex(timeRegex, "Time must be in 24-hour format (HH:MM)").optional(),
+    scheduledTime: z.string().regex(timeRegex, timeRegexError).optional(), // Keep optional validation for subtasks
     recurrencePattern: z.string().optional(),
   });
 

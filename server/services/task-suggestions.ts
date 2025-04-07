@@ -1,8 +1,14 @@
-import OpenAI from "openai";
-import { TaskType, KnownUserFact } from "@shared/schema";
+import { db } from "../db";
+import { eq } from "drizzle-orm";
+import { KnownUserFact, TaskType, knownUserFacts } from "@shared/schema";
 import { storage } from "../storage";
+import { openai } from "../openai"; // Keep OpenAI import ONLY if needed elsewhere, ideally remove if not.
+import { format, add } from 'date-fns';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Import LLM Providers and types
+import { LLMProvider, StandardizedChatCompletionMessage } from "./llm/provider";
+import { openAIProvider } from "./llm/openai_provider";
+import { gcloudProvider } from "./llm/gcloud_provider";
 
 interface SubTaskSuggestion {
   title: string;
@@ -96,14 +102,11 @@ export async function generateTaskSuggestions(
 ): Promise<TaskSuggestionResponse> {
   try {
     const currentDateTime = new Date().toISOString();
-
-    // Fetch user facts for context
     const userFacts = await storage.getKnownUserFacts(userId);
     const userFactsContext = formatUserFacts(userFacts);
-
-    // Clean up duration if provided (extract lower bound)
     const cleanDuration = estimatedDuration ? extractLowerBound(estimatedDuration) : 'Not specified';
 
+    // --- System Prompt (remains mostly the same) ---
     const systemPrompt = `You are an ADHD-friendly task planning assistant. Break down tasks into manageable subtasks with realistic deadlines.
     Current datetime: ${currentDateTime}
 
@@ -144,6 +147,7 @@ export async function generateTaskSuggestions(
       "tips": ["string"]
     }`;
 
+    // --- User Prompt (remains the same) ---
     const userPrompt = `Task Type: ${taskType}
     Title: ${title}
     Description: ${description}
@@ -167,58 +171,102 @@ export async function generateTaskSuggestions(
       console.log('------- END TASK SUGGESTION DEBUG -------\n');
     }
 
-    // Get the user's preferred model
+    // --- Select LLM Provider --- 
     const user = await storage.getUser(userId);
     const preferredModel = user?.preferredModel || "gpt-4o";
-    console.log(`Using user's preferred model: ${preferredModel} for task suggestions`);
-    
-    // Different models require different parameters
-    let completionParams: any = {
-      model: preferredModel, // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt
-        },
-        {
-          role: "user",
-          content: userPrompt
-        }
-      ],
-    };
-    
-    // Only add response_format for models that support it (not o1-mini/o3-mini)
-    if (preferredModel !== "o1-mini" && preferredModel !== "o3-mini") {
-      completionParams.response_format = { type: "json_object" };
-      completionParams.temperature = 0.7;
+    console.log(`[Task Suggestions] Using user's preferred model: ${preferredModel}`);
+
+    let provider: LLMProvider;
+    let effectiveModel = preferredModel;
+    if (preferredModel.startsWith("gemini-")) {
+      provider = gcloudProvider;
+    } else if (preferredModel.startsWith("gpt-") || preferredModel.startsWith("o1-") || preferredModel.startsWith("o3-")) {
+      provider = openAIProvider;
+    } else {
+      console.warn(`[Task Suggestions] Unsupported model ${preferredModel}, falling back to OpenAI.`);
+      provider = openAIProvider;
+      effectiveModel = "gpt-4o"; 
     }
     
-    const response = await openai.chat.completions.create(completionParams);
+    // --- Prepare Messages for Provider --- 
+    const messages: StandardizedChatCompletionMessage[] = [];
+    let requiresJson = true; // Assume JSON required unless it's o1/o3 mini
 
-    const suggestions = JSON.parse(response.choices[0].message.content!) as TaskSuggestionResponse;
+    // Handle different provider/model requirements
+    if (provider === openAIProvider && !effectiveModel.startsWith("o1-") && !effectiveModel.startsWith("o3-")) {
+        messages.push({ role: "system", content: systemPrompt });
+        messages.push({ role: "user", content: userPrompt });
+    } else if (provider === gcloudProvider) {
+        // Combine prompts for Gemini (it prefers system instructions with user query)
+        messages.push({ role: "user", content: `${systemPrompt}\n\n${userPrompt}` });
+    } else { // OpenAI Mini models
+        messages.push({ role: "user", content: `${systemPrompt}\n\n${userPrompt}` });
+        requiresJson = false; // Mini models don't reliably support JSON mode
+    }
+
+    // --- Set Temperature --- 
+    const temperature = (effectiveModel.startsWith("o1-") || effectiveModel.startsWith("o3-")) ? undefined : 0.7;
+
+    // --- Call the Selected Provider --- 
+    console.log(`[Task Suggestions] Calling ${provider.constructor.name} model ${effectiveModel}...`);
+    const responseMessage = await provider.generateCompletion(
+      effectiveModel,
+      messages,
+      temperature,
+      requiresJson
+      // No function definitions needed for this specific suggestion prompt
+    );
+
+    // --- Process the Response --- 
+    if (!responseMessage.content) {
+        throw new Error("LLM did not return any content for task suggestions.");
+    }
+
+    // Attempt to parse the JSON from the response content
+    let suggestions: TaskSuggestionResponse;
+    try {
+        // Need to clean potential markdown fences if model adds them
+        let cleanContent = responseMessage.content.trim();
+        if (cleanContent.startsWith("```json")) {
+            cleanContent = cleanContent.substring(7);
+            if (cleanContent.endsWith("```")) {
+                cleanContent = cleanContent.substring(0, cleanContent.length - 3);
+            }
+            cleanContent = cleanContent.trim();
+        } else if (cleanContent.startsWith("```")) { 
+             cleanContent = cleanContent.substring(3);
+             if (cleanContent.endsWith("```")) {
+                cleanContent = cleanContent.substring(0, cleanContent.length - 3);
+             }
+             cleanContent = cleanContent.trim();
+        }
+        suggestions = JSON.parse(cleanContent) as TaskSuggestionResponse;
+    } catch (parseError) {
+        console.error("[Task Suggestions] Failed to parse JSON response:", parseError);
+        console.error("[Task Suggestions] Raw LLM content:", responseMessage.content);
+        throw new Error("Failed to parse task suggestions from LLM response.");
+    }
     
-    // Process the response to ensure all deadlines are calculated properly
+    // Process deadlines and durations (existing logic is good)
     suggestions.subtasks = suggestions.subtasks.map(subtask => {
-      // Preserve the scheduledTime and recurrencePattern if they exist
       const { scheduledTime, recurrencePattern } = subtask;
-      
       return {
         ...subtask,
         estimatedDuration: extractLowerBound(subtask.estimatedDuration),
         deadline: calculateDeadline(subtask.estimatedDuration),
-        // Ensure we maintain scheduled time and recurrence pattern
         scheduledTime: scheduledTime || undefined,
         recurrencePattern: recurrencePattern || undefined
       };
     });
-    
-    // Calculate the suggested deadline based on the total duration
     suggestions.suggestedDeadline = calculateDeadline(suggestions.estimatedTotalDuration);
     suggestions.estimatedTotalDuration = extractLowerBound(suggestions.estimatedTotalDuration);
 
+    console.log("[Task Suggestions] Successfully generated suggestions.");
     return suggestions;
+
   } catch (error) {
     console.error("Error generating task suggestions:", error);
-    throw new Error("Failed to generate task suggestions");
+    // Throw specific error for the API route handler
+    throw new Error("Failed to generate task suggestions via LLM."); 
   }
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
@@ -37,7 +37,6 @@ interface TaskSuggestions {
 
 export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialogProps) {
   const { toast } = useToast();
-  const [selectedType, setSelectedType] = useState<keyof typeof TaskType>(defaultType);
   const [suggestions, setSuggestions] = useState<TaskSuggestions | null>(null);
   const [editingSubtask, setEditingSubtask] = useState<number | null>(null);
   const [mainTask, setMainTask] = useState<{ id: number } | null>(null);
@@ -54,6 +53,8 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
       recurrencePattern: "none",
     },
   });
+
+  const currentTaskType = form.watch("taskType");
 
   const needsSuggestions = (type: string): boolean => {
     return type === TaskType.PERSONAL_PROJECT ||
@@ -195,7 +196,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
   };
 
   const getDurationPlaceholder = () => {
-    switch (selectedType) {
+    switch (currentTaskType) {
       case "DAILY":
         return "e.g., 30m or 2h";
       case "PERSONAL_PROJECT":
@@ -229,7 +230,6 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
                       value={field.value}
                       onValueChange={(value) => {
                         field.onChange(value);
-                        setSelectedType(value as keyof typeof TaskType);
                       }}
                     >
                       <FormControl>
@@ -291,7 +291,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
                 )}
               />
               
-              {(form.getValues().taskType === TaskType.DAILY || selectedType === "DAILY") && (
+              {(currentTaskType === TaskType.DAILY) && (
                 <>
                   <FormField
                     control={form.control}
@@ -524,7 +524,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
                 onClick={form.handleSubmit(data => createMutation.mutate(data))}
               >
                 {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {needsSuggestions(form.getValues().taskType) ? "Suggest Subtasks" : "Create Task"}
+                {needsSuggestions(currentTaskType) ? "Suggest Subtasks" : "Create Task"}
               </Button>
             </>
           )}
