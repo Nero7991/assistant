@@ -352,8 +352,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Task creation endpoint with task suggestions
   app.post("/api/tasks", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
+    
+    // --- ADD DEBUG LOG --- 
+    console.log("[DEBUG] POST /api/tasks received body:", JSON.stringify(req.body));
+    // -----------------------
+    
     const parsed = insertTaskSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json(parsed.error);
+    if (!parsed.success) {
+      // Log the validation error specifically
+      console.error("[DEBUG] POST /api/tasks Zod validation failed:", parsed.error);
+      return res.status(400).json(parsed.error);
+    }
 
     const taskData = parsed.data;
 

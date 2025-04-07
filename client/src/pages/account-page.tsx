@@ -12,14 +12,16 @@ import { Loader2, Info } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
-// Available OpenAI models
-const OPENAI_MODELS = [
+// Available AI models
+const AVAILABLE_MODELS = [
   { value: "o1-mini", label: "O1-mini (Default reasoning model)" },
-  { value: "gpt-4o", label: "GPT-4o (Latest & Best)" },
-  { value: "gpt-4o-mini", label: "GPT-4o-mini (Reasoning Model)" },
-  { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
-  { value: "gpt-4", label: "GPT-4" },
-  { value: "gpt-3.5-turbo", label: "GPT-3.5 Turbo (Faster)" }
+  { value: "gpt-4o", label: "GPT-4o (OpenAI Latest)" },
+  { value: "gpt-4o-mini", label: "GPT-4o-mini (OpenAI Reasoning)" },
+  { value: "gemini-1.5-pro-latest", label: "Gemini 1.5 Pro (Google Latest)" },
+  { value: "gemini-1.5-flash-latest", label: "Gemini 1.5 Flash (Google Faster)" },
+  { value: "gpt-4-turbo", label: "GPT-4 Turbo (OpenAI Previous)" },
+  { value: "gpt-4", label: "GPT-4 (OpenAI Previous)" },
+  { value: "gpt-3.5-turbo", label: "GPT-3.5 Turbo (OpenAI Faster)" }
 ];
 
 // List of common timezones
@@ -397,10 +399,9 @@ export default function AccountPage() {
                       <TooltipContent>
                         <p className="w-96">Choose which AI model to use for all interactions:
                         <br />• O1-mini: Default reasoning model (recommended)
-                        <br />• GPT-4o: Latest & most capable model
-                        <br />• GPT-4o-mini: Specialized for reasoning tasks
-                        <br />• GPT-4/GPT-4-turbo: Previous generation models
-                        <br />• GPT-3.5-turbo: Faster but less capable
+                        <br />• GPT-4o / GPT-4o-mini: OpenAI's latest models.
+                        <br />• Gemini 1.5 Pro / Flash: Google's latest models.
+                        <br />• GPT-4/Turbo/3.5: Older OpenAI models.
                         </p>
                       </TooltipContent>
                     </Tooltip>
@@ -415,7 +416,7 @@ export default function AccountPage() {
                   <SelectValue placeholder="Select AI model" />
                 </SelectTrigger>
                 <SelectContent>
-                  {OPENAI_MODELS.map((model) => (
+                  {AVAILABLE_MODELS.map((model) => (
                     <SelectItem key={model.value} value={model.value}>{model.label}</SelectItem>
                   ))}
                 </SelectContent>

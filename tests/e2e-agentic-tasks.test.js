@@ -172,7 +172,7 @@ async function runTests() {
     // Test Case 2 (More specific info - using direct phrasing)
     console.log("\nTest 2: Create task (direct phrasing)");
     await cleanupTaskByName(newTaskTitle); // Ensure clean state
-    // Use a more structured input to minimize NLU ambiguity
+    // Use a more structured input to minimize NLU ambiguity - Use valid taskType
     await sendMessage(`Create Task - Title: ${newTaskTitle}, Type: daily`); 
     await waitForProcessing('Create Task 2');
     let createdTasks2 = await getTasks('active'); // Use distinct variable name
@@ -192,8 +192,8 @@ async function runTests() {
     console.log("\nTest Update 1: Change task title");
     await cleanupTaskByName(updateTaskTitle); // Clean potential leftovers
     await cleanupTaskByName("Updated Title via E2E");
-    // Create the initial task directly via API for a known state - Use valid taskType
-    const initialTask = await makeRequest('/api/tasks', 'POST', { title: updateTaskTitle, taskType: 'daily', userId: (await login()).id }); 
+    // Create the initial task directly via API - Remove userId from body
+    const initialTask = await makeRequest('/api/tasks', 'POST', { title: updateTaskTitle, taskType: 'daily' }); 
     assert(initialTask && initialTask.id, "Failed to create initial task for update test");
     
     await sendMessage(`Update the task '${updateTaskTitle}' title to 'Updated Title via E2E'`);
@@ -213,8 +213,8 @@ async function runTests() {
     // Test Case (Delete task)
     console.log("\nTest Delete 1: Delete a task");
     await cleanupTaskByName(deleteTaskTitle); // Ensure no leftovers before test
-    // Create task via API - Use valid taskType
-    const taskToDelete = await makeRequest('/api/tasks', 'POST', { title: deleteTaskTitle, taskType: 'daily', userId: (await login()).id });
+    // Create task via API - Remove userId from body
+    const taskToDelete = await makeRequest('/api/tasks', 'POST', { title: deleteTaskTitle, taskType: 'daily' });
     assert(taskToDelete && taskToDelete.id, "Failed to create task for delete test");
     
     await sendMessage(`Delete the task '${deleteTaskTitle}'`);

@@ -173,26 +173,37 @@ export function ChatInterface() {
   };
   
   // Function to clean up confirmation markers and format JSON responses for display purposes
-  const cleanMessageContent = (content: string) => {
+  const cleanMessageContent = (content: string): string => {
     // First clean up confirmation markers
     let cleanContent = content.replace("PROPOSED_SCHEDULE_AWAITING_CONFIRMATION", "");
     
-    // Check if the content might be JSON
-    if (cleanContent.includes('"scheduleUpdates"') || cleanContent.includes('"scheduledMessages"')) {
+    // Check if the content might be JSON (heuristic check)
+    const looksLikeJson = cleanContent.trim().startsWith("{") && cleanContent.trim().endsWith("}");
+
+    if (looksLikeJson && (cleanContent.includes('"function_call"') || cleanContent.includes('"scheduleUpdates"') || cleanContent.includes('"scheduledMessages"'))) {
       try {
         // Try to parse the content as JSON
         const parsed = JSON.parse(cleanContent);
         
-        // Extract just the message part for display
-        if (parsed && parsed.message) {
+        // If parsing succeeds, check the message field
+        if (parsed && typeof parsed.message === 'string' && parsed.message.trim().length > 0) {
+          // Return the actual message if it's a non-empty string
           return parsed.message;
+        } else if (parsed && parsed.function_call) {
+            // If message is null/empty but there was a function call, show a system action message
+            return `[System action: Called function '${parsed.function_call.name}']`; // Or simply hide these?
+        } else {
+            // If message is null/empty and no function call, show a generic placeholder
+            console.warn("Parsed JSON message content was null or empty:", cleanContent); 
+            return "[System message processed]"; // Or potentially hide completely?
         }
       } catch (error) {
-        console.log("Not valid JSON or failed to parse", error);
-        // If it's not valid JSON, just return the original content
+        console.log("Failed to parse potential JSON content, showing raw:", error);
+        // If parsing fails, fall through to return the original (cleaned) content
       }
     }
     
+    // Return original content if it doesn't look like actionable JSON or if parsing failed
     return cleanContent;
   };
   

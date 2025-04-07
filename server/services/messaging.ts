@@ -27,6 +27,9 @@ import {
 } from "./schedule-parser-new";
 import { llmFunctionExecutors, llmFunctionDefinitions } from "./llm-functions";
 import { ChatCompletionMessage, ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import { LLMProvider, StandardizedChatCompletionMessage } from "./llm/provider";
+import { openAIProvider } from "./llm/openai_provider";
+import { gcloudProvider } from "./llm/gcloud_provider";
 
 // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -82,228 +85,144 @@ export class MessagingService {
 
   // --- Unified Prompt Template ---
   private createUnifiedPrompt(context: MessageContext): string {
-    // Format past messages (keep existing logic, use context.previousMessages)
-    const formattedPreviousMessages = context.previousMessages
-      .slice(0, 10) // Limit history in prompt for brevity
-      .map((msg) => {
-        let messageTime;
-        if (context.user.timeZone) {
-          messageTime = new Date(msg.createdAt).toLocaleTimeString("en-US", {
-            timeZone: context.user.timeZone,
-            hour: "2-digit",
-            minute: "2-digit",
-          });
-        } else {
-          messageTime = new Date(msg.createdAt).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          });
-        }
-        const messageType = msg.type === "user_message" ? "User" : "Coach";
-        return `[${messageTime}] ${messageType}: ${msg.content}`;
-      })
-      .reverse() // Oldest first in this snippet for context flow
-      .join("\n");
+    const { user, tasks, facts, previousMessages, currentDateTime, messageType, systemRequestType, userResponse, functionResults } = context;
+    const userId = user.id;
 
-    // Determine the goal/context based on messageType
+    // Construct the system prompt portion
+    const prompt = `You are an expert AI Assistant Coach specialized in helping users with ADHD manage their tasks, schedule, and well-being.\nCurrent User ID: ${userId}\nCurrent Time (${user.timeZone || 'UTC'}): ${currentDateTime}\n\nUSER PROFILE:\n- Username: ${user.username}\n- Email: ${user.email} ${user.isEmailVerified ? '(Verified)' : '(Not Verified)'}\n- Phone: ${user.phoneNumber || 'Not provided'} ${user.isPhoneVerified ? '(Verified)' : '(Not Verified)'}\n- Contact Preference: ${user.contactPreference}\n- Schedule: Wake ${user.wakeTime}, Start Routine ${user.routineStartTime}, Sleep ${user.sleepTime}\n- Preferred LLM: ${user.preferredModel}\n\nUSER FACTS:\n${facts.length > 0 ? facts.map((fact) => `- ${fact.category}: ${fact.content}`).join("\n") : "No specific facts known."}\n\nActive Tasks (for context, use functions to get latest status/details):\n${tasks.length > 0 ? tasks.filter(t => t.status === 'active').map((task) => `- ID:${task.id} | ${task.title} | Type: ${task.taskType}${task.scheduledTime ? ` | Scheduled: ${task.scheduledTime}` : ""}`).join("\n") : "No active tasks."}\n\nAVAILABLE FUNCTIONS:\n- \`get_task_list({ status: 'active'|'completed'|'all' = 'active' })\`: Retrieves the user's tasks. Default status is 'active'.\n- \`create_task({ title: string, description?: string, taskType: 'daily'|'personal_project'|'long_term_project'|'life_goal', priority?: number (1-5), estimatedDuration?: string ('30m', '2h', '1d', '1w', '1M', '1y'), deadline?: string (ISO8601), scheduledTime?: string ('HH:MM'), recurrencePattern?: string ('daily', 'weekly:1,3,5', 'monthly:15') })\`: Creates a new task.\n    - **IMPORTANT**: If \`taskType\` is 'daily', you MUST ask the user for a \`scheduledTime\` (e.g., "09:00") if they haven't provided one before calling this function.\n    - **IMPORTANT**: If \`taskType\` is 'personal_project', 'long_term_project', or 'life_goal', follow this sequence:\n        1. Ask the user for a brief \`description\` AND the overall \`estimatedDuration\` (e.g., '2w', '3M', '1y') for the project/goal.\n        2. WAIT for the user's response.\n        3. THEN, **suggest** 3-5 relevant initial subtasks with estimated durations/deadlines based on the description and overall duration. Ask the user to confirm or modify these suggestions.\n        4. WAIT for the user's response confirming or modifying the subtasks.\n        5. FINALLY, call \`create_task\` with the title, description, and duration, then call \`create_subtask\` for each confirmed/modified subtask.\n- \`update_task({ taskId: number, title?: string, description?: string, status?: 'active'|'completed'|'archived', priority?: number, estimatedDuration?: string, deadline?: string, scheduledTime?: string, recurrencePattern?: string })\`: Updates an existing task. Requires \`taskId\`.\n- \`delete_task({ taskId: number })\`: Deletes a task. Requires \`taskId\`.\n- \`create_subtask({ parentTaskId: number, title: string, description?: string, estimatedDuration?: string, deadline?: string, scheduledTime?: string })\`: Adds a subtask to a parent task.\n- \`update_subtask({ subtaskId: number, title?: string, description?: string, status?: 'active'|'completed'|'archived', estimatedDuration?: string, deadline?: string, scheduledTime?: string })\`: Updates an existing subtask. Requires \`subtaskId\`.\n- \`delete_subtask({ subtaskId: number })\`: Deletes a subtask. Requires \`subtaskId\`.\n- \`get_user_facts({ category: 'life_event'|'core_memory'|'traumatic_experience'|'personality'|'attachment_style'|'custom'|'all' = 'all' })\`: Retrieves known facts about the user.\n- \`add_user_fact({ factType: string, category: 'life_event'|'core_memory'|'traumatic_experience'|'personality'|'attachment_style'|'custom', content: string })\`: Adds a new fact about the user.\n- \`propose_daily_schedule({ date: string (YYYY-MM-DD) })\`: Generates a proposed schedule for the user for a specific date based on their active tasks, routine, and known facts. It should consider priorities, estimated durations, and deadlines. Output the schedule clearly in the 'message' field, marked with "PROPOSED_SCHEDULE_AWAITING_CONFIRMATION".\n\nIMPORTANT NOTES & WORKFLOW:\n1.  **PRIORITY OF INFORMATION**: Function results provided in the conversation history are the MOST current state. Always use the data from the latest function result for tasks, facts, etc., over older messages or your internal knowledge.\n2.  **Task Management**:\n    *   Before creating ANY task, ALWAYS call \`get_task_list({ status: 'active' })\` to check if a similar task already exists. Ask the user if they want to proceed if duplicates are found.\n    *   Ensure \`taskType\` is one of the valid values: 'daily', 'personal_project', 'long_term_project', 'life_goal'. If the user is vague, ask them to clarify the type.\n    *   Follow the specific instructions within the \`create_task\` description regarding \`scheduledTime\` for daily tasks and the multi-step process (description + duration -> wait -> suggest subtasks -> wait -> create) for larger projects/goals.\n3.  **Fact Management**: Use \`get_user_facts\` to recall information. Use \`add_user_fact\` to store new persistent information learned about the user during conversation.\n4.  **Scheduling**: Use \`propose_daily_schedule\` to generate structured plans. Your schedule proposal *must* be included in the \`message\` field of your JSON response and clearly marked.\n\nRESPONSE FORMAT (CRITICAL):\nYour output MUST be a single JSON object with the following potential keys:\n- "message": (string, Required) The conversational text response to the user.\n- "function_call": (object, Optional) If a function needs to be called. Structure: { "name": "function_name", "arguments": { "arg1": "value1", ... } }\n- "scheduleUpdates": (array, Optional) List of schedule items to create/update. Use this ONLY if the user explicitly confirms a proposed schedule or asks for direct item modifications. Structure: [{ id?: number, date: string (YYYY-MM-DD), taskId?: number | string, subtaskId?: number, title: string, startTime: string (HH:MM), endTime?: string (HH:MM), status?: string, action?: 'create'|'update'|'delete'|'skip' }]\n- "scheduledMessages": (array, Optional) List of messages to schedule. Structure: [{ type: 'follow_up'|'reminder', title: string, content?: string, scheduledFor: string (ISO8601 or "HH:MM" for today), metadata?: object }]\n\nGoal/Instruction:\n`;
+
+    // Determine the goal instruction based on message type
     let goalInstruction = "";
-    switch (context.messageType) {
+    switch (messageType) {
       case "morning":
-        goalInstruction = `This is the user's morning check-in. Generate a friendly greeting, a brief positive note, and a proposed schedule for the day based on their tasks and preferences. Ask if they need adjustments. Format the schedule clearly using bullet points and times. Your response MUST be JSON.`;
+        goalInstruction = `Generate the morning summary and plan for ${currentDateTime.split(",")[0]}. Propose a schedule using 'propose_daily_schedule'. Your response MUST be JSON.`;
         break;
       case "reschedule":
-        goalInstruction = `The user wants to reschedule their day. Generate a revised schedule proposal considering the current time (${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}), their tasks, and preferences. Your response MUST be JSON including scheduleUpdates/scheduledMessages. IMPORTANT: End the 'message' field with 'PROPOSED_SCHEDULE_AWAITING_CONFIRMATION'.`;
+        goalInstruction = `User wants help rescheduling tasks or their day. Analyze their request and the current tasks/schedule. If appropriate, propose a new schedule using 'propose_daily_schedule'. Your response MUST be JSON.`;
         break;
-      case "schedule_confirmation_response":
-        goalInstruction = `The user responded ("${context.userResponse}") to a schedule proposal. If they confirmed, finalize the schedule (include '${FINAL_SCHEDULE_MARKER}' in the message field). If they requested changes, propose a new schedule. Your response MUST be JSON.`;
+      case "system_request":
+        goalInstruction = `This is a system-initiated request for: ${systemRequestType}. Generate the appropriate content (e.g., task suggestion, reminder). Your response MUST be JSON.`;
         break;
-      case "follow_up":
-        goalInstruction = `Generate a brief, friendly follow-up message based on the recent conversation and tasks. Ask a simple question. Your response MUST be JSON.`;
-        break;
-      case "agent_mode": // Keep if needed, logic might change
-        goalInstruction = `You are in AGENT MODE. Use the provided function results to formulate your response or ask further clarifying questions if needed. If you have all info, provide the final response and exit agent mode. Your response MUST be JSON.`;
-        break;
-       case "system_request":
-         goalInstruction = `This is a system-initiated request for: ${context.systemRequestType}. Generate the appropriate content (e.g., morning summary, task suggestion). Your response MUST be JSON.`;
-         break;
       case "response":
       default:
-        goalInstruction = `Respond to the user's latest message: "${context.userResponse}". Address their request, manage tasks/schedule, or ask clarifying questions as needed based on the workflow. Your response MUST be JSON.`;
+        goalInstruction = `Respond to the user's latest message: "${userResponse}". Address their request, manage tasks/schedule, or ask clarifying questions as needed based on the workflow. Your response MUST be JSON.`;
     }
 
-     // Include function results if available from a previous loop iteration
-     const functionResultText = context.functionResults
-     ? `\n\nFUNCTION EXECUTION RESULTS:\nYou previously called functions and received these results:\n${JSON.stringify(context.functionResults, null, 2)}\nUse these results ONLY to formulate your response to the user. Do not call the same function again unless necessary for new information.`
-     : "";
+    // Include function results if available from a previous loop iteration
+    const functionResultText = functionResults
+      ? `\n\nFUNCTION EXECUTION RESULTS:\nYou previously called functions and received these results:\n${JSON.stringify(functionResults, null, 2)}\nUse these results ONLY to formulate your response to the user. Do not call the same function again unless necessary for new information.`
+      : "";
 
-    // Construct the main prompt
-    return `
-      You are an ADHD coach and accountability partner chatting with ${context.user.username}.
-      Current date and time: ${context.currentDateTime}
-
-      User Preferences:
-      - Wake time: ${context.user.wakeTime || "Not set"}
-      - Routine start: ${context.user.routineStartTime || "Not set"}
-      - Sleep time: ${context.user.sleepTime || "Not set"}
-      - Timezone: ${context.user.timeZone || "Not set"}
-
-      User Facts:
-      ${context.facts.length > 0 ? context.facts.map((fact) => `- ${fact.category}: ${fact.content}`).join("\n") : "No specific facts known."}
-
-      Active Tasks (for context, use functions to get latest status/details):
-      ${context.tasks.length > 0 ? context.tasks.filter(t => t.status === 'active').map((task) => `- ID:${task.id} | ${task.title} | Type: ${task.taskType}${task.scheduledTime ? ` | Scheduled: ${task.scheduledTime}` : ""}`).join("\n") : "No active tasks."}
-
-      Recent Conversation Snippets (Oldest first):
-      ${formattedPreviousMessages}
-
-      YOUR CURRENT GOAL: ${goalInstruction}
-      ${functionResultText}
-
-      AGENTIC WORKFLOW (Follow this sequence):
-      1.  **Analyze Goal & Info:** Understand the goal (from YOUR CURRENT GOAL section) and check if the user's message or function results provide needed info.
-      2.  **Function Use (If Needed):** If you lack information (e.g., task details, existence checks, user facts) OR need to perform an action (create/update/delete), use the available functions. Refer to function descriptions for parameters and usage notes (like the 'create_task' pre-check). **To request a function call, include the 'function_call' field in your JSON response.**
-      3.  **Clarification (If Needed):** ONLY IF information is missing AND cannot be obtained via functions, ask the user ONE clear, targeted question in the 'message' field of your JSON response.
-      4.  **Final Response/Action:** Once all info is gathered (user, context, function results), generate the final conversational response, schedule proposal, or confirmation in the 'message' field. If you are making a final response (not calling a function or asking a question), ensure the 'function_call' field is omitted or null. Include 'scheduleUpdates' or 'scheduledMessages' in the JSON if appropriate.
-      *Note on Agent Mode:* You are implicitly in 'Agent Mode' whenever you need to call a function or ask clarifying questions sequentially. You exit Agent Mode by providing the final response to the user without including the 'function_call' field.
-
-      AVAILABLE FUNCTIONS (Invoke by including in the 'function_call' field of your JSON response):
-      *   get_todays_notifications(): Returns notifications scheduled for today.
-      *   get_task_list(): Returns tasks. Can filter by status (e.g., 'active', 'completed').
-      *   get_user_facts(): Returns known facts about the user. Can filter by category.
-      *   get_todays_schedule(): Returns the schedule for today.
-      *   create_task(): Creates a new task. Requires title and taskType (category: 'daily', 'personal_project', 'long_term_project', 'life_goal'). Frequency is set via recurrencePattern. IMPORTANT: Must call 'get_task_list' first to check for duplicates.
-      *   update_task(): Updates an existing task by ID. Requires taskId and updates object.
-      *   delete_task(): Deletes a task by ID. Requires taskId.
-      *   create_subtask(): Creates a new subtask. Requires parentTaskId and title.
-      *   update_subtask(): Updates a subtask. Requires subtaskId and updates object.
-      *   delete_subtask(): Deletes a subtask. Requires subtaskId and parentTaskId.
-      *   create_schedule_item(): Creates a schedule item. Requires scheduleId, title, startTime.
-      *   update_schedule_item(): Updates a schedule item. Requires itemId and updates object.
-      *   delete_schedule_item(): Deletes a schedule item. Requires itemId.
-      *   schedule_message(): Schedules a message/notification. Requires content, scheduledFor (time string like 'HH:MM'), type ('reminder', 'follow_up').
-      *   delete_scheduled_message(): Deletes a scheduled message. Requires messageScheduleId.
-
-      RESPONSE FORMAT (CRITICAL):
-      - ALWAYS respond using a valid JSON object.
-      - **Include the 'function_call' field ONLY when you need to execute a function.** Otherwise, omit it or set it to null.
-      - Structure your response like this:
-        {
-          "message": "Your conversational response to the user (or question if clarifying).",
-          "function_call": { // Omit or set to null if not calling a function this turn
-            "name": "function_name_to_call", // e.g., "get_task_list"
-            "arguments": { // Arguments as a JSON object
-              "param_name": "value" // e.g., "status": "active"
-            }
-          },
-          "scheduleUpdates": [ /* Array of ScheduleUpdate objects, or empty */ ],
-          "scheduledMessages": [ /* Array of scheduled message objects, or empty */ ]
-        }
-
-      OTHER IMPORTANT NOTES:
-      *   Trust function results over potentially outdated chat history.
-      *   Valid 'taskType' values are the categories: 'daily', 'personal_project', 'long_term_project', 'life_goal'.
-      *   Task frequency is set using the 'recurrencePattern' parameter (e.g., 'daily', 'weekly:1,3,5', 'none').
-      *   PRIORITIZE using the specific functions (create_task, update_task, etc.) for modifying data.
-      *   Do not invent information. Use functions or ask the user.
-      *   For dates/times provided vaguely (e.g., "tomorrow afternoon", "Friday"), ask for clarification (e.g., "What specific date do you mean for Friday?", "What time tomorrow afternoon?").
-      *   Confirm understanding before executing actions, especially deletions (e.g., "Just to confirm, you want me to delete the task 'xyz' (ID: 123)?").
-    `;
+    // Combine prompt, goal, and function results
+    return `${prompt}${goalInstruction}${functionResultText}`;
   }
 
   // --- New Core LLM Interaction Function ---
   private async generateUnifiedResponse(
     userId: number,
     prompt: string,
-    conversationHistory: ChatCompletionMessageParam[] // Expects chronological order (oldest first)
-  ): Promise<ChatCompletionMessage> { // Returns the assistant's message object
-
+    conversationHistory: StandardizedChatCompletionMessage[]
+  ): Promise<StandardizedChatCompletionMessage> {
     const preferredModel = await this.getUserPreferredModel(userId);
     console.log(`Using user's preferred model: ${preferredModel} for unified response`);
 
-    const isMiniModel = ["o1-mini", "o3-mini"].includes(preferredModel);
-    // Assume models supporting tools also support JSON format and system role
-    const supportsToolsAndJson = !isMiniModel;
+    // --- Provider Selection Logic ---
+    let provider: LLMProvider;
+    let effectiveModel = preferredModel;
 
-    // Construct the messages array for the API call
-    const messages: ChatCompletionMessageParam[] = [];
-    if (supportsToolsAndJson) {
-        messages.push({ role: "system", content: prompt }); // Use system role for capable models
-        messages.push(...conversationHistory); // Add chronological history
+    if (preferredModel.startsWith("gemini-")) {
+      console.log("Selecting GCloudProvider for Gemini model.");
+      provider = gcloudProvider; // Use the imported gcloudProvider
+      effectiveModel = preferredModel; // Pass the specific gemini model name
+    } else if (preferredModel.startsWith("gpt-") || preferredModel.startsWith("o1-") || preferredModel.startsWith("o3-")) { // Added o3-mini check
+      console.log("Selecting OpenAIProvider for OpenAI model.");
+      provider = openAIProvider;
+      effectiveModel = preferredModel;
     } else {
-        // Combine system prompt and history into the first user message for mini models
-        const historyString = conversationHistory.map(m => `${m.role}: ${m.content}`).join('\n---\n');
-        const combinedFirstMessage = `${prompt}\n\nConversation History:\n${historyString}\n\nRespond to the last user message:`;
-        messages.push({ role: "user", content: combinedFirstMessage });
+      console.error(`Unsupported model prefix: ${preferredModel}. Falling back to OpenAI default.`);
+      provider = openAIProvider; // Default fallback
+      effectiveModel = "gpt-4o"; // Default fallback model
     }
 
+    // --- Prepare Messages (Adjust for Provider Needs if Necessary) ---
+    const messages: StandardizedChatCompletionMessage[] = [];
+    let requiresJson = false;
+    let systemPrompt = prompt; // Base system prompt
 
-    // --- API Call Parameters ---
-    let completionParams: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming = {
-      model: preferredModel,
-      messages: messages,
-      // temperature: 0.7, // REMOVED: Set conditionally below
-    };
-
-    // Add model-specific parameters
-    if (isMiniModel) {
-        // No specific parameters needed for o1/o3 mini based on API error
-        // (completionParams as any).reasoning_effort = "medium"; // REMOVED
-        console.log("Model is o1/o3-mini. Using basic parameters.");
+    // Adjust message preparation based on the *selected* provider
+    if (provider === openAIProvider && !effectiveModel.startsWith("o1-") && !effectiveModel.startsWith("o3-")) {
+      // Use system role for capable OpenAI models
+      messages.push({ role: "system", content: systemPrompt });
+      messages.push(...conversationHistory);
+      requiresJson = true; // Assume capable OpenAI models should use JSON mode
+      console.log("[generateUnifiedResponse] Using system role for OpenAI model.");
+    } else if (provider === gcloudProvider) {
+      // Gemini handles system instructions differently. Often combined or passed separately.
+      // For now, let's combine it into the first message content if history exists,
+      // or send it as the first user message if history is empty.
+      // We also filter out the 'system' role message from history for Gemini.
+      const geminiHistory = conversationHistory.filter(m => m.role !== 'system');
+      if (geminiHistory.length > 0 && geminiHistory[0].role === 'user') {
+          // Prepend system prompt to the first user message
+          geminiHistory[0].content = `${systemPrompt}\n\n${geminiHistory[0].content}`;
+          messages.push(...geminiHistory);
     } else {
-        // Add parameters for other models (like GPT-4o)
-        completionParams.temperature = 0.7; // Set temperature only for non-mini models
-        // Add response_format if supported by non-mini models (assuming supportsToolsAndJson is true here)
-        if (supportsToolsAndJson) { // Assuming non-mini models support JSON format
-            completionParams.response_format = { type: "json_object" };
-            console.log("Requesting JSON object format from capable model.");
-        }
-    }
-    // Note: The `response_format` part was moved inside the else block
-    // If mini models *could* support it, the logic would need adjustment.
+          // If history starts with assistant or is empty, send system prompt as first user message
+          messages.push({ role: 'user', content: systemPrompt });
+          messages.push(...geminiHistory);
+      }
+      requiresJson = true; // Gemini supports JSON mode via mimeType
+      console.log("[generateUnifiedResponse] Preparing messages for GCloud/Gemini model.");
 
-    // DEBUG: Log final params before API call
-    console.log("\n===== MESSAGING DEBUG: API CALL PARAMS =====");
-    console.log(`Model: ${completionParams.model}`);
-    console.log(`Temperature: ${completionParams.temperature ?? 'Not Set (Mini Model?)'}`);
-    console.log(`Reasoning Effort: ${(completionParams as any).reasoning_effort ?? 'Not Set (GPT Model?)'}`);
-    console.log(`Response Format: ${JSON.stringify(completionParams.response_format)}`);
-    // console.log(`Tools enabled: ${supportsToolsAndJson}`); // Remove tool logging
-    console.log(`Tools Parameter: NOT USED`); // Indicate tools are not being passed
+        } else {
+      // Fallback for o1-mini / o3-mini (OpenAI) - Combine system prompt
+      const historyString = conversationHistory.map(m => `${m.role}: ${m.content}`).join('\n---\n');
+      const combinedFirstMessage = `${systemPrompt}\n\nConversation History:\n${historyString}\n\nRespond to the last user message:`;
+      messages.push({ role: "user", content: combinedFirstMessage });
+      requiresJson = false; // o1/o3 mini don't reliably support JSON mode
+      console.log("[generateUnifiedResponse] Combining system prompt for OpenAI Mini model.");
+    }
+
+    // --- Set Temperature ---
+    const temperature = (effectiveModel.startsWith("o1-") || effectiveModel.startsWith("o3-")) ? undefined : 0.7;
+
+    // DEBUG: Log parameters before calling provider
+    console.log("\n===== MESSAGING DEBUG: PROVIDER CALL PARAMS =====");
+    console.log(`Provider: ${provider.constructor.name}`);
+    console.log(`Model: ${effectiveModel}`);
+    console.log(`Temperature: ${temperature ?? 'Provider Default'}`);
+    console.log(`Request JSON: ${requiresJson}`);
     console.log(`Message Count: ${messages.length}`);
-    // Avoid logging full messages/prompt in production
-    // messages.forEach((m, i) => console.log(`Message ${i} Role: ${m.role}, Content Length: ${m.content?.length || 0}`));
-    console.log("========================================\n");
+    // console.log("Messages:", JSON.stringify(messages, null, 2)); // Uncomment for deep debugging
+    console.log("============================================\n");
 
-    // --- Make the API Call ---
+    // --- Call the Provider ---
     try {
-        const response = await openai.chat.completions.create(completionParams);
+      const responseMessage = await provider.generateCompletion(
+        effectiveModel,
+        messages,
+        temperature,
+        requiresJson,
+        llmFunctionDefinitions // Pass function definitions
+      );
 
-        // DEBUG: Log raw response choice
-        console.log("\n===== MESSAGING DEBUG: RAW LLM RESPONSE CHOICE =====");
-        // Avoid logging potentially large/sensitive content in production
-        const choice = response.choices[0];
-        console.log(`Finish Reason: ${choice?.finish_reason}`);
-        console.log(`Has Content: ${!!choice?.message?.content}`);
-        console.log(`Tool Calls: ${choice?.message?.tool_calls?.length || 0}`);
-        // console.log(JSON.stringify(response.choices[0], null, 2)); // Use only for deep debugging
-        console.log("============================================\n");
+      // DEBUG: Log provider response
+      console.log("\n===== MESSAGING DEBUG: PROVIDER RESPONSE =====");
+      console.log(`Role: ${responseMessage.role}`);
+      console.log(`Has Content: ${!!responseMessage.content}`);
+      console.log(`Tool Calls: ${responseMessage.tool_calls?.length || 0}`);
+      // console.log("Raw Content:", responseMessage.content); // Uncomment for deep debugging
+      console.log("==========================================\n");
 
-        if (!choice?.message) {
-            throw new Error("No message received in the choice from OpenAI.");
-        }
+      return responseMessage;
 
-        // Return the complete assistant message object (includes content and tool_calls)
-        return choice.message;
-
-    } catch (error) {
-        console.error("Error calling OpenAI completion API:", error);
-        // Return a structured error message that processLLMResponse can handle
-        // Ensure the returned object matches the ChatCompletionMessage type
-        return {
-            role: "assistant" as const, // Add 'as const' for literal type
-            content: `{ "message": "Sorry, I encountered an error trying to process your request. Please try again later." }`, // Default JSON error
-            tool_calls: undefined, // Explicitly add missing property
-            refusal: null, // Add refusal property with null as default
+        } catch (error) {
+        console.error(`[generateUnifiedResponse] Error during provider execution:`, error);
+          return {
+            role: "assistant",
+            content: `{ "message": "Sorry, I encountered an error communicating with the AI service." }`,
+            name: undefined,
+            tool_calls: undefined
         };
     }
   }
@@ -322,102 +241,116 @@ export class MessagingService {
     const userFacts = await storage.getKnownUserFacts(userId);
     const dbHistory = await db.select().from(messageHistory).where(eq(messageHistory.userId, userId)).orderBy(desc(messageHistory.createdAt)).limit(20);
 
-    // Convert DB history to OpenAI format (chronological order)
-    // Important: Include tool calls and results if stored in metadata for accurate history
-    let conversationHistory: ChatCompletionMessageParam[] = dbHistory.map(msg => {
-        const baseMsg: ChatCompletionMessageParam = {
+    // Convert DB history to Standardized format
+    let conversationHistory: StandardizedChatCompletionMessage[] = dbHistory.map(msg => {
+          return {
             role: (msg.type === "user_message" || msg.type === "system_request") ? "user" as const : "assistant" as const,
-            content: msg.content || "", // Ensure content is string
+            content: msg.content || "",
+            name: undefined,
+            tool_calls: undefined // TODO: Reconstruct from metadata if needed
         };
-        // TODO: Reconstruct tool_calls from metadata if assistant message requested them
-        // TODO: Reconstruct tool result messages from metadata if they exist following a tool_calls message
-        return baseMsg;
-    }).reverse(); // Oldest first
+    }).reverse();
 
-    // Add the current user message to the history for the first API call
-    conversationHistory.push({ role: "user", content: userMessageContent });
+    conversationHistory.push({ role: "user", content: userMessageContent, name: undefined });
 
     let messageContext: MessageContext = { // Initial context for the *first* prompt
         user,
-        tasks: userTasks, // Provide current tasks for initial context
+        tasks: userTasks,
         facts: userFacts,
         previousMessages: dbHistory, // Keep original format for prompt generation function
         currentDateTime: new Date().toLocaleString("en-US", { timeZone: user.timeZone || undefined, dateStyle: "full", timeStyle: "long" }),
-        messageType: "response", // Default, can be refined (e.g., check if prior msg was proposal)
+        messageType: "response",
         userResponse: userMessageContent,
     };
 
-    // 3. LLM Interaction Loop (Handles In-JSON Function Calls)
+    // 3. LLM Interaction Loop
     let loopCount = 0;
-    const MAX_LOOPS = 5; // Prevent infinite loops
-    let currentFunctionResults: Record<string, any> | undefined = undefined; // Store results between loops
-    let finalAssistantMessage: string | null = null; // Variable to hold the final message
+    const MAX_LOOPS = 25;
+    let currentFunctionResults: Record<string, any> | undefined = undefined;
+    let finalAssistantMessage: string | null = null;
 
     while (loopCount < MAX_LOOPS) {
         loopCount++;
         console.log(`Unified Response Loop - Iteration ${loopCount}`);
 
-        // A. Update context with function results from the *previous* iteration, if any
+        // A. Update context with function results
         messageContext.functionResults = currentFunctionResults;
-        // Log results being fed back into the prompt
         if (currentFunctionResults) {
             console.log(`\n--- Function Results Provided to LLM for Iteration ${loopCount} ---`);
             console.log(JSON.stringify(currentFunctionResults, null, 2));
-            console.log("---------------------------------------------------\n");
+            console.log("----------------------------------------------------\n");
         }
 
-        // B. Build the prompt for this iteration
+        // B. Build the prompt
         const currentPrompt = this.createUnifiedPrompt(messageContext);
 
-        // C. Call the LLM
+        // C. Call the LLM using the new abstracted function
+        // Pass the current conversation history
         const assistantResponseObject = await this.generateUnifiedResponse(userId, currentPrompt, conversationHistory);
-        const assistantRawContent = assistantResponseObject.content || `{ "message": "Error: Received empty response from LLM." }`; // Handle potential null content
+        // Raw content is now directly from the standardized response
+        const assistantRawContent = assistantResponseObject.content || `{ "message": "Error: Received empty response from LLM." }`;
 
-        // D. Process the LLM's JSON Content String
+        // D. Process the LLM's JSON Content String (using existing function)
         const processedResult = this.processLLMResponse(assistantRawContent);
 
-        // E. Add the assistant's message to history
+        // E. Add the assistant's message to history (Standardized Format)
         conversationHistory.push({
             role: "assistant",
-            content: processedResult.message 
+            content: processedResult.message,
+            name: undefined,
+            // Include tool_calls if they were part of the original assistantResponseObject
+            tool_calls: assistantResponseObject.tool_calls
         });
 
         // F. Check for Function Call Request
-        if (processedResult.function_call && processedResult.function_call.name) {
-            const functionCallRequest = processedResult.function_call;
-            console.log(`LLM requested function call via JSON: ${functionCallRequest.name}`);
+        const functionCallRequest = assistantResponseObject.tool_calls?.[0]?.function;
+        if (functionCallRequest && functionCallRequest.name) {
+            console.log(`LLM requested function call via tool_calls: ${functionCallRequest.name}`);
 
             // G. Execute Function and Collect Results
             const functionName = functionCallRequest.name;
-            const functionArgs = functionCallRequest.arguments || {}; 
+            let functionArgs = {};
+            try {
+                // Arguments are expected to be a JSON string
+                functionArgs = JSON.parse(functionCallRequest.arguments || '{}');
+            } catch (parseError) {
+                console.error(`Error parsing function arguments for ${functionName}:`, parseError);
+                // Handle error - maybe push an error message back into the loop?
+                currentFunctionResults = { [functionName]: { error: "Invalid function arguments provided by LLM."} };
+                conversationHistory.push({ role: "function", name: functionName, content: JSON.stringify(currentFunctionResults[functionName]), tool_calls: undefined });
+                continue; // Go to next loop iteration with error result
+            }
+            
             let executionResult: any;
             let functionResultMessageContent = "";
 
             try {
-                console.log(`Executing function: ${functionName} with args:`, functionArgs);
-                // Use the new llmFunctionExecutors map
-                const funcToExecute = llmFunctionExecutors[functionName]; 
+                console.log(`Executing function: ${functionName} with args: `, functionArgs);
+                const funcToExecute = llmFunctionExecutors[functionName];
                 if (typeof funcToExecute === 'function') {
                     executionResult = await funcToExecute({ userId: userId }, functionArgs);
-                    console.log(`Function ${functionName} result:`, executionResult);
+                    console.log(`Function ${functionName} result: `, executionResult);
                     functionResultMessageContent = JSON.stringify(executionResult);
                 } else {
+                    // ... (keep existing unknown function handling)
                     console.warn(`Unknown function called: ${functionName}`);
                     executionResult = { error: `Unknown function: ${functionName}` };
                     functionResultMessageContent = JSON.stringify(executionResult);
                 }
             } catch (error) {
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                console.error(`Error executing function ${functionName}:`, error);
+                // ... (keep existing function execution error handling)
+      const errorMessage = error instanceof Error ? error.message : String(error);
+                console.error(`Error executing function ${functionName}: `, error);
                 executionResult = { error: `Error executing function ${functionName}: ${errorMessage}` };
                 functionResultMessageContent = JSON.stringify(executionResult);
             }
 
-            // H. Add Function Result to History
+            // H. Add Function Result to History (Standardized Format)
             conversationHistory.push({
-                role: "function",
-                name: functionName,
-                content: functionResultMessageContent
+                role: "function", // Correct role
+                name: functionName, // Function name is required for this role
+                content: functionResultMessageContent,
+                // tool_calls is not applicable to function results
             });
 
             // I. Store results for next prompt context
@@ -426,46 +359,39 @@ export class MessagingService {
             // J. Continue loop
             continue;
 
-        } else {
+    } else {
             // --- No Function Call Requested - Final Response ---
-            console.log("LLM provided final response (no function_call field). Processing final actions.");
-            
-            // Store the final message content to be returned
+            console.log("LLM provided final response (no function_call/tool_calls field). Processing final actions.");
             finalAssistantMessage = processedResult.message;
-
+            
+            // --- Keep existing K, L, M, N steps for final processing ---
             // K. Perform Actions based on Final Processed Result
-            // (Schedule updates, message scheduling, sentiment, etc. - Logic remains similar)
+            // ... (existing logic using processedResult) ...
             const isConfirmation = processedResult.message.includes(FINAL_SCHEDULE_MARKER);
             const isProposal = processedResult.message.includes("PROPOSED_SCHEDULE_AWAITING_CONFIRMATION");
             let finalMetadata: any = {};
-
-            // --- Handle Schedule Updates ---
+            // ...(rest of schedule/message/sentiment handling)... 
             if (processedResult.scheduleUpdates && processedResult.scheduleUpdates.length > 0) {
-                 // ... existing logic for handling scheduleUpdates ...
-                  if (isConfirmation) {
-                      console.log(`Processing ${processedResult.scheduleUpdates.length} confirmed schedule updates.`);
+                 if (isConfirmation) {
+                     console.log(`Processing ${processedResult.scheduleUpdates.length} confirmed schedule updates.`);
+                     await this.processScheduleUpdates(userId, processedResult.scheduleUpdates);
+                      await db.insert(messageHistory).values({ userId, content: "✅ Schedule confirmed! Your tasks are updated.", type: "system_notification", status: "sent", createdAt: new Date() });
+                 } else if (isProposal) {
+                      console.log("Storing proposed schedule updates in metadata, not processing yet.");
+                      finalMetadata.scheduleUpdates = processedResult.scheduleUpdates;
+        } else {
+                      console.log(`Processing ${processedResult.scheduleUpdates.length} updates from regular response.`);
                       await this.processScheduleUpdates(userId, processedResult.scheduleUpdates);
-                       await db.insert(messageHistory).values({ userId, content: "✅ Schedule confirmed! Your tasks are updated.", type: "system_notification", status: "sent", createdAt: new Date() });
-                  } else if (isProposal) {
-                       console.log("Storing proposed schedule updates in metadata, not processing yet.");
-                       finalMetadata.scheduleUpdates = processedResult.scheduleUpdates;
-                  } else { 
-                       console.log(`Processing ${processedResult.scheduleUpdates.length} updates from regular response.`);
-                       await this.processScheduleUpdates(userId, processedResult.scheduleUpdates);
-                       await db.insert(messageHistory).values({ userId, content: "✅ Okay, I've updated your tasks.", type: "system_notification", status: "sent", createdAt: new Date() });
-                  }
+                      await db.insert(messageHistory).values({ userId, content: "✅ Okay, I've updated your tasks.", type: "system_notification", status: "sent", createdAt: new Date() });
+                 }
             } else if (isConfirmation) {
                   console.log("Processing schedule confirmation based on marker (no explicit updates in final JSON).");
                   await db.insert(messageHistory).values({ userId, content: "✅ Schedule confirmed!", type: "system_notification", status: "sent", createdAt: new Date() });
             }
-
-            // --- Handle Scheduled Messages ---
             if (processedResult.scheduledMessages && processedResult.scheduledMessages.length > 0) {
                  console.log(`Processing ${processedResult.scheduledMessages.length} scheduled messages.`);
                  await this.processScheduledMessages(userId, processedResult.scheduledMessages);
             }
-
-            // --- Handle Sentiment / Auto Follow-up ---
             if ((!processedResult.scheduledMessages || processedResult.scheduledMessages.length === 0) && !isProposal && !isConfirmation) {
                  const sentiment = await this.analyzeSentiment(processedResult.message, userId);
                  if (sentiment.needsFollowUp) {
@@ -474,54 +400,43 @@ export class MessagingService {
             }
 
             // L. Save Final Assistant Message to History
-             console.log(`[DEBUG] Saving final assistant message to DB. Content: "${finalAssistantMessage}"`);
-
-             // Metadata and confirmation checks are already done in the surrounding scope
-             // let finalMetadata: any = {}; // REMOVED Redeclaration
-             // const isConfirmation = finalAssistantMessage.includes(FINAL_SCHEDULE_MARKER); // REMOVED Redeclaration
-             // const isProposal = finalAssistantMessage.includes("PROPOSED_SCHEDULE_AWAITING_CONFIRMATION"); // REMOVED Redeclaration
-             
-             // Use existing finalMetadata
-             let metadataToSave = finalMetadata; // Rename for clarity inside try block if needed, or use directly
-
-             try {
-                 const insertResult = await db.insert(messageHistory).values({
-                    userId: userId,
-                    content: finalAssistantMessage,
-                    type: "coach_response",
-                    status: "sent",
-                    metadata: Object.keys(metadataToSave).length > 0 ? metadataToSave : undefined,
-                    createdAt: new Date(),
-                 }).returning({ insertedId: messageHistory.id });
-                 
-                 console.log(`[DEBUG] Successfully inserted coach_response message with ID: ${insertResult[0]?.insertedId}`);
-                 
-             } catch (dbError) {
-                 console.error(`[CRITICAL] Failed to save final assistant message to DB for user ${userId}:`, dbError);
-                 // Consider returning an error state later if needed.
-             }
-
-            // M. Send Final Message to User (Keep this for now for WhatsApp)
-            if (user.phoneNumber && user.contactPreference === 'whatsapp') {
-                await this.sendWhatsAppMessage(user.phoneNumber, processedResult.message);
+            // ... (existing logic using finalAssistantMessage and finalMetadata) ...
+            console.log(`[DEBUG] Saving final assistant message to DB. Content: "${finalAssistantMessage}"`);
+            let metadataToSave = finalMetadata; 
+            try {
+                const insertResult = await db.insert(messageHistory).values({
+                   userId: userId,
+                   content: finalAssistantMessage,
+                   type: "coach_response",
+                   status: "sent",
+                   metadata: Object.keys(metadataToSave).length > 0 ? metadataToSave : undefined,
+                   createdAt: new Date(),
+                }).returning({ insertedId: messageHistory.id });
+                console.log(`[DEBUG] Successfully inserted coach_response message with ID: ${insertResult[0]?.insertedId}`);
+            } catch (dbError) {
+                console.error(`[CRITICAL] Failed to save final assistant message to DB for user ${userId}: `, dbError);
             }
 
-            // N. Exit Loop - processing complete
+            // M. Send Final Message to User
+            // ... (existing logic using user.phoneNumber and processedResult.message) ...
+             if (user.phoneNumber && user.contactPreference === 'whatsapp') {
+                 await this.sendWhatsAppMessage(user.phoneNumber, processedResult.message);
+             }
+
+            // N. Exit Loop
             break;
         }
     } // End while loop
-
+    // ...(rest of handleUserResponse - loop limit check, return finalAssistantMessage)
     if (loopCount >= MAX_LOOPS) {
-        console.error(`Max loops (${MAX_LOOPS}) reached for user ${userId}. Aborting.`);
-        // Send a fallback message to the user
-         const fallbackMsg = "Sorry, I got stuck trying to process that. Could you try rephrasing?";
-         await db.insert(messageHistory).values({ userId, content: fallbackMsg, type: "coach_response", status: "sent", createdAt: new Date() });
-         if (user.phoneNumber && user.contactPreference === "whatsapp") {
-            await this.sendWhatsAppMessage(user.phoneNumber, fallbackMsg);
-         }
+      console.error(`Max loops (${MAX_LOOPS}) reached for user ${userId}. Aborting.`);
+      const fallbackMsg = "Sorry, I got stuck trying to process that. Could you try rephrasing?";
+       await db.insert(messageHistory).values({ userId, content: fallbackMsg, type: "coach_response", status: "sent", createdAt: new Date() });
+       if (user.phoneNumber && user.contactPreference === "whatsapp") {
+          await this.sendWhatsAppMessage(user.phoneNumber, fallbackMsg);
+       }
     }
-    
-    return finalAssistantMessage; // Return the final message content
+    return finalAssistantMessage;
   }
 
   // --- Refactored handleSystemMessage ---
@@ -560,7 +475,7 @@ export class MessagingService {
 
       // 2. Prepare Conversation History for API
        // System messages might not need deep history, but include some for context.
-      let conversationHistory: ChatCompletionMessageParam[] = dbHistory.map(msg => ({
+      let conversationHistory: StandardizedChatCompletionMessage[] = dbHistory.map(msg => ({
          role: (msg.type === "user_message" || msg.type === "system_request") ? "user" as const : "assistant" as const,
          content: msg.content || "",
        })).reverse(); // Chronological
@@ -589,7 +504,7 @@ export class MessagingService {
             await this.processScheduledMessages(userId, processedResult.scheduledMessages);
         }
 
-       await db.insert(messageHistory).values({
+      await db.insert(messageHistory).values({
         userId,
         content: processedResult.message,
         type: "coach_response", // Mark as coach response, metadata indicates system initiated
@@ -610,7 +525,7 @@ export class MessagingService {
       return processedResult.message; // Return generated message content
 
     } catch (error) {
-      console.error(`Error handling system message (${systemRequestType}) for user ${userId}:`, error);
+      console.error(`Error handling system message (${systemRequestType}) for user ${userId}: `, error);
       // Don't save or send anything on error
       return "Sorry, I encountered an error processing the system request.";
     }
@@ -622,33 +537,61 @@ export class MessagingService {
   // processLLMResponse (Modified for in-JSON function calls)
   processLLMResponse(content: string): {
     message: string;
-    function_call?: { // Add optional function_call field
+    function_call?: { 
       name: string;
       arguments: Record<string, any>;
     };
     scheduleUpdates?: ScheduleUpdate[];
     scheduledMessages?: Array<{ type: string; scheduledFor: string; content: string; title?: string; }>;
-    // agentMode?: boolean; // Removed agentMode flag as it's implicit now
-    // requiredActions?: Array<{ name: string; params?: Record<string, any>; }>; // Removed requiredActions as it's replaced by function_call
   } {
-    try {
-      let cleanContent = content.trim();
-      // Remove potential markdown code fences
-      if (cleanContent.startsWith("```json")) {
-        cleanContent = cleanContent.substring(7);
-        if (cleanContent.endsWith("```")) {
-          cleanContent = cleanContent.substring(0, cleanContent.length - 3);
-        }
+    let cleanContent = content.trim();
+    // --- FIX: Remove fences FIRST ---
+    if (cleanContent.startsWith("```json")) {
+      cleanContent = cleanContent.substring(7); // Remove ```json
+      if (cleanContent.endsWith("```")) {
+        cleanContent = cleanContent.substring(0, cleanContent.length - 3); // Remove trailing ```
       }
-       cleanContent = cleanContent.trim(); // Trim again after removing fences
+      cleanContent = cleanContent.trim(); // Trim again after removing fences
+      console.log("[DEBUG] Cleaned content after fence removal:", cleanContent);
+    } else if (cleanContent.startsWith("```")) { // Handle case where it might just be ```{}```
+         cleanContent = cleanContent.substring(3);
+         if (cleanContent.endsWith("```")) {
+            cleanContent = cleanContent.substring(0, cleanContent.length - 3);
+         }
+         cleanContent = cleanContent.trim();
+         console.log("[DEBUG] Cleaned content after fence removal (generic ```):", cleanContent);
+    }
+    // ------------------------------
 
-      // Try standard parsing
-      const parsed = JSON.parse(cleanContent);
+    try {
+      // Check if the *cleaned* content looks like JSON
+      const looksLikeJson = cleanContent.startsWith("{") && cleanContent.endsWith("}");
+      let parsed: any;
+      
+      if (looksLikeJson) {
+        // Try standard parsing on the cleaned content
+        parsed = JSON.parse(cleanContent);
+      } else {
+        // If it doesn't look like JSON after cleaning, treat as plain text message
+        console.warn("Content did not look like JSON after cleaning, treating as plain text:", cleanContent);
+        return {
+          message: cleanContent, // Return the cleaned, non-JSON content
+          scheduleUpdates: [],
+          scheduledMessages: [],
+        };
+      }
 
-      // Basic validation - ensure message exists
-       if (typeof parsed.message !== 'string') {
-           console.warn("Parsed JSON response lacks a 'message' string field. Using raw content.", content);
-           throw new Error("Missing message field"); // Trigger fallback
+      // --- Proceed with parsed JSON logic --- 
+      
+      // Basic validation - ensure message exists (or function_call exists)
+       if (typeof parsed.message !== 'string' && !parsed.function_call) {
+           console.warn("Parsed JSON response lacks both 'message' string field and 'function_call'. Using raw content as fallback message.", cleanContent);
+            // Return a fallback structure, but use the cleaned content as the message
+           return {
+               message: cleanContent, 
+               scheduleUpdates: [],
+               scheduledMessages: [],
+           }; 
        }
 
        // Extract function call if present and valid
@@ -665,28 +608,23 @@ export class MessagingService {
        } else if (parsed.function_call) {
            console.warn("Parsed JSON contained an invalid 'function_call' field. Ignoring it.", parsed.function_call);
        }
-
-      // --- Add back any necessary processing/validation logic here ---
-      // (e.g., Schedule proposal markers)
+       
+       // Use message field if it's a string, otherwise use a placeholder if a function was called
+       let messageContent = typeof parsed.message === 'string' ? parsed.message : 
+                            (functionCall ? `[System action: Calling function '${functionCall.name}']` : "[System processing...]");
 
       return {
-        message: parsed.message,
-        function_call: functionCall, // Include parsed function call
+        message: messageContent, // Use extracted message or placeholder
+        function_call: functionCall, 
         scheduleUpdates: Array.isArray(parsed.scheduleUpdates) ? parsed.scheduleUpdates : [],
         scheduledMessages: Array.isArray(parsed.scheduledMessages) ? parsed.scheduledMessages : [],
       };
 
-    } catch (error: unknown) {
-      // --- Fallback Logic ---
-      console.warn("Could not parse LLM response as JSON. Treating raw content as message:", content);
-      let fallbackMessage = content;
-      if (content.trim().startsWith("{") && content.trim().endsWith("}")) {
-          fallbackMessage = "Sorry, I had trouble formatting my response. Can you try asking again?";
-      }
-
+            } catch (error: unknown) {
+      // --- Fallback Logic if JSON parsing failed on cleaned content ---
+      console.warn("Could not parse cleaned LLM response as JSON. Treating cleaned content as message:", cleanContent, error);
       return {
-        message: fallbackMessage,
-        // No function call in fallback
+        message: cleanContent, // Use the cleaned content
         scheduleUpdates: [],
         scheduledMessages: [],
       };
@@ -711,7 +649,7 @@ export class MessagingService {
       });
       console.log(`Successfully sent WhatsApp message to ${to}`);
       return true;
-    } catch (error) {
+        } catch (error) {
       console.error("Failed to send WhatsApp message:", error);
       return false;
     }
@@ -724,17 +662,17 @@ export class MessagingService {
        console.log(`Processing ${updates.length} schedule updates for user ${userId}`);
        const userTasks = await storage.getTasks(userId); // Fetch tasks once
 
-       for (const update of updates) {
+      for (const update of updates) {
           let taskId = typeof update.taskId === "number" ? update.taskId : undefined;
            // Resolve task ID by name if necessary
-           if (!taskId && typeof update.taskId === "string") {
-             const taskName = update.taskId.toLowerCase();
+        if (!taskId && typeof update.taskId === "string") {
+          const taskName = update.taskId.toLowerCase();
              const matchedTask = userTasks.find(task => task.title.toLowerCase().includes(taskName));
-             if (matchedTask) {
-               taskId = matchedTask.id;
+          if (matchedTask) {
+            taskId = matchedTask.id;
                console.log(`Resolved task name "${update.taskId}" to ID ${taskId}`);
-             } else {
-               console.log(`Could not find task matching name "${update.taskId}"`);
+          } else {
+            console.log(`Could not find task matching name "${update.taskId}"`);
                // Option: Create task if action is 'create' and name provided?
                // if (update.action === 'create' && update.title) { ... } else { continue; }
                continue; // Skip if task not found and not creating
@@ -745,40 +683,40 @@ export class MessagingService {
          if (!taskId && update.action !== 'create') {
              console.log(`Skipping update action '${update.action}' because taskId is missing.`);
              continue;
-         }
+        }
 
-         switch (update.action) {
-             case "reschedule":
+        switch (update.action) {
+          case "reschedule":
                  if(taskId) await storage.updateTask(taskId, { scheduledTime: update.scheduledTime, recurrencePattern: update.recurrencePattern });
-                 break;
-             case "complete":
+            break;
+          case "complete":
                  if(taskId) await storage.completeTask(taskId);
-                 break;
-             case "skip":
+            break;
+          case "skip":
                   if(taskId) console.log(`User requested to skip task ${taskId} today.`); // Log only for now
-                 break;
-             case "create":
-                 if (update.title) {
+            break;
+          case "create":
+            if (update.title) {
                      await storage.createTask({
-                         userId,
-                         title: update.title,
-                         description: update.description || "",
+                userId,
+                title: update.title,
+                description: update.description || "",
                          taskType: TaskType.DAILY, // Default or derive from context?
-                         status: "active",
+                status: "active",
                          estimatedDuration: "30 minutes",
-                         scheduledTime: update.scheduledTime,
-                         recurrencePattern: update.recurrencePattern || "none",
-                     });
+                scheduledTime: update.scheduledTime,
+                recurrencePattern: update.recurrencePattern || "none",
+              });
                  } else {
                     console.log("Skipping create action because title is missing.");
-                 }
-                 break;
+            }
+            break;
              default:
                  console.warn(`Unknown schedule update action: ${update.action}`);
-          }
-       }
-     } catch (error) {
-       console.error(`Error processing schedule updates for user ${userId}:`, error);
+        }
+      }
+    } catch (error) {
+       console.error(`Error processing schedule updates for user ${userId}: `, error);
      }
    }
 
@@ -815,8 +753,8 @@ export class MessagingService {
            console.error(`Error scheduling single message: ${err}`);
          }
        }
-     } catch (error) {
-       console.error(`Error processing scheduled messages batch for user ${userId}:`, error);
+      } catch (error) {
+       console.error(`Error processing scheduled messages batch for user ${userId}: `, error);
      }
    }
 
@@ -832,12 +770,12 @@ export class MessagingService {
     if (isMiniModel) {
         completionParams.messages = [{ role: "user", content: instruction }];
     } else {
-        completionParams.messages = [
+      completionParams.messages = [
             { role: "system", content: "Analyze sentiment/urgency. Return JSON: {\"type\": \"positive|negative|neutral\", \"needsFollowUp\": true|false, \"urgency\": 1-5}"},
-            { role: "user", content: text }
-        ];
-        completionParams.response_format = { type: "json_object" };
-        completionParams.temperature = 0.3;
+        { role: "user", content: text }
+      ];
+      completionParams.response_format = { type: "json_object" };
+      completionParams.temperature = 0.3;
     }
 
     try {
@@ -847,7 +785,7 @@ export class MessagingService {
         if (content.includes("```json")) content = content.replace(/```json\n?/g, "").replace(/```$/, "");
         const parsed = JSON.parse(content);
         // Add validation if needed
-        return {
+      return {
             type: parsed.type || "neutral",
             needsFollowUp: parsed.needsFollowUp !== undefined ? parsed.needsFollowUp : true, // Default to needing follow-up
             urgency: parsed.urgency || 3,
@@ -862,20 +800,20 @@ export class MessagingService {
    async scheduleFollowUp(userId: number, responseType: "positive" | "negative" | "neutral"): Promise<void> {
      try {
         const pendingFollowUps = await db.select().from(messageSchedules).where(and(eq(messageSchedules.userId, userId), eq(messageSchedules.type, "follow_up"), eq(messageSchedules.status, "pending")));
-        if (pendingFollowUps.length > 0) {
+    if (pendingFollowUps.length > 0) {
           console.log(`User ${userId} already has pending follow-up.`);
-          return;
-        }
+      return;
+    }
         const delayMinutes = responseType === "negative" ? 30 : responseType === "neutral" ? 60 : 120;
         const scheduledFor = new Date(Date.now() + delayMinutes * 60000);
 
-        await db.insert(messageSchedules).values({
+    await db.insert(messageSchedules).values({
           userId: userId, type: "follow_up", scheduledFor, status: "pending",
           metadata: { responseType } as any, createdAt: new Date(), updatedAt: new Date(),
         });
         console.log(`Scheduled ${responseType} follow-up for user ${userId} at ${scheduledFor}`);
      } catch (error) {
-        console.error(`Error scheduling follow-up for user ${userId}:`, error);
+        console.error(`Error scheduling follow-up for user ${userId}: `, error);
      }
    }
 
@@ -912,18 +850,18 @@ export class MessagingService {
              // Reschedule recurring tasks like morning message?
              // if (schedule.type === 'morning_message') { /* Reschedule logic */ }
 
-         } else {
+        } else {
             console.error(`Failed to generate/send message for schedule ${schedule.id}. Content: ${messageContent}`);
             // Optionally update status to 'failed'
              await db.update(messageSchedules).set({ status: "failed", updatedAt: now }).where(eq(messageSchedules.id, schedule.id));
-         }
+        }
       } catch (error) {
-        console.error(`Failed to process schedule ${schedule.id}:`, error);
+        console.error(`Failed to process schedule ${schedule.id}: `, error);
          // Optionally update status to 'failed'
          try {
              await db.update(messageSchedules).set({ status: "failed", updatedAt: now }).where(eq(messageSchedules.id, schedule.id));
          } catch (dbError) {
-             console.error(`Failed to update schedule ${schedule.id} status to failed:`, dbError);
+             console.error(`Failed to update schedule ${schedule.id} status to failed: `, dbError);
          }
       }
     }
