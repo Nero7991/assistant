@@ -33,4 +33,20 @@ export default defineConfig({
     outDir: path.resolve(__dirname, "dist/public"),
     emptyOutDir: true,
   },
+  server: {
+    host: '0.0.0.0',
+    port: 5173,
+    strictPort: true,
+    origin: 'https://assistant.orenslab.com',
+    hmr: {
+      clientPort: 443,
+      protocol: 'wss'
+    },
+    allowedHosts: [
+      'localhost', 
+      'assistant.orenslab.com',
+      'orenslab.com',
+      process.env.REPL_SLUG && process.env.REPL_ID ? `${process.env.REPL_SLUG}.${process.env.REPL_ID}.repl.co` : null
+    ].filter(Boolean) as string[],
+  },
 });

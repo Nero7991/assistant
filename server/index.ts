@@ -8,8 +8,26 @@ import { initDatabase } from './init-db';
 const app = express();
 
 // Configure CORS before other middleware
+const allowedOrigins = [
+  'http://localhost:5173', // Vite dev server
+  'http://localhost:5000', // Backend itself (if needed for direct access)
+  'https://assistant.orenslab.com',
+  'https://orenslab.com',
+  'http://10.242.0.102:5000' // Add the specific IP-based origin
+];
+
 app.use(cors({
-  origin: true, // Allow all origins in development
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    console.log(`[CORS Check] Request Origin: ${origin}`);
+    if (allowedOrigins.indexOf(origin) === -1) {
+      console.error(`[CORS Check] Origin "${origin}" NOT ALLOWED.`);
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
   credentials: true, // Important: needed for cookies
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-twilio-signature']

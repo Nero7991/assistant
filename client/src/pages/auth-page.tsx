@@ -104,10 +104,10 @@ export default function AuthPage() {
             <CardHeader className="space-y-1">
               <div className="flex items-center gap-2">
                 <Brain className="h-6 w-6" />
-                <CardTitle className="text-2xl">ADHD Coach</CardTitle>
+                <CardTitle className="text-2xl">Assistant</CardTitle>
               </div>
               <CardDescription>
-                Get personalized coaching and stay accountable
+                Your kind & encouraging AI partner
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -136,16 +136,15 @@ export default function AuthPage() {
         </div>
         <div className="hidden lg:flex flex-col justify-center p-8 bg-primary text-primary-foreground">
           <div className="max-w-md mx-auto space-y-6">
-            <h1 className="text-4xl font-bold">Your Personal ADHD Coach</h1>
+            <h1 className="text-4xl font-bold">Assistant</h1>
             <p className="text-lg">
-              Get personalized support, accountability, and strategies to help you
-              achieve your goals while working with your ADHD, not against it.
+              Your kind and encouraging personal assistant, helping you stay accountable towards tasks and life goals via text messages. Designed for executive function support, you can also talk to it about anything on your mind.
             </p>
             <ul className="space-y-2">
-              <li>• Smart check-ins that adapt to your schedule</li>
-              <li>• Break down overwhelming tasks into manageable steps</li>
-              <li>• Track your progress and celebrate wins</li>
-              <li>• Get personalized strategies for your unique challenges</li>
+              <li>• Get kind, encouraging text messages</li>
+              <li>• Stay accountable for tasks & goals</li>
+              <li>• Designed for executive function support</li>
+              <li>• Chat about anything</li>
             </ul>
           </div>
         </div>
@@ -225,7 +224,7 @@ const RegisterForm = () => {
             password: "",
             phoneNumber: "",
             email: "",
-            contactPreference: "email",
+            contactPreference: "whatsapp",
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
             preferredMessageTime: "08:00"
         },

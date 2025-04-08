@@ -23,10 +23,14 @@ export function log(message: string, source = "express") {
 }
 
 export async function setupVite(app: Express, server: Server) {
-  const serverOptions = {
+  const mergedServerOptions = {
+    ...(viteConfig.server || {}),
     middlewareMode: true,
-    hmr: { server },
-    host: 'localhost'
+    hmr: {
+      ...(viteConfig.server?.hmr || {}),
+      server 
+    },
+    host: viteConfig.server?.host || '0.0.0.0' 
   };
 
   const vite = await createViteServer({
@@ -39,7 +43,7 @@ export async function setupVite(app: Express, server: Server) {
         process.exit(1);
       },
     },
-    server: serverOptions,
+    server: mergedServerOptions,
     appType: "custom",
   });
 

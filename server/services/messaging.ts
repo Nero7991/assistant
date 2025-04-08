@@ -17,7 +17,7 @@ import {
   ScheduleItem,
 } from "@shared/schema";
 import { db } from "../db";
-import { eq, and, lte, desc, gt, isNull } from "drizzle-orm";
+import { eq, and, lte, desc, gt, isNull, not, lt, gte, sql } from "drizzle-orm";
 import { storage } from "../storage";
 import { FINAL_SCHEDULE_MARKER } from "./schedule-parser-new";
 import {
@@ -30,6 +30,8 @@ import { ChatCompletionMessage, ChatCompletionMessageParam } from "openai/resour
 import { LLMProvider, StandardizedChatCompletionMessage } from "./llm/provider";
 import { openAIProvider } from "./llm/openai_provider";
 import { gcloudProvider } from "./llm/gcloud_provider";
+import { format, startOfToday, startOfTomorrow, parse as parseDate, isValid as isValidDate, addDays } from 'date-fns';
+import { toZonedTime, formatInTimeZone } from 'date-fns-tz';
 
 // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -174,7 +176,7 @@ export class MessagingService {
       requiresJson = true; // Gemini supports JSON mode via mimeType
       console.log("[generateUnifiedResponse] Preparing messages for GCloud/Gemini model.");
 
-        } else {
+    } else {
       // Fallback for o1-mini / o3-mini (OpenAI) - Combine system prompt
       const historyString = conversationHistory.map(m => `${m.role}: ${m.content}`).join('\n---\n');
       const combinedFirstMessage = `${systemPrompt}\n\nConversation History:\n${historyString}\n\nRespond to the last user message:`;
@@ -312,7 +314,7 @@ export class MessagingService {
             functionName = processedResult.function_call.name;
             functionArgs = processedResult.function_call.arguments || {}; // Already parsed
             console.log(`LLM requested function call via JSON content: ${functionName}`);
-                } else {
+        } else {
             // Log if no function call was found in the parsed content
             console.log("No function_call found in processed LLM response content.");
         }
@@ -421,7 +423,7 @@ export class MessagingService {
              }
 
             // N. Exit Loop
-            break;
+                break;
         }
     } // End while loop
     // ...(rest of handleUserResponse - loop limit check, return finalAssistantMessage)
@@ -521,7 +523,7 @@ export class MessagingService {
 
       return processedResult.message; // Return generated message content
 
-    } catch (error) {
+        } catch (error) {
       console.error(`Error handling system message (${systemRequestType}) for user ${userId}: `, error);
       // Don't save or send anything on error
       return "Sorry, I encountered an error processing the system request.";
@@ -568,7 +570,7 @@ export class MessagingService {
       if (looksLikeJson) {
         // Try standard parsing on the cleaned content
         parsed = JSON.parse(cleanContent);
-      } else {
+                } else {
         // If it doesn't look like JSON after cleaning, treat as plain text message
         console.warn("Content did not look like JSON after cleaning, treating as plain text:", cleanContent);
         return {
@@ -584,7 +586,7 @@ export class MessagingService {
        if (typeof parsed.message !== 'string' && !parsed.function_call) {
            console.warn("Parsed JSON response lacks both 'message' string field and 'function_call'. Using raw content as fallback message.", cleanContent);
             // Return a fallback structure, but use the cleaned content as the message
-           return {
+          return {
                message: cleanContent, 
                scheduleUpdates: [],
                scheduledMessages: [],
@@ -646,7 +648,7 @@ export class MessagingService {
       });
       console.log(`Successfully sent WhatsApp message to ${to}`);
       return true;
-        } catch (error) {
+    } catch (error) {
       console.error("Failed to send WhatsApp message:", error);
       return false;
     }
@@ -668,7 +670,7 @@ export class MessagingService {
           if (matchedTask) {
             taskId = matchedTask.id;
                console.log(`Resolved task name "${update.taskId}" to ID ${taskId}`);
-          } else {
+      } else {
             console.log(`Could not find task matching name "${update.taskId}"`);
                // Option: Create task if action is 'create' and name provided?
                // if (update.action === 'create' && update.title) { ... } else { continue; }
@@ -695,7 +697,7 @@ export class MessagingService {
           case "create":
             if (update.title) {
                      await storage.createTask({
-                userId,
+        userId,
                 title: update.title,
                 description: update.description || "",
                          taskType: TaskType.DAILY, // Default or derive from context?
@@ -703,8 +705,8 @@ export class MessagingService {
                          estimatedDuration: "30 minutes",
                 scheduledTime: update.scheduledTime,
                 recurrencePattern: update.recurrencePattern || "none",
-              });
-                 } else {
+        });
+      } else {
                     console.log("Skipping create action because title is missing.");
             }
             break;
@@ -712,7 +714,7 @@ export class MessagingService {
                  console.warn(`Unknown schedule update action: ${update.action}`);
         }
       }
-    } catch (error) {
+          } catch (error) {
        console.error(`Error processing schedule updates for user ${userId}: `, error);
      }
    }
@@ -721,36 +723,36 @@ export class MessagingService {
    async processScheduledMessages(userId: number, messages: Array<{ type: string; scheduledFor: string; content: string; title?: string; }>): Promise<void> {
      try {
        if (!messages || messages.length === 0) return;
-       console.log(`Processing ${messages.length} scheduled messages for user ${userId}`);
-       const now = new Date();
-
-       for (const message of messages) {
-         try {
-           const [hours, minutes] = message.scheduledFor.split(':').map(n => parseInt(n, 10));
-           if (isNaN(hours) || isNaN(minutes)) {
+      console.log(`Processing ${messages.length} scheduled messages for user ${userId}`);
+      const now = new Date();
+      
+      for (const message of messages) {
+        try {
+          const [hours, minutes] = message.scheduledFor.split(':').map(n => parseInt(n, 10));
+          if (isNaN(hours) || isNaN(minutes)) {
              console.error(`Invalid time format: ${message.scheduledFor}`);
-             continue;
-           }
+            continue;
+          }
            const scheduledDateTime = new Date();
-           scheduledDateTime.setHours(hours, minutes, 0, 0);
+          scheduledDateTime.setHours(hours, minutes, 0, 0);
            // Schedule for tomorrow if time has passed today
            if (scheduledDateTime < now) scheduledDateTime.setDate(scheduledDateTime.getDate() + 1);
 
-           await db.insert(messageSchedules).values({
-             userId: userId,
-             type: message.type || 'follow_up',
-             title: message.title || `Follow-up at ${message.scheduledFor}`,
-             scheduledFor: scheduledDateTime,
-             content: message.content || 'Check-in',
-             status: 'pending',
-             createdAt: new Date(),
-             updatedAt: new Date(),
-           });
+          await db.insert(messageSchedules).values({
+            userId: userId,
+            type: message.type || 'follow_up',
+            title: message.title || `Follow-up at ${message.scheduledFor}`,
+            scheduledFor: scheduledDateTime,
+            content: message.content || 'Check-in',
+            status: 'pending',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          });
          } catch (err) {
            console.error(`Error scheduling single message: ${err}`);
          }
        }
-      } catch (error) {
+        } catch (error) {
        console.error(`Error processing scheduled messages batch for user ${userId}: `, error);
      }
    }
@@ -799,8 +801,8 @@ export class MessagingService {
         const pendingFollowUps = await db.select().from(messageSchedules).where(and(eq(messageSchedules.userId, userId), eq(messageSchedules.type, "follow_up"), eq(messageSchedules.status, "pending")));
     if (pendingFollowUps.length > 0) {
           console.log(`User ${userId} already has pending follow-up.`);
-      return;
-    }
+        return;
+      }
         const delayMinutes = responseType === "negative" ? 30 : responseType === "neutral" ? 60 : 120;
         const scheduledFor = new Date(Date.now() + delayMinutes * 60000);
 
@@ -814,27 +816,273 @@ export class MessagingService {
      }
    }
 
-  // processPendingSchedules (Keep existing - consider if it needs updates for new structure)
+  // --- Scheduling Logic ---
+
+  // NEW: Schedule reminders for daily tasks around midnight
+  private async scheduleDailyReminders(): Promise<void> {
+    console.log("[Scheduler] Checking for daily task reminders to schedule...");
+    const now = new Date();
+
+    try {
+      const activeUsers = await db.select().from(users).where(eq(users.isActive, true));
+      console.log(`[Scheduler] Found ${activeUsers.length} active users to check for reminders.`);
+
+      for (const user of activeUsers) {
+        const timeZone = user.timeZone || 'UTC'; // Default to UTC if no timezone
+        try {
+          // Get start of today and tomorrow in the user's local timezone
+          const systemStartOfToday = startOfToday(); // UTC start of today
+          const todayStartLocal = toZonedTime(systemStartOfToday, timeZone);
+          const tomorrowStartLocal = addDays(todayStartLocal, 1); // Start of next day in local time
+          // ---> FIX: Use formatInTimeZone
+          const todayDateStr = formatInTimeZone(todayStartLocal, timeZone, 'yyyy-MM-dd');
+
+          // Check if reminders for today were already scheduled
+          // Compare DB UTC timestamp against the UTC representation of the local day boundaries
+          const existingReminders = await db.select().from(messageSchedules).where(
+            and(
+              eq(messageSchedules.userId, user.id),
+              eq(messageSchedules.type, 'reminder'),
+              // ---> FIX: Compare against local start/end Date objects (implicitly UTC)
+              gte(messageSchedules.scheduledFor, todayStartLocal),
+              lt(messageSchedules.scheduledFor, tomorrowStartLocal)
+            )
+          ).limit(1);
+
+          if (existingReminders.length > 0) {
+            console.log(`[Scheduler] Reminders already exist for user ${user.id} for ${todayDateStr}. Skipping.`);
+            continue;
+          }
+
+          // Get active daily tasks with a specific scheduled time
+          const dailyTasks = await db.select().from(tasks).where(
+            and(
+              eq(tasks.userId, user.id),
+              eq(tasks.taskType, TaskType.DAILY),
+              eq(tasks.status, 'active'),
+              // ---> FIX: Use not(isNull(...))
+              not(isNull(tasks.scheduledTime))
+            )
+          );
+
+          if (dailyTasks.length === 0) {
+            console.log(`[Scheduler] No active daily tasks with scheduled times found for user ${user.id}.`);
+            continue;
+          }
+
+          console.log(`[Scheduler] Found ${dailyTasks.length} daily tasks for user ${user.id} to schedule reminders.`);
+          let scheduledCount = 0;
+          for (const task of dailyTasks) {
+            try {
+              if (!task.scheduledTime || !/^\d{2}:\d{2}$/.test(task.scheduledTime)) {
+                console.log(`[Scheduler] Skipping task ID ${task.id} for user ${user.id} due to invalid/missing scheduledTime: ${task.scheduledTime}`);
+          continue;
+        }
+
+              // Parse HH:MM time and combine with today's date in user's timezone
+              const [hours, minutes] = task.scheduledTime.split(':').map(Number);
+              // Create a date object representing the target time in the user's local timezone
+              const scheduledTimeLocal = new Date(todayStartLocal); // Start with today at 00:00 local
+              scheduledTimeLocal.setHours(hours, minutes, 0, 0);
+
+              // Ensure the parsed time is valid
+              if (!isValidDate(scheduledTimeLocal)) {
+                 console.log(`[Scheduler] Invalid date created for task ${task.id} (${task.title}) at time ${task.scheduledTime}. Skipping.`);
+                 continue;
+              }
+
+              // The scheduledTimeLocal Date object already represents the correct UTC instant
+              // ---> FIX: Use the local Date object directly for storage (it's UTC based)
+              const scheduledForDb = scheduledTimeLocal;
+
+              // Avoid scheduling reminders in the past (e.g., if scheduler runs late)
+              if (scheduledForDb < now) {
+                  // Use formatInTimeZone for logging the local time accurately
+                  const logTimeLocal = formatInTimeZone(scheduledTimeLocal, timeZone, 'yyyy-MM-dd HH:mm:ssXXX');
+                  console.log(`[Scheduler] Calculated reminder time for task ${task.id} (${logTimeLocal}) is in the past. Skipping.`);
+                  continue;
+              }
+
+              await db.insert(messageSchedules).values({
+                userId: user.id,
+                type: 'reminder',
+                title: `Reminder: ${task.title}`,
+                content: `Time for your task: "${task.title}"!`, // Simple reminder message
+                scheduledFor: scheduledForDb, // Store the Date object
+                status: 'pending',
+                metadata: { taskId: task.id, taskTitle: task.title, taskScheduledTime: task.scheduledTime },
+                createdAt: now,
+                updatedAt: now,
+              });
+              scheduledCount++;
+            } catch (taskError) {
+              console.error(`[Scheduler] Error scheduling reminder for task ${task.id} (User ${user.id}):`, taskError);
+            }
+          }
+          console.log(`[Scheduler] Scheduled ${scheduledCount} reminders for user ${user.id}.`);
+
+        } catch (tzError) {
+          console.error(`[Scheduler] Error processing timezone ${timeZone} for user ${user.id}:`, tzError);
+        }
+      }
+      } catch (error) {
+      console.error("[Scheduler] Error fetching active users or general error in scheduleDailyReminders:", error);
+    }
+  }
+
+  // NEW: Schedule follow-ups for overdue daily tasks
+  private async scheduleFollowUpsForUncompleted(): Promise<void> {
+    console.log("[Scheduler] Checking for overdue daily tasks to follow up on...");
+    const now = new Date();
+    const FOLLOW_UP_BUFFER_MINUTES = 60; // e.g., Follow up 1 hour after scheduled time
+    const FOLLOW_UP_SCHEDULE_DELAY_MINUTES = 5; // Schedule the follow-up message 5 mins from now
+
+    try {
+      const activeUsers = await db.select().from(users).where(eq(users.isActive, true));
+      console.log(`[Scheduler] Found ${activeUsers.length} active users to check for follow-ups.`);
+
+      for (const user of activeUsers) {
+        const timeZone = user.timeZone || 'UTC';
+        try {
+          const todayStartLocal = toZonedTime(startOfToday(), timeZone);
+          const tomorrowStartLocal = addDays(todayStartLocal, 1);
+          const nowLocal = toZonedTime(now, timeZone);
+
+          const overdueTasks = await db.select().from(tasks).where(
+            and(
+              eq(tasks.userId, user.id),
+              eq(tasks.taskType, TaskType.DAILY),
+              eq(tasks.status, 'active'),
+              not(isNull(tasks.scheduledTime))
+            )
+          );
+
+          if (overdueTasks.length === 0) {
+            // console.log(`[Scheduler] No active daily tasks found for potential follow-up for user ${user.id}.`);
+            continue;
+          }
+
+          let followUpsScheduled = 0;
+          for (const task of overdueTasks) {
+            try {
+              if (!task.scheduledTime || !/^\d{2}:\d{2}$/.test(task.scheduledTime)) {
+                continue; // Skip tasks with invalid time
+              }
+
+              // Calculate the task's scheduled time for today in local timezone
+              const [hours, minutes] = task.scheduledTime.split(':').map(Number);
+              const taskTimeLocal = new Date(todayStartLocal);
+              taskTimeLocal.setHours(hours, minutes, 0, 0);
+
+              if (!isValidDate(taskTimeLocal)) continue; // Skip invalid dates
+
+              // Calculate the time when follow-up should be considered (task time + buffer)
+              const followUpConsiderTimeLocal = new Date(taskTimeLocal.getTime() + FOLLOW_UP_BUFFER_MINUTES * 60000);
+
+              // Check if current time is past the follow-up consideration time
+              if (nowLocal < followUpConsiderTimeLocal) {
+                continue; // Not overdue enough yet
+              }
+
+              // Check if a follow-up for this task was already SENT today
+              // Check message_schedules for sent follow-ups today targeting this task
+              const existingFollowUp = await db.select().from(messageSchedules).where(
+                 and(
+                     eq(messageSchedules.userId, user.id),
+                     eq(messageSchedules.type, 'follow_up'),
+                     // Match based on taskId stored in metadata
+                     sql`${messageSchedules.metadata}->>'taskId' = ${task.id}`, 
+                     gte(messageSchedules.sentAt, todayStartLocal), // Sent today (local time)
+                     lt(messageSchedules.sentAt, tomorrowStartLocal) 
+                 )
+              ).limit(1);
+
+              if (existingFollowUp.length > 0) {
+                 // console.log(`[Scheduler] Follow-up already sent today for task ${task.id} (User ${user.id}). Skipping.`);
+                 continue;
+              }
+
+              // Schedule the follow-up message
+              const scheduledFor = new Date(now.getTime() + FOLLOW_UP_SCHEDULE_DELAY_MINUTES * 60000);
+
+    await db.insert(messageSchedules).values({
+                userId: user.id,
+                type: 'follow_up',
+                title: `Follow-up: ${task.title}`,
+                content: `Just checking in on your task: "${task.title}". How's it going?`, // Simple follow-up
+      scheduledFor: scheduledFor,
+                status: 'pending',
+                metadata: { taskId: task.id, taskTitle: task.title, originalScheduledTime: task.scheduledTime },
+                createdAt: now,
+                updatedAt: now,
+              });
+              followUpsScheduled++;
+              console.log(`[Scheduler] Scheduled follow-up for overdue task ${task.id} (${task.title}) for user ${user.id}.`);
+
+            } catch (taskError) {
+              console.error(`[Scheduler] Error checking/scheduling follow-up for task ${task.id} (User ${user.id}):`, taskError);
+            }
+          }
+          // if (followUpsScheduled > 0) console.log(`[Scheduler] Scheduled ${followUpsScheduled} follow-ups for user ${user.id}.`);
+
+        } catch (tzError) {
+          console.error(`[Scheduler] Error processing timezone ${timeZone} for user ${user.id} during follow-up check:`, tzError);
+        }
+      }
+    } catch (error) {
+      console.error("[Scheduler] Error fetching active users or general error in scheduleFollowUpsForUncompleted:", error);
+    }
+  }
+
+  // processPendingSchedules (Modified to call new functions)
   async processPendingSchedules(): Promise<void> {
     const now = new Date();
+    console.log(`[Scheduler - ${now.toISOString()}] Running schedule processing...`);
+
+    // ---> NEW: Call reminder and follow-up scheduling logic first
+    try {
+      await this.scheduleDailyReminders();
+    } catch (error) {
+      console.error("[Scheduler] Error during scheduleDailyReminders:", error);
+    }
+    try {
+      await this.scheduleFollowUpsForUncompleted();
+    } catch (error) {
+      console.error("[Scheduler] Error during scheduleFollowUpsForUncompleted:", error);
+    }
+    // <--- END NEW
+
+    // Existing logic to process messages scheduled for now
     const pendingSchedules = await db.select().from(messageSchedules).where(and(eq(messageSchedules.status, "pending"), lte(messageSchedules.scheduledFor, now)));
+    console.log(`[Scheduler] Found ${pendingSchedules.length} pending messages to process.`);
 
     for (const schedule of pendingSchedules) {
       try {
         console.log(`Processing schedule ${schedule.id} type ${schedule.type} for user ${schedule.userId}`);
         const [user] = await db.select().from(users).where(eq(users.id, schedule.userId)).limit(1);
-        if (!user || !user.phoneNumber) continue; // Skip if user/phone missing
+        if (!user || !user.phoneNumber) {
+            console.log(`Skipping schedule ${schedule.id}: User ${schedule.userId} not found or has no phone number.`);
+            // Optionally update status to failed/cancelled if user is gone
+            await db.update(messageSchedules).set({ status: "cancelled", updatedAt: now }).where(eq(messageSchedules.id, schedule.id));
+            continue;
+        }
 
          // Map schedule type to system request type
          let systemRequestType: string = 'follow_up'; // Default
          if (schedule.type === 'morning_message') systemRequestType = 'morning_summary';
+         else if (schedule.type === 'reminder') systemRequestType = 'task_reminder'; // Example mapping
+         else if (schedule.type === 'follow_up') systemRequestType = 'task_follow_up'; // Example mapping
          // Add other mappings if needed
 
          // Use handleSystemMessage to generate and send the message
          const messageContent = await this.handleSystemMessage(
              schedule.userId,
              systemRequestType,
-             { messageScheduleId: schedule.id } // Pass context if needed
+             { 
+                 messageScheduleId: schedule.id, 
+                 // Pass task details if available in metadata (e.g., for reminders/follow-ups)
+                 taskDetails: (schedule.metadata as { taskDetails?: any } | null)?.taskDetails 
+             } 
          );
 
          // Check if message generation/sending was successful (handleSystemMessage sends it)
@@ -862,6 +1110,7 @@ export class MessagingService {
          }
       }
     }
+    console.log(`[Scheduler] Finished processing cycle.`);
   }
 }
 
