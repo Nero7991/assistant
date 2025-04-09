@@ -53,8 +53,8 @@ export default function AuthPage() {
       });
 
       if (user.isEmailVerified && (user.contactPreference !== "whatsapp" || user.isPhoneVerified)) {
-        console.log("Redirecting to dashboard");
-        setLocation("/");
+        console.log("Redirecting to chat page");
+        setLocation("/chat");
       }
     }
   }, [user, setLocation]);
@@ -98,56 +98,63 @@ export default function AuthPage() {
   // If no user, show login/register form
   if (!user) {
     return (
-      <div className="min-h-screen grid lg:grid-cols-2">
-        <div className="flex items-center justify-center p-8">
-          <Card className="w-full max-w-md">
-            <CardHeader className="space-y-1">
-              <div className="flex items-center gap-2">
-                <Brain className="h-6 w-6" />
-                <CardTitle className="text-2xl">Assistant</CardTitle>
-              </div>
-              <CardDescription>
-                Your kind & encouraging AI partner
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Tabs
-                defaultValue="login"
-                className="space-y-4"
-                onValueChange={(value) => console.log('Tab changed to:', value)}
-              >
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="login">Login</TabsTrigger>
-                  <TabsTrigger value="register">Register</TabsTrigger>
-                </TabsList>
-                <TabsContent value="login">
-                  <div data-testid="login-tab-content">
-                    <LoginForm />
-                  </div>
-                </TabsContent>
-                <TabsContent value="register">
-                  <div data-testid="register-tab-content">
-                    <RegisterForm />
-                  </div>
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
-        </div>
-        <div className="hidden lg:flex flex-col justify-center p-8 bg-primary text-primary-foreground">
-          <div className="max-w-md mx-auto space-y-6">
-            <h1 className="text-4xl font-bold">Assistant</h1>
-            <p className="text-lg">
-              Your kind and encouraging personal assistant, helping you stay accountable towards tasks and life goals via text messages. Designed for executive function support, you can also talk to it about anything on your mind.
-            </p>
-            <ul className="space-y-2">
-              <li>• Get kind, encouraging text messages</li>
-              <li>• Stay accountable for tasks & goals</li>
-              <li>• Designed for executive function support</li>
-              <li>• Chat about anything</li>
-            </ul>
+      <div className="min-h-screen flex flex-col">
+        <div className="grid lg:grid-cols-2 flex-grow">
+          <div className="flex items-center justify-center p-8">
+            <Card className="w-full max-w-md">
+              <CardHeader className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Brain className="h-6 w-6" />
+                  <CardTitle className="text-2xl">Assistant</CardTitle>
+                </div>
+                <CardDescription>
+                  Your kind & encouraging AI personal assistant
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Tabs
+                  defaultValue="login"
+                  className="space-y-4"
+                  onValueChange={(value) => console.log('Tab changed to:', value)}
+                >
+                  <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="login">Login</TabsTrigger>
+                    <TabsTrigger value="register">Register</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="login">
+                    <div data-testid="login-tab-content">
+                      <LoginForm />
+                    </div>
+                  </TabsContent>
+                  <TabsContent value="register">
+                    <div data-testid="register-tab-content">
+                      <RegisterForm />
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              </CardContent>
+            </Card>
+          </div>
+          <div className="hidden lg:flex flex-col justify-center p-8 bg-primary text-primary-foreground">
+            <div className="max-w-md mx-auto space-y-6">
+              <h1 className="text-4xl font-bold">Assistant</h1>
+              <p className="text-lg">
+                Your kind and encouraging personal assistant, helping you stay accountable towards tasks and life goals via text messages. Designed for executive function support, you can also talk to it about anything on your mind.
+              </p>
+              <ul className="space-y-2">
+                <li>• Get kind, encouraging text messages</li>
+                <li>• Stay accountable for tasks & goals</li>
+                <li>• Designed for executive function support</li>
+                <li>• Chat about anything</li>
+              </ul>
+            </div>
           </div>
         </div>
+        <footer className="py-4 border-t mt-auto">
+          <div className="container mx-auto text-center text-sm text-muted-foreground">
+            © {new Date().getFullYear()} Oren's Lab. All rights reserved.
+          </div>
+        </footer>
       </div>
     );
   }

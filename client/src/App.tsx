@@ -1,7 +1,7 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./lib/queryClient";
 import { AuthProvider } from "./hooks/use-auth";
-import { Switch, Route } from "wouter";
+import { Switch, Route, useLocation, Redirect } from "wouter";
 import { ProtectedRoute } from "./lib/protected-route";
 import { Toaster } from "@/components/ui/toaster";
 import { AppLayout } from "@/components/app-layout";
@@ -19,15 +19,10 @@ import NotFound from "@/pages/not-found";
 function Router() {
   return (
     <Switch>
+      <Route path="/">
+        <Redirect to="/chat" />
+      </Route>
       <Route path="/auth" component={AuthPage} />
-      <ProtectedRoute 
-        path="/" 
-        component={() => (
-          <AppLayout>
-            <HomePage />
-          </AppLayout>
-        )} 
-      />
       <ProtectedRoute 
         path="/chat" 
         component={() => (

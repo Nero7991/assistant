@@ -12,7 +12,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { label: "Dashboard", href: "/", icon: <Home className="h-4 w-4 mr-2" /> },
+  // { label: "Dashboard", href: "/", icon: <Home className="h-4 w-4 mr-2" /> },
   { label: "Chat", href: "/chat", icon: <MessageCircle className="h-4 w-4 mr-2" /> },
   { label: "Schedule", href: "/schedule", icon: <Calendar className="h-4 w-4 mr-2" /> },
   { label: "Tasks & Goals", href: "/tasks", icon: <CheckSquare className="h-4 w-4 mr-2" /> },
