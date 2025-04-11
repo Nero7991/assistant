@@ -9,6 +9,7 @@ export const users = pgTable("users", {
   password: text("password").notNull(),
   email: text("email").notNull(),
   phoneNumber: text("phone_number"),
+  firstName: text("first_name"),
   contactPreference: text("contact_preference").notNull().default('email'),
   isPhoneVerified: boolean("is_phone_verified").notNull().default(false),
   isEmailVerified: boolean("is_email_verified").notNull().default(false),
@@ -279,6 +280,7 @@ export const insertUserSchema = createInsertSchema(users).extend({
   password: z.string().min(6, "Password must be at least 6 characters"),
   email: z.string().email("Please enter a valid email address"),
   phoneNumber: z.string().regex(/^\+\d{1,3}\d{10}$/, "Please enter a valid phone number with country code (e.g. +1234567890)").optional(),
+  firstName: z.string().min(1, "First name is required").optional(),
   contactPreference: z.enum(["whatsapp", "imessage", "email"], {
     required_error: "Please select a contact preference",
   }),

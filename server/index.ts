@@ -4,6 +4,27 @@ import cors from 'cors';
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { initDatabase } from './init-db';
+import path from "path";
+import dotenv from "dotenv";
+import session from "express-session";
+import passport from "passport";
+import { setupAuth } from "./auth";
+import { apiRouter } from "./api";
+import { storage } from "./storage";
+import { webhookRouter } from "./webhook";
+import schedule from 'node-schedule';
+import { MessagingService } from './services/messaging';
+import { fileURLToPath } from 'url';
+
+// ---> Instantiate MessagingService here, outside the listen callback
+const messagingService = new MessagingService(); 
+
+// --- ES Module __dirname equivalent ---
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load environment variables
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
 const app = express();
 
@@ -113,5 +134,63 @@ app.use((req, res, next) => {
     const webhookUrl = `https://${replSlug}.${replId}.repl.co/api/webhook/whatsapp`;
     log(`Server running at http://0.0.0.0:${port}`);
     log(`Configure Twilio webhook URL as: ${webhookUrl}`);
+
+    // --- Schedule Background Jobs --- (Now messagingService is accessible)
+    console.log('Scheduling background jobs...');
+
+    // 1. Process Pending Schedules (e.g., send due reminders/follow-ups) - Runs every minute
+    const pendingJob = schedule.scheduleJob('* * * * *', async () => {
+      console.log(`[Scheduler Tick - ${new Date().toISOString()}] Running processPendingSchedules...`);
+      try {
+        await messagingService.processPendingSchedules();
+      } catch (error) {
+         console.error('[Scheduler Tick Error] Error in processPendingSchedules:', error);
+      }
+    });
+    console.log('Scheduled: processPendingSchedules (every minute)');
+
+    // 2. Schedule Recurring Task Reminders (e.g., for daily tasks due today) - Runs once daily at 00:01 UTC
+    const recurringJob = schedule.scheduleJob('1 0 * * *', async () => { // 1 minute past midnight UTC
+       console.log(`[Scheduler Tick - ${new Date().toISOString()}] Running scheduleRecurringTasks...`);
+       try {
+         await messagingService.scheduleRecurringTasks();
+       } catch (error) {
+         console.error('[Scheduler Tick Error] Error in scheduleRecurringTasks:', error);
+       }
+    });
+     console.log('Scheduled: scheduleRecurringTasks (daily at 00:01 UTC)');
+
+     // 3. Schedule Overdue Task Follow-ups Check - Runs every 15 minutes
+     const followupJob = schedule.scheduleJob('*/15 * * * *', async () => {
+        console.log(`[Scheduler Tick - ${new Date().toISOString()}] Running scheduleFollowUpsForUncompletedOptimized...`);
+        try {
+          await messagingService.scheduleFollowUpsForUncompletedOptimized();
+        } catch (error) {
+          console.error('[Scheduler Tick Error] Error in scheduleFollowUpsForUncompletedOptimized:', error);
+        }
+     });
+     console.log('Scheduled: scheduleFollowUpsForUncompletedOptimized (every 15 minutes)');
+     // --- End Scheduling ---
+
+     // --- Graceful Shutdown ---
+      process.on('SIGINT', () => {
+          console.log('SIGINT signal received: closing HTTP server and cancelling jobs...');
+          pendingJob.cancel();
+          recurringJob.cancel();
+          followupJob.cancel();
+          console.log('Scheduled jobs cancelled.');
+          // Add server close logic if needed, e.g., server.close(() => process.exit(0));
+          process.exit(0);
+      });
+
+      process.on('SIGTERM', () => {
+          console.log('SIGTERM signal received: closing HTTP server and cancelling jobs...');
+          pendingJob.cancel();
+          recurringJob.cancel();
+          followupJob.cancel();
+          console.log('Scheduled jobs cancelled.');
+          process.exit(0);
+      });
+
   });
 })();

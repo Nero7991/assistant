@@ -14,6 +14,13 @@ import {
 } from "@shared/schema";
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
+import { toZonedTime, formatInTimeZone } from 'date-fns-tz'; 
+import { addDays } from 'date-fns';
+import { sql } from 'drizzle-orm';
+import { or } from 'drizzle-orm';
+
+export type TaskWithSubtasks = Task & { subtasks: Subtask[] };
+export type { User };
 
 const MemoryStore = createMemoryStore(session);
 const PostgresSessionStore = connectPg(session);
@@ -34,11 +41,11 @@ export interface IStorage {
 
   // Task management methods
   getTasks(userId: number, type?: string): Promise<Task[]>;
-  getTask(id: number): Promise<Task | undefined>;
-  createTask(task: InsertTask & { userId: number }): Promise<Task>;
-  updateTask(id: number, task: Partial<Task>): Promise<Task>;
-  deleteTask(id: number): Promise<void>;
-  completeTask(id: number): Promise<Task>;
+  getTask(id: number, userId: number): Promise<TaskWithSubtasks | undefined>;
+  createTask(task: InsertTask & { userId: number }): Promise<TaskWithSubtasks>;
+  updateTask(id: number, userId: number, task: Partial<Task>): Promise<TaskWithSubtasks>;
+  deleteTask(id: number, userId: number): Promise<void>;
+  completeTask(id: number, userId: number): Promise<TaskWithSubtasks>;
 
   // Contact verification methods
   createContactVerification(verification: {
@@ -75,16 +82,16 @@ export interface IStorage {
   createSubtask(taskId: number, subtask: InsertSubtask): Promise<Subtask>;
   getSubtasks(taskId: number): Promise<Subtask[]>;
   getAllSubtasks(userId: number): Promise<Subtask[]>;
-  completeSubtask(id: number): Promise<Subtask>;
-  updateSubtask(id: number, updates: Partial<Subtask>): Promise<Subtask>;
-  deleteSubtask(taskId: number, subtaskId: number): Promise<void>;
+  completeSubtask(id: number, userId: number): Promise<Subtask>;
+  updateSubtask(id: number, userId: number, updates: Partial<Subtask>): Promise<Subtask>;
+  deleteSubtask(subtaskId: number, userId: number): Promise<void>;
   
   // Schedule management methods
   getDailySchedule(userId: number, date: Date): Promise<DailySchedule | undefined>;
   getDailySchedules(userId: number, limit?: number): Promise<DailySchedule[]>;
   createDailySchedule(schedule: InsertDailySchedule): Promise<DailySchedule>;
   updateDailySchedule(id: number, updates: Partial<DailySchedule>): Promise<DailySchedule>;
-  confirmDailySchedule(id: number): Promise<DailySchedule>;
+  confirmDailySchedule(id: number): Promise<boolean>;
   
   // Schedule items methods
   getScheduleItems(scheduleId: number): Promise<ScheduleItem[]>;
@@ -291,112 +298,155 @@ export class DatabaseStorage implements IStorage {
       .orderBy(tasks.createdAt);
   }
 
-  async getTask(id: number): Promise<Task | undefined> {
-    const [task] = await db
-      .select()
-      .from(tasks)
-      .where(eq(tasks.id, id))
-      .limit(1);
-    return task as Task | undefined; // Cast to Task type
+  async getTask(id: number, userId: number): Promise<TaskWithSubtasks | undefined> {
+    const [task] = await db.select().from(tasks).where(and(eq(tasks.id, id), eq(tasks.userId, userId)));
+    if (!task) return undefined;
+    const taskSubtasks = await this.getSubtasks(id);
+    return { ...task, subtasks: taskSubtasks };
   }
 
-  async createTask(task: InsertTask & { userId: number }): Promise<Task> {
-    const now = new Date();
-    const [newTask] = await db
-      .insert(tasks)
-      .values({
-        ...task,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .returning();
-    return newTask;
-  }
-
-  async updateTask(id: number, update: Partial<Task>): Promise<Task> {
-    const now = new Date();
-    const updateData = {
-      ...update,
-      updatedAt: now,
+  async createTask(taskData: InsertTask & { userId: number }): Promise<TaskWithSubtasks> {
+    const defaults = {
+      description: null,
+      priority: null,
+      estimatedDuration: null,
+      deadline: null,
+      scheduledTime: null,
+      recurrencePattern: null,
+      completedAt: null,
+      metadata: null,
+      deletedAt: null,
+      isDaily: taskData.taskType === 'daily' ? true : false
     };
 
-    // Check if completing the task
-    const isCompleting = updateData.status === 'completed' || (updateData.completedAt && updateData.completedAt <= now);
-    if (isCompleting && !updateData.completedAt) {
-      updateData.completedAt = now;
-      updateData.status = 'completed'; // Ensure status is also set
+    const finalTaskData = { ...defaults, ...taskData, createdAt: new Date(), updatedAt: new Date() };
+
+    const [newTask] = await db.insert(tasks).values(finalTaskData).returning();
+    return { ...newTask, subtasks: [] };
+  }
+
+  async updateTask(id: number, userId: number, update: Partial<Task>): Promise<TaskWithSubtasks> {
+    const [existingTask] = await db.select({ id: tasks.id, userId: tasks.userId }).from(tasks).where(eq(tasks.id, id));
+    if (!existingTask) { throw new Error(`Task with ID ${id} not found.`); }
+    if (existingTask.userId !== userId) { throw new Error(`User ${userId} does not have permission to update task ${id}.`); }
+
+    if (update.taskType !== undefined) { update.isDaily = update.taskType === 'daily'; }
+
+    const now = new Date();
+    const isCompleting = update.status === 'completed' || (update.completedAt && update.completedAt <= now);
+    if (isCompleting && !update.completedAt) {
+      update.completedAt = now;
+      update.status = 'completed';
     }
 
     const [updatedTask] = await db
       .update(tasks)
-      .set(updateData)
-      .where(eq(tasks.id, id))
+      .set({...update, updatedAt: now })
+      .where(and(eq(tasks.id, id), eq(tasks.userId, userId)))
       .returning();
 
-    // ---> Log completion event if applicable
-    if (isCompleting && updatedTask) {
+    if (!updatedTask) { throw new Error(`Task with ID ${id} not found or update failed.`); }
+
+    if (isCompleting) {
       try {
         await db.insert(taskEvents).values({
-          userId: updatedTask.userId,
-          taskId: updatedTask.id,
-          eventType: 'completed',
-          eventDate: updateData.completedAt || now, // Use the completion time
-          createdAt: now,
+          userId: updatedTask.userId, taskId: updatedTask.id, eventType: 'completed',
+          eventDate: updatedTask.completedAt || now, createdAt: now,
         });
-        console.log(`[Storage] Logged 'completed' event for task ${updatedTask.id}.`);
+        console.log(`[Storage updateTask] Logged 'completed' event for task ${updatedTask.id}.`);
       } catch (eventError) {
-        console.error(`[Storage] Failed to log 'completed' event for task ${updatedTask.id}:`, eventError);
+        console.error(`[Storage updateTask] Failed to log 'completed' event for task ${updatedTask.id}:`, eventError);
       }
     }
-    // <--- END NEW
 
-    if (!updatedTask) throw new Error(`Task ${id} not found`);
-    return updatedTask;
+    const taskSubtasks = await this.getSubtasks(id);
+    return { ...updatedTask, subtasks: taskSubtasks };
   }
 
-  async deleteTask(id: number): Promise<void> {
-    // Implement soft deletion by setting the deletedAt timestamp
-    await db
-      .update(tasks)
-      .set({
-        deletedAt: new Date(),
-        updatedAt: new Date()
-      })
-      .where(eq(tasks.id, id));
-  }
+  async deleteTask(id: number, userId: number): Promise<void> {
+    const [existingTask] = await db.select({ id: tasks.id, userId: tasks.userId }).from(tasks).where(eq(tasks.id, id));
+    if (!existingTask) { console.warn(`[Storage deleteTask] Task ${id} not found.`); return; }
+    if (existingTask.userId !== userId) { throw new Error(`User ${userId} does not have permission to delete task ${id}.`); }
 
-  async completeTask(id: number): Promise<Task> {
-    console.log(`[Storage] Attempting to complete task ${id}`);
+    await db.delete(tasks).where(and(eq(tasks.id, id), eq(tasks.userId, userId)));
+    await db.delete(subtasks).where(eq(subtasks.parentTaskId, id));
+    await db.delete(taskEvents).where(eq(taskEvents.taskId, id));
+
     const now = new Date();
-    const [completedTask] = await db
-      .update(tasks)
-      .set({
-        status: "completed",
-        completedAt: now,
-        updatedAt: now,
-      })
-      .where(eq(tasks.id, id))
-      .returning();
+    const user = await this.getUser(userId);
+    const timeZone = user?.timeZone;
+    if (timeZone) {
+      const dayStartLocal = toZonedTime(now, timeZone);
+      dayStartLocal.setHours(0, 0, 0, 0);
+      const dayEndLocal = addDays(dayStartLocal, 1);
+      const reminderTypes = ['pre_reminder', 'reminder', 'post_reminder_follow_up', 'follow_up'];
 
-    if (!completedTask) throw new Error(`Task ${id} not found`);
-
-    // ---> Log completion event
-    try {
-      await db.insert(taskEvents).values({
-        userId: completedTask.userId,
-        taskId: completedTask.id,
-        eventType: 'completed',
-        eventDate: now,
-        createdAt: now,
-      });
-      console.log(`[Storage] Logged 'completed' event for task ${completedTask.id}.`);
-    } catch (eventError) {
-      console.error(`[Storage] Failed to log 'completed' event for task ${completedTask.id}:`, eventError);
+      const deletedSchedules = await db.delete(messageSchedules).where(
+        and(
+          eq(messageSchedules.userId, userId),
+          eq(messageSchedules.status, 'pending'),
+          sql`${messageSchedules.metadata}->>'taskId' = ${id}`,
+          inArray(messageSchedules.type, reminderTypes),
+          gte(messageSchedules.scheduledFor, dayStartLocal),
+          lt(messageSchedules.scheduledFor, dayEndLocal)
+        )
+      ).returning({id: messageSchedules.id});
+      console.log(`[Storage deleteTask] Deleted ${deletedSchedules.length} pending schedules for task ${id} today.`);
+    } else {
+      console.warn(`[Storage deleteTask] Cannot delete schedules for task ${id}, user ${userId} timezone unknown.`);
     }
-    // <--- END NEW
+    console.log(`[Storage deleteTask] Deleted task ${id} and associated data.`);
+  }
 
-    console.log(`[Storage] Completed task ${id}`);
-    return completedTask;
+  async completeTask(id: number, userId: number): Promise<TaskWithSubtasks> {
+    const [existingTask] = await db.select().from(tasks).where(eq(tasks.id, id));
+    if (!existingTask) { throw new Error(`Task ${id} not found.`); }
+    if (existingTask.userId !== userId) { throw new Error(`User ${userId} does not have permission to complete task ${id}.`); }
+    if (existingTask.status === 'completed') {
+        console.warn(`Task ${id} is already completed.`);
+        const taskSubtasks = await this.getSubtasks(id);
+        return { ...existingTask, subtasks: taskSubtasks };
+    }
+
+    const completionTime = new Date();
+    const [updatedTask] = await db
+      .update(tasks)
+      .set({ status: 'completed', completedAt: completionTime, updatedAt: completionTime })
+      .where(and(eq(tasks.id, id), eq(tasks.userId, userId)))
+      .returning();
+    if (!updatedTask) { throw new Error(`Failed to mark task ${id} as completed.`); }
+
+    await db.insert(taskEvents).values({
+        taskId: id, userId: userId, eventType: 'completed',
+        eventDate: completionTime, timestamp: completionTime
+    });
+    console.log(`[Storage completeTask] Task ${id} marked completed and event logged.`);
+
+    const user = await this.getUser(userId);
+    const timeZone = user?.timeZone;
+    if (timeZone) {
+        const dayStartLocal = toZonedTime(completionTime, timeZone);
+        dayStartLocal.setHours(0, 0, 0, 0);
+        const dayEndLocal = addDays(dayStartLocal, 1);
+        const reminderTypes = ['pre_reminder', 'reminder', 'post_reminder_follow_up', 'follow_up'];
+
+        const deletedSchedules = await db.delete(messageSchedules).where(
+            and(
+                eq(messageSchedules.userId, userId),
+                eq(messageSchedules.status, 'pending'),
+                sql`${messageSchedules.metadata}->>'taskId' = ${id}`,
+                inArray(messageSchedules.type, reminderTypes),
+                gte(messageSchedules.scheduledFor, dayStartLocal),
+                lt(messageSchedules.scheduledFor, dayEndLocal)
+            )
+        ).returning({id: messageSchedules.id});
+        console.log(`[Storage completeTask] Deleted ${deletedSchedules.length} pending schedules for task ${id} today.`);
+    } else {
+         console.warn(`[Storage completeTask] Cannot delete schedules for task ${id}, user ${userId} timezone unknown.`);
+    }
+
+    const taskSubtasks = await this.getSubtasks(id);
+    return { ...updatedTask, subtasks: taskSubtasks };
   }
 
   // Contact verification methods
@@ -751,106 +801,73 @@ export class DatabaseStorage implements IStorage {
       .orderBy(subtasks.createdAt);
   }
 
-  async completeSubtask(id: number): Promise<Subtask> {
-    const now = new Date();
-    const [completedSubtask] = await db
+  async completeSubtask(id: number, userId: number): Promise<Subtask> {
+    const [subtaskData] = await db.select().from(subtasks).where(eq(subtasks.id, id));
+    if (!subtaskData) { throw new Error(`Subtask ${id} not found.`); }
+    if (subtaskData.status === 'completed') {
+        console.warn(`Subtask ${id} is already completed.`);
+        return subtaskData;
+    }
+    const parentTaskId = subtaskData.parentTaskId;
+    const [parentTask] = await db.select({ userId: tasks.userId }).from(tasks).where(eq(tasks.id, parentTaskId));
+    if (!parentTask || parentTask.userId !== userId) { throw new Error(`User ${userId} cannot modify subtasks for task ${parentTaskId}.`); }
+
+    const completionTime = new Date();
+    const [updatedSubtask] = await db
       .update(subtasks)
-      .set({
-        status: "completed",
-        completedAt: now,
-        updatedAt: now,
-      })
+      .set({ status: 'completed', completedAt: completionTime, updatedAt: completionTime })
       .where(eq(subtasks.id, id))
       .returning();
-      
-    if (!completedSubtask) throw new Error(`Subtask ${id} not found`);
+    if (!updatedSubtask) { throw new Error(`Failed to mark subtask ${id} as completed.`); }
 
-    // ---> Log completion event
-    try {
-      // Need userId, get it from the parent task
-      const [parentTask] = await db.select({ userId: tasks.userId }).from(tasks).where(eq(tasks.id, completedSubtask.parentTaskId));
-      if (parentTask?.userId) {
-         await db.insert(taskEvents).values({
-           userId: parentTask.userId,
-           taskId: completedSubtask.parentTaskId,
-           subtaskId: completedSubtask.id,
-           eventType: 'completed',
-           eventDate: now,
-           createdAt: now,
-         });
-         console.log(`[Storage] Logged 'completed' event for subtask ${completedSubtask.id}.`);
-      } else {
-         console.warn(`[Storage] Could not log completion event for subtask ${id}, parent task or user not found.`);
-      }
-    } catch (eventError) {
-      console.error(`[Storage] Failed to log 'completed' event for subtask ${completedSubtask.id}:`, eventError);
-    }
-    // <--- END NEW
-
-    return completedSubtask;
+    await db.insert(taskEvents).values({
+        taskId: parentTaskId, subtaskId: id, userId: userId, eventType: 'completed',
+        eventDate: completionTime, timestamp: completionTime
+    });
+    console.log(`[Storage completeSubtask] Subtask ${id} (Task ${parentTaskId}) marked completed and event logged.`);
+    return updatedSubtask;
   }
-  async updateSubtask(id: number, updates: Partial<Subtask>): Promise<Subtask> {
-    const now = new Date();
-    const updateData = {
-      ...updates,
-      updatedAt: now,
-    };
 
-    // Check if completing the subtask
-    const isCompleting = updateData.status === 'completed' || (updateData.completedAt && updateData.completedAt <= now);
-    if (isCompleting && !updateData.completedAt) {
-      updateData.completedAt = now;
-      updateData.status = 'completed'; // Ensure status is also set
+  async updateSubtask(id: number, userId: number, updates: Partial<Subtask>): Promise<Subtask> {
+    const [subtaskData] = await db.select({ parentTaskId: subtasks.parentTaskId }).from(subtasks).where(eq(subtasks.id, id));
+    if (!subtaskData) { throw new Error(`Subtask ${id} not found.`); }
+    const parentTaskId = subtaskData.parentTaskId;
+    const [parentTask] = await db.select({ userId: tasks.userId }).from(tasks).where(eq(tasks.id, parentTaskId));
+    if (!parentTask || parentTask.userId !== userId) { throw new Error(`User ${userId} cannot modify subtasks for task ${parentTaskId}.`); }
+
+    const now = new Date();
+    const isCompleting = updates.status === 'completed' || (updates.completedAt && updates.completedAt <= now);
+    if (isCompleting && !updates.completedAt) {
+      updates.completedAt = now;
+      updates.status = 'completed';
     }
 
     const [updatedSubtask] = await db
       .update(subtasks)
-      .set(updateData)
+      .set({...updates, updatedAt: now})
       .where(eq(subtasks.id, id))
       .returning();
+    if (!updatedSubtask) { throw new Error(`Failed to update subtask ${id}.`); }
 
-    // ---> Log completion event if applicable
-    if (isCompleting && updatedSubtask) {
-      try {
-        // Need userId, get it from the parent task
-        const [parentTask] = await db.select({ userId: tasks.userId }).from(tasks).where(eq(tasks.id, updatedSubtask.parentTaskId));
-        if (parentTask?.userId) {
-          await db.insert(taskEvents).values({
-            userId: parentTask.userId,
-            taskId: updatedSubtask.parentTaskId,
-            subtaskId: updatedSubtask.id,
-            eventType: 'completed',
-            eventDate: updateData.completedAt || now,
-            createdAt: now,
-          });
-          console.log(`[Storage] Logged 'completed' event for subtask ${updatedSubtask.id}.`);
-        } else {
-          console.warn(`[Storage] Could not log completion event for subtask ${id}, parent task or user not found.`);
-        }
-      } catch (eventError) {
-        console.error(`[Storage] Failed to log 'completed' event for subtask ${updatedSubtask.id}:`, eventError);
-      }
+    if (isCompleting) {
+        await db.insert(taskEvents).values({
+            taskId: parentTaskId, subtaskId: id, userId: userId, eventType: 'completed', 
+            eventDate: updatedSubtask.completedAt || now, timestamp: now
+        });
+        console.log(`[Storage updateSubtask] Subtask ${id} (Task ${parentTaskId}) marked completed and event logged.`);
     }
-    // <--- END NEW
-    
-    if (!updatedSubtask) throw new Error(`Subtask ${id} not found`);
     return updatedSubtask;
   }
   
-  async deleteSubtask(taskId: number, subtaskId: number): Promise<void> {
-    // Implement soft deletion for subtasks
-    await db
-      .update(subtasks)
-      .set({
-        deletedAt: new Date(),
-        updatedAt: new Date()
-      })
-      .where(
-        and(
-          eq(subtasks.parentTaskId, taskId),
-          eq(subtasks.id, subtaskId)
-        )
-      );
+  async deleteSubtask(subtaskId: number, userId: number): Promise<void> {
+    const [subtaskData] = await db.select({ parentTaskId: subtasks.parentTaskId }).from(subtasks).where(eq(subtasks.id, subtaskId));
+    if (!subtaskData) { console.warn(`[Storage deleteSubtask] Subtask ${subtaskId} not found.`); return; }
+    const parentTaskId = subtaskData.parentTaskId;
+    const [parentTask] = await db.select({ userId: tasks.userId }).from(tasks).where(eq(tasks.id, parentTaskId));
+    if (!parentTask || parentTask.userId !== userId) { throw new Error(`User ${userId} cannot modify subtasks for task ${parentTaskId}.`); }
+
+    await db.delete(subtasks).where(eq(subtasks.id, subtaskId));
+    console.log(`[Storage deleteSubtask] Deleted subtask ${subtaskId} (Task ${parentTaskId}).`);
   }
 
   // Daily Schedule methods
