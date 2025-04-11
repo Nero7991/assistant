@@ -9,7 +9,7 @@ export function AppLayout({ children }: AppLayoutProps) {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <MainNav />
-      <main className="container mx-auto p-4 pt-20 md:p-8 md:pt-24 flex-grow">
+      <main className="container mx-auto p-4 md:p-8 flex-grow">
         {children}
       </main>
       <footer className="py-4 border-t mt-auto">

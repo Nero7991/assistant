@@ -29,7 +29,7 @@ export function MainNav() {
         {/* Logo */}
         <Link href="/" className="flex items-center gap-2 mr-8">
           <Brain className="h-6 w-6" />
-          <span className="font-bold">Assistant</span>
+          <span className="font-bold">Kona</span>
         </Link>
 
         {/* Desktop Navigation */}

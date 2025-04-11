@@ -8,7 +8,8 @@ import {
   goals,
   scheduleItems,
   users,
-  dailySchedules 
+  dailySchedules,
+  taskEvents
 } from '@shared/schema';
 import { format } from 'date-fns';
 import { storage } from '../storage'; // Import storage
@@ -242,6 +243,20 @@ export const llmFunctionDefinitions = [
         }
       },
       required: ['subtaskId', 'parentTaskId']
+    }
+  },
+  {
+    name: 'mark_task_skipped_today',
+    description: 'Marks a specific task as skipped for the current day. Call this if the user explicitly indicates they did not or will not complete a task today in response to a follow-up.',
+    parameters: {
+      type: 'object',
+      properties: {
+        taskId: { 
+          type: 'integer',
+          description: 'The unique ID of the task to mark as skipped for today.'
+        }
+      },
+      required: ['taskId']
     }
   },
   {
@@ -721,30 +736,38 @@ export class LLMFunctions {
   /**
    * Update an existing task
    */
-  async update_task(context: LLMFunctionContext, params: { taskId: number; updates: Partial<Task> }) {
-    console.log("[LLM Function] update_task called with params:", params);
+  async update_task(context: LLMFunctionContext, params: any) {
+    console.log("[LLM Function] update_task called with raw params:", params);
+    const { userId } = context;
+    const { taskId, ...otherParams } = params;
+
+    // Basic validation
+    if (typeof taskId !== 'number') {
+      console.error("[LLM Function] update_task error: Invalid or missing taskId.");
+      return { error: 'Invalid or missing taskId.' };
+    }
+
+    // Construct the updates object from otherParams
+    const updates: Partial<Task> = { ...otherParams };
+
+    // Ensure updates object is not empty
+    if (Object.keys(updates).length === 0) {
+      console.error("[LLM Function] update_task error: No update fields provided.");
+      return { error: 'No update fields provided besides taskId.' };
+    }
+
+    console.log(`[LLM Function] Attempting updateTask for taskId ${taskId} with updates:`, updates);
+
     try {
-      if (!params.taskId || !params.updates || Object.keys(params.updates).length === 0) {
-        return { error: "Missing required fields: taskId and a non-empty updates object are required." };
+      // Call storage.updateTask with taskId and the constructed updates object
+      const updatedTask = await storage.updateTask(taskId, updates);
+      if (!updatedTask) {
+        return { error: `Task with ID ${taskId} not found or update failed.` };
       }
-
-      // Ensure userId from context matches task being updated (optional security check)
-      const task = await storage.getTask(params.taskId); // Assuming getTask exists in storage
-      if (!task || task.userId !== context.userId) {
-        return { error: "Task not found or permission denied." };
-      }
-
-      // Convert dueDate string in updates if present
-      if (params.updates.deadline && typeof params.updates.deadline === 'string') {
-        params.updates.deadline = new Date(params.updates.deadline);
-      }
-
-      const updatedTask = await storage.updateTask(params.taskId, params.updates);
-      console.log("[LLM Function] Task updated:", updatedTask);
-      return { success: true, taskId: updatedTask.id };
-    } catch (error) {
-      console.error('[LLM Function] Error updating task:', error);
-      return { error: `Failed to update task: ${error instanceof Error ? error.message : String(error)}` };
+      return { success: true, updatedTask };
+    } catch (error: any) {
+      console.error(`[LLM Function] Error in storage.updateTask for taskId ${taskId}:`, error);
+      return { error: `Failed to update task ${taskId}: ${error.message}` };
     }
   }
 
@@ -987,6 +1010,61 @@ export class LLMFunctions {
       return { error: `Failed to delete scheduled message: ${error instanceof Error ? error.message : String(error)}` };
     }
   }
+
+  // Mark a task as skipped for today
+  async mark_task_skipped_today(context: LLMFunctionContext, params: { taskId: number }) {
+    console.log("[LLM Function] mark_task_skipped_today called with params:", params);
+    const { userId } = context;
+    const { taskId } = params;
+
+    if (typeof taskId !== 'number') {
+      return { error: 'Invalid or missing taskId.' };
+    }
+
+    try {
+      const task = await storage.getTask(taskId);
+      if (!task || task.userId !== userId) {
+        return { error: `Task ${taskId} not found or permission denied.` };
+      }
+
+      // Get today's date in YYYY-MM-DD format (use UTC for consistency)
+      const todayDateStr = format(new Date(), 'yyyy-MM-dd'); 
+      
+      const currentMetadata = task.metadata || {};
+      const updatedMetadata = { ...currentMetadata, skippedDate: todayDateStr };
+
+      // Use storage.updateTask to update only the metadata
+      const updatedTask = await storage.updateTask(taskId, { metadata: updatedMetadata });
+
+      if (!updatedTask) {
+        return { error: `Failed to update metadata for task ${taskId}.` };
+      }
+
+      console.log(`[LLM Function] Marked task ${taskId} as skipped for ${todayDateStr}.`);
+
+      // ---> NEW: Log the skip event
+      try {
+        await db.insert(taskEvents).values({
+          userId: userId,
+          taskId: taskId,
+          eventType: 'skipped_today',
+          eventDate: new Date(), // Log when the skip was recorded (effectively today)
+          notes: 'Marked skipped via LLM response.', 
+          createdAt: new Date(),
+        });
+        console.log(`[LLM Function] Logged 'skipped_today' event for task ${taskId}.`);
+      } catch (eventError) {
+        console.error(`[LLM Function] Failed to log 'skipped_today' event for task ${taskId}:`, eventError);
+        // Don't fail the whole function if logging fails, but log the error
+      }
+      // <--- END NEW
+
+      return { success: true, taskId: taskId, skippedDate: todayDateStr };
+    } catch (error: any) {
+      console.error(`[LLM Function] Error marking task ${taskId} skipped:`, error);
+      return { error: `Failed to mark task ${taskId} as skipped: ${error.message}` };
+    }
+  }
 }
 
 // --- Create and Export the Function Executor Map ---
@@ -1010,4 +1088,5 @@ export const llmFunctionExecutors: { [key: string]: Function } = {
   delete_schedule_item: llmFunctionsInstance.delete_schedule_item.bind(llmFunctionsInstance),
   schedule_message: llmFunctionsInstance.schedule_message.bind(llmFunctionsInstance),
   delete_scheduled_message: llmFunctionsInstance.delete_scheduled_message.bind(llmFunctionsInstance),
+  mark_task_skipped_today: llmFunctionsInstance.mark_task_skipped_today.bind(llmFunctionsInstance),
 };

@@ -208,12 +208,12 @@ export function ChatInterface() {
   };
   
   return (
-    <div className="flex flex-col h-[calc(100vh-12rem)] border rounded-lg overflow-hidden bg-background">
+    <div className="flex flex-col h-full border rounded-lg overflow-hidden bg-background">
       {/* Chat header */}
       <div className="px-4 py-3 border-b flex items-center justify-between bg-muted/30">
         <div className="flex items-center gap-2">
           <Bot className="h-5 w-5 text-primary" />
-          <h3 className="font-semibold">ADHD Coach</h3>
+          <h3 className="font-semibold">Kona</h3>
         </div>
         <Button 
           variant="outline" 

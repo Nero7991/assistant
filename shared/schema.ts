@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, index, json, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations, sql } from "drizzle-orm";
@@ -183,10 +183,35 @@ export const scheduleRevisions = pgTable("schedule_revisions", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// ---> NEW: Task Events Table
+export const taskEvents = pgTable("task_events", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  taskId: integer("task_id").notNull().references(() => tasks.id, { onDelete: 'cascade' }),
+  subtaskId: integer("subtask_id").references(() => subtasks.id, { onDelete: 'set null' }), // Optional link to subtask
+  eventType: text("event_type").notNull(), // e.g., 'completed', 'skipped_today'
+  eventDate: timestamp("event_date").notNull(), // The date the event applies to (e.g., the day it was skipped)
+  notes: text("notes"), // Optional notes
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+// <--- END NEW
+
+// ---> NEW: Session Table Definition (to match connect-pg-simple)
+// ---> UPDATED: Use types matching DB schema
+export const session = pgTable("session", {
+  sid: varchar("sid").primaryKey(), // Use varchar to match 'character varying'
+  sess: json("sess").notNull(),
+  // Use timestamp with precision, omit withTimezone to match 'without time zone'
+  expire: timestamp("expire", { mode: 'date', precision: 6 }).notNull() 
+});
+
+// ---> Keep Index definition commented out for now
+// export const sessionExpireIndex = index("IDX_session_expire").on(session.expire);
 
 export const tasksRelations = relations(tasks, ({ many }) => ({
   subtasks: many(subtasks),
   scheduleItems: many(scheduleItems),
+  events: many(taskEvents),
 }));
 
 export const subtasksRelations = relations(subtasks, ({ one, many }) => ({
@@ -195,6 +220,7 @@ export const subtasksRelations = relations(subtasks, ({ one, many }) => ({
     references: [tasks.id],
   }),
   scheduleItems: many(scheduleItems),
+  events: many(taskEvents),
 }));
 
 export const dailySchedulesRelations = relations(dailySchedules, ({ one, many }) => ({
@@ -229,6 +255,22 @@ export const scheduleRevisionsRelations = relations(scheduleRevisions, ({ one })
   schedule: one(dailySchedules, {
     fields: [scheduleRevisions.scheduleId],
     references: [dailySchedules.id],
+  }),
+}));
+
+// ---> NEW: Relation for TaskEvents to User, Task, Subtask
+export const taskEventsRelations = relations(taskEvents, ({ one }) => ({
+  user: one(users, {
+    fields: [taskEvents.userId],
+    references: [users.id],
+  }),
+  task: one(tasks, {
+    fields: [taskEvents.taskId],
+    references: [tasks.id],
+  }),
+  subtask: one(subtasks, {
+    fields: [taskEvents.subtaskId],
+    references: [subtasks.id],
   }),
 }));
 

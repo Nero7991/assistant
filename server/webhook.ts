@@ -74,48 +74,65 @@ export async function handleWhatsAppWebhook(req: Request, res: Response) {
   console.log('****************************************************');
   
   try {
-    // Check if this is a status update webhook rather than a message
-    if (req.body.SmsStatus) {
-      console.log(`Received status update: ${req.body.SmsStatus} for message ${req.body.MessageSid}`);
-      // Just acknowledge status updates
-      return res.status(200).send('Status update received');
-    }
-    
-    // Process incoming message
+    // ---> REVISED LOGIC: Prioritize checking for essential message fields
     const messageBody = req.body.Body;
     const from = req.body.From;
-    
-    if (!messageBody || !from) {
-      console.log('Missing required fields in webhook request');
-      return res.status(400).send('Missing required fields');
-    }
+    const smsStatus = req.body.SmsStatus;
 
-    // Extract phone number without the whatsapp: prefix
-    const userPhone = from.replace("whatsapp:", "");
-    
-    // Find the user ID based on phone number
-    const userId = await findUserByPhoneNumber(userPhone);
-    
-    if (!userId) {
-      console.log(`No user found with phone ${userPhone}, unable to process message`);
+    // Check if it's a valid incoming message payload
+    if (messageBody && from) {
+      console.log(`[Webhook] Valid incoming message detected (Body & From exist). Processing...`);
+
+      // Extract phone number without the whatsapp: prefix
+      const userPhone = from.replace("whatsapp:", "");
       
-      // For unrecognized numbers, send a polite response
-      const twiml = new twilio.twiml.MessagingResponse();
-      twiml.message('Sorry, we couldn\'t identify your account. Please make sure you\'ve verified your phone number in the app.');
-      return res.type("text/xml").send(twiml.toString());
+      // Find the user ID based on phone number
+      const userId = await findUserByPhoneNumber(userPhone);
+      
+      if (!userId) {
+        console.log(`[Webhook] No user found with phone ${userPhone}, sending rejection message.`);
+        
+        // For unrecognized numbers, send a polite response via TwiML
+        const twimlReject = new twilio.twiml.MessagingResponse();
+        twimlReject.message('Sorry, we couldn\'t identify your account. Please make sure you\'ve verified your phone number in the app.');
+        // Respond synchronously for rejection
+        return res.type("text/xml").send(twimlReject.toString());
+      }
+      
+      console.log(`Processing WhatsApp message from user ${userId} (${userPhone}): ${messageBody.substring(0, 50)}${messageBody.length > 50 ? '...' : ''}`);
+
+      // Respond to Twilio IMMEDIATELY with empty TwiML to acknowledge receipt
+      const twimlAck = new twilio.twiml.MessagingResponse();
+      res.type("text/xml").send(twimlAck.toString());
+
+      // Process the message ASYNCHRONOUSLY in the background
+      (async () => {
+          try {
+              await messagingService.handleUserResponse(userId, messageBody);
+              console.log(`[Webhook Async] Successfully processed message from user ${userId}`);
+          } catch (asyncError) {
+              console.error(`[Webhook Async] Error processing message from user ${userId}:`, asyncError);
+          }
+      })();
+
+    } else if (smsStatus) {
+      // If Body or From is missing, but SmsStatus IS present, treat as a status update
+      console.log(`[Webhook] Received status update: ${smsStatus} for message ${req.body.MessageSid}. Acknowledging.`);
+      // Just acknowledge status updates with 200 OK
+      return res.status(200).send('Status update received');
+    } else {
+      // If none of the above, it's an invalid/incomplete request
+      console.log('[Webhook] Invalid webhook request: Missing Body/From and not a status update.');
+      return res.status(400).send('Invalid request: Missing required fields or not a status update.');
     }
-    
-    console.log(`Processing WhatsApp message from user ${userId} (${userPhone}): ${messageBody.substring(0, 50)}${messageBody.length > 50 ? '...' : ''}`);
+    // <--- END REVISED LOGIC
 
-    // Handle the user's response with the messagingService singleton
-    await messagingService.handleUserResponse(userId, messageBody);
-
-    // Send a TwiML response (required by Twilio)
-    // We won't respond here since the message handling process will send a response message separately
-    const twiml = new twilio.twiml.MessagingResponse();
-    return res.type("text/xml").send(twiml.toString());
   } catch (error) {
     console.error("Error processing WhatsApp webhook:", error);
-    res.status(500).send("Error processing message");
+    // Send a generic 500 error if something unexpected happens
+    // Avoid sending TwiML here as the initial response might have already gone out
+    if (!res.headersSent) {
+       res.status(500).send("Error processing message");
+    }
   }
 }

@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1744241024126,
+      "tag": "0000_add_task_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1744242297675,
+      "tag": "0001_add_task_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1744242888724,
+      "tag": "0002_add_task_events",
+      "breakpoints": true
+    }
+  ]
+}

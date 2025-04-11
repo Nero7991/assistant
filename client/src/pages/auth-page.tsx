@@ -105,7 +105,7 @@ export default function AuthPage() {
               <CardHeader className="space-y-1">
                 <div className="flex items-center gap-2">
                   <Brain className="h-6 w-6" />
-                  <CardTitle className="text-2xl">Assistant</CardTitle>
+                  <CardTitle className="text-2xl">Kona</CardTitle>
                 </div>
                 <CardDescription>
                   Your kind & encouraging AI personal assistant
@@ -137,9 +137,9 @@ export default function AuthPage() {
           </div>
           <div className="hidden lg:flex flex-col justify-center p-8 bg-primary text-primary-foreground">
             <div className="max-w-md mx-auto space-y-6">
-              <h1 className="text-4xl font-bold">Assistant</h1>
+              <h1 className="text-4xl font-bold">Kona</h1>
               <p className="text-lg">
-                Your kind and encouraging personal assistant, helping you stay accountable towards tasks and life goals via text messages. Designed for executive function support, you can also talk to it about anything on your mind.
+                Kona is your kind and encouraging personal assistant, helping you stay accountable towards tasks and life goals via text messages. Designed for executive function support, you can also talk to it about anything on your mind.
               </p>
               <ul className="space-y-2">
                 <li>• Get kind, encouraging text messages</li>

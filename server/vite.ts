@@ -48,30 +48,34 @@ export async function setupVite(app: Express, server: Server) {
   });
 
   app.use(vite.middlewares);
+
+  // ---> ADD BACK SPA Fallback Middleware for development
   app.use("*", async (req, res, next) => {
+    // Only handle GET requests intended for HTML
+    if (req.method !== 'GET' || req.headers.accept?.includes('text/event-stream')) {
+        return next();
+    }
+    
     const url = req.originalUrl;
-
     try {
-      const clientTemplate = path.resolve(
-        __dirname,
-        "..",
-        "client",
-        "index.html",
+      // 1. Read index.html
+      const template = await fs.promises.readFile(
+        path.resolve(viteConfig.root || process.cwd(), 'index.html'),
+        'utf-8',
       );
 
-      // always reload the index.html file from disk incase it changes
-      let template = await fs.promises.readFile(clientTemplate, "utf-8");
-      template = template.replace(
-        `src="/src/main.tsx"`,
-        `src="/src/main.tsx?v=${nanoid()}"`,
-      );
-      const page = await vite.transformIndexHtml(url, template);
-      res.status(200).set({ "Content-Type": "text/html" }).end(page);
+      // 2. Apply Vite HTML transforms. This injects HMR client & plugins
+      const html = await vite.transformIndexHtml(url, template);
+
+      // 3. Send the transformed HTML to the client
+      res.status(200).set({ 'Content-Type': 'text/html' }).end(html);
     } catch (e) {
+      // If an error occurs, let Vite fix the stack trace
       vite.ssrFixStacktrace(e as Error);
       next(e);
     }
   });
+  // <--- END ADD BACK
 }
 
 export function serveStatic(app: Express) {

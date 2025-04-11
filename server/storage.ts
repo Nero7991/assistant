@@ -3,7 +3,8 @@ import createMemoryStore from "memorystore";
 import { 
   User, Goal, CheckIn, Task, KnownUserFact, InsertKnownUserFact, InsertTask, Subtask, InsertSubtask,
   DailySchedule, ScheduleItem, ScheduleRevision, MessageSchedule,
-  InsertDailySchedule, InsertScheduleItem, InsertScheduleRevision
+  InsertDailySchedule, InsertScheduleItem, InsertScheduleRevision,
+  taskEvents
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, gte, lte, inArray, isNull } from "drizzle-orm";
@@ -313,15 +314,44 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateTask(id: number, update: Partial<Task>): Promise<Task> {
-    const [updated] = await db
+    const now = new Date();
+    const updateData = {
+      ...update,
+      updatedAt: now,
+    };
+
+    // Check if completing the task
+    const isCompleting = updateData.status === 'completed' || (updateData.completedAt && updateData.completedAt <= now);
+    if (isCompleting && !updateData.completedAt) {
+      updateData.completedAt = now;
+      updateData.status = 'completed'; // Ensure status is also set
+    }
+
+    const [updatedTask] = await db
       .update(tasks)
-      .set({
-        ...update,
-        updatedAt: new Date(),
-      })
+      .set(updateData)
       .where(eq(tasks.id, id))
       .returning();
-    return updated;
+
+    // ---> Log completion event if applicable
+    if (isCompleting && updatedTask) {
+      try {
+        await db.insert(taskEvents).values({
+          userId: updatedTask.userId,
+          taskId: updatedTask.id,
+          eventType: 'completed',
+          eventDate: updateData.completedAt || now, // Use the completion time
+          createdAt: now,
+        });
+        console.log(`[Storage] Logged 'completed' event for task ${updatedTask.id}.`);
+      } catch (eventError) {
+        console.error(`[Storage] Failed to log 'completed' event for task ${updatedTask.id}:`, eventError);
+      }
+    }
+    // <--- END NEW
+
+    if (!updatedTask) throw new Error(`Task ${id} not found`);
+    return updatedTask;
   }
 
   async deleteTask(id: number): Promise<void> {
@@ -336,17 +366,37 @@ export class DatabaseStorage implements IStorage {
   }
 
   async completeTask(id: number): Promise<Task> {
+    console.log(`[Storage] Attempting to complete task ${id}`);
     const now = new Date();
-    const [completed] = await db
+    const [completedTask] = await db
       .update(tasks)
       .set({
-        status: 'completed',
+        status: "completed",
         completedAt: now,
         updatedAt: now,
       })
       .where(eq(tasks.id, id))
       .returning();
-    return completed;
+
+    if (!completedTask) throw new Error(`Task ${id} not found`);
+
+    // ---> Log completion event
+    try {
+      await db.insert(taskEvents).values({
+        userId: completedTask.userId,
+        taskId: completedTask.id,
+        eventType: 'completed',
+        eventDate: now,
+        createdAt: now,
+      });
+      console.log(`[Storage] Logged 'completed' event for task ${completedTask.id}.`);
+    } catch (eventError) {
+      console.error(`[Storage] Failed to log 'completed' event for task ${completedTask.id}:`, eventError);
+    }
+    // <--- END NEW
+
+    console.log(`[Storage] Completed task ${id}`);
+    return completedTask;
   }
 
   // Contact verification methods
@@ -703,27 +753,88 @@ export class DatabaseStorage implements IStorage {
 
   async completeSubtask(id: number): Promise<Subtask> {
     const now = new Date();
-    const [completed] = await db
+    const [completedSubtask] = await db
       .update(subtasks)
       .set({
-        status: 'completed',
+        status: "completed",
         completedAt: now,
         updatedAt: now,
       })
       .where(eq(subtasks.id, id))
       .returning();
-    return completed;
+      
+    if (!completedSubtask) throw new Error(`Subtask ${id} not found`);
+
+    // ---> Log completion event
+    try {
+      // Need userId, get it from the parent task
+      const [parentTask] = await db.select({ userId: tasks.userId }).from(tasks).where(eq(tasks.id, completedSubtask.parentTaskId));
+      if (parentTask?.userId) {
+         await db.insert(taskEvents).values({
+           userId: parentTask.userId,
+           taskId: completedSubtask.parentTaskId,
+           subtaskId: completedSubtask.id,
+           eventType: 'completed',
+           eventDate: now,
+           createdAt: now,
+         });
+         console.log(`[Storage] Logged 'completed' event for subtask ${completedSubtask.id}.`);
+      } else {
+         console.warn(`[Storage] Could not log completion event for subtask ${id}, parent task or user not found.`);
+      }
+    } catch (eventError) {
+      console.error(`[Storage] Failed to log 'completed' event for subtask ${completedSubtask.id}:`, eventError);
+    }
+    // <--- END NEW
+
+    return completedSubtask;
   }
   async updateSubtask(id: number, updates: Partial<Subtask>): Promise<Subtask> {
-    const [updated] = await db
+    const now = new Date();
+    const updateData = {
+      ...updates,
+      updatedAt: now,
+    };
+
+    // Check if completing the subtask
+    const isCompleting = updateData.status === 'completed' || (updateData.completedAt && updateData.completedAt <= now);
+    if (isCompleting && !updateData.completedAt) {
+      updateData.completedAt = now;
+      updateData.status = 'completed'; // Ensure status is also set
+    }
+
+    const [updatedSubtask] = await db
       .update(subtasks)
-      .set({
-        ...updates,
-        updatedAt: new Date(),
-      })
+      .set(updateData)
       .where(eq(subtasks.id, id))
       .returning();
-    return updated;
+
+    // ---> Log completion event if applicable
+    if (isCompleting && updatedSubtask) {
+      try {
+        // Need userId, get it from the parent task
+        const [parentTask] = await db.select({ userId: tasks.userId }).from(tasks).where(eq(tasks.id, updatedSubtask.parentTaskId));
+        if (parentTask?.userId) {
+          await db.insert(taskEvents).values({
+            userId: parentTask.userId,
+            taskId: updatedSubtask.parentTaskId,
+            subtaskId: updatedSubtask.id,
+            eventType: 'completed',
+            eventDate: updateData.completedAt || now,
+            createdAt: now,
+          });
+          console.log(`[Storage] Logged 'completed' event for subtask ${updatedSubtask.id}.`);
+        } else {
+          console.warn(`[Storage] Could not log completion event for subtask ${id}, parent task or user not found.`);
+        }
+      } catch (eventError) {
+        console.error(`[Storage] Failed to log 'completed' event for subtask ${updatedSubtask.id}:`, eventError);
+      }
+    }
+    // <--- END NEW
+    
+    if (!updatedSubtask) throw new Error(`Subtask ${id} not found`);
+    return updatedSubtask;
   }
   
   async deleteSubtask(taskId: number, subtaskId: number): Promise<void> {

@@ -17,7 +17,7 @@ import {
   ScheduleItem,
 } from "@shared/schema";
 import { db } from "../db";
-import { eq, and, lte, desc, gt, isNull, not, lt, gte, sql } from "drizzle-orm";
+import { eq, and, lte, desc, gt, isNull, not, lt, gte, sql, or } from "drizzle-orm";
 import { storage } from "../storage";
 import { FINAL_SCHEDULE_MARKER } from "./schedule-parser-new";
 import {
@@ -61,7 +61,7 @@ export interface MessageContext {
     | "task_suggestion"
     | string;
   functionResults?: Record<string, any>; // Results from previous tool calls in a loop
-  // agentModeHistory?: Array<{ action: string; params?: Record<string, any>; result: any; timestamp: string; }>; // Simplified for now
+  taskDetails?: any; // New field for task details
 }
 
 export interface ScheduleUpdate {
@@ -87,7 +87,7 @@ export class MessagingService {
 
   // --- Unified Prompt Template ---
   private createUnifiedPrompt(context: MessageContext): string {
-    const { user, tasks, facts, previousMessages, currentDateTime, messageType, systemRequestType, userResponse, functionResults } = context;
+    const { user, tasks, facts, previousMessages, currentDateTime, messageType, systemRequestType, userResponse, functionResults, taskDetails } = context;
     const userId = user.id;
 
     // Construct the system prompt portion
@@ -95,6 +95,8 @@ export class MessagingService {
 
     // Determine the goal instruction based on message type
     let goalInstruction = "";
+    const specificTaskInfo = taskDetails ? ` for the task: \"${taskDetails.taskTitle}\" (ID: ${taskDetails.taskId}) scheduled at ${taskDetails.taskScheduledTime}` : "";
+
     switch (messageType) {
       case "morning":
         goalInstruction = `Generate the morning summary and plan for ${currentDateTime.split(",")[0]}. Propose a schedule using 'propose_daily_schedule'. Your response MUST be JSON.`;
@@ -103,11 +105,24 @@ export class MessagingService {
         goalInstruction = `User wants help rescheduling tasks or their day. Analyze their request and the current tasks/schedule. If appropriate, propose a new schedule using 'propose_daily_schedule'. Your response MUST be JSON.`;
         break;
       case "system_request":
-        goalInstruction = `This is a system-initiated request for: ${systemRequestType}. Generate the appropriate content (e.g., task suggestion, reminder). Your response MUST be JSON.`;
+        let baseInstruction = `This is a system-initiated request for: ${systemRequestType}.`;
+        if (systemRequestType === 'task_pre_reminder') {
+          goalInstruction = `${baseInstruction} Generate a brief, friendly pre-reminder message focused *only* on this task${specificTaskInfo}.`;
+        } else if (systemRequestType === 'task_reminder') {
+          goalInstruction = `${baseInstruction} Generate a brief, friendly message reminding the user to do this task now, focused *only* on this task${specificTaskInfo}.`;
+        } else if (systemRequestType === 'task_post_reminder_follow_up') {
+          goalInstruction = `${baseInstruction} Generate a brief, friendly follow-up message asking if the user completed the task, focused *only* on this task${specificTaskInfo}. Do not list other tasks.`;
+        } else if (systemRequestType === 'task_follow_up') {
+          goalInstruction = `${baseInstruction} The user hasn't marked this task as done significantly after its scheduled time. Generate a brief, friendly follow-up message asking about the task, focused *only* on this task${specificTaskInfo}. Do not list other tasks.`;
+    } else {
+          // Default system request instruction
+          goalInstruction = `${baseInstruction} Generate the appropriate content.`;
+        }
+        goalInstruction += " Your response MUST be JSON."; // Ensure JSON format for all system requests?
         break;
       case "response":
       default:
-        goalInstruction = `Respond to the user's latest message: "${userResponse}". Address their request, manage tasks/schedule, or ask clarifying questions as needed based on the workflow. Your response MUST be JSON.`;
+        goalInstruction = `Respond to the user's latest message: "${userResponse}". Address their request, manage tasks/schedule, or ask clarifying questions as needed based on the workflow. \nIMPORTANT: If the user is responding to a follow-up about a task and indicates they did NOT complete it today, acknowledge their response AND call the function \`mark_task_skipped_today({taskId: <task_id>})\` to prevent further follow-ups for that task today. Your response MUST be JSON.`;
     }
 
     // Include function results if available from a previous loop iteration
@@ -168,7 +183,7 @@ export class MessagingService {
           // Prepend system prompt to the first user message
           geminiHistory[0].content = `${systemPrompt}\n\n${geminiHistory[0].content}`;
           messages.push(...geminiHistory);
-    } else {
+        } else {
           // If history starts with assistant or is empty, send system prompt as first user message
           messages.push({ role: 'user', content: systemPrompt });
           messages.push(...geminiHistory);
@@ -287,7 +302,6 @@ export class MessagingService {
         const currentPrompt = this.createUnifiedPrompt(messageContext);
 
         // C. Call the LLM using the new abstracted function
-        // Pass the current conversation history
         const assistantResponseObject = await this.generateUnifiedResponse(userId, currentPrompt, conversationHistory);
         // Raw content is now directly from the standardized response
         const assistantRawContent = assistantResponseObject.content || `{ "message": "Error: Received empty response from LLM." }`;
@@ -314,7 +328,7 @@ export class MessagingService {
             functionName = processedResult.function_call.name;
             functionArgs = processedResult.function_call.arguments || {}; // Already parsed
             console.log(`LLM requested function call via JSON content: ${functionName}`);
-        } else {
+    } else {
             // Log if no function call was found in the parsed content
             console.log("No function_call found in processed LLM response content.");
         }
@@ -338,7 +352,7 @@ export class MessagingService {
                     executionResult = { error: `Unknown function: ${functionName}` };
                     functionResultMessageContent = JSON.stringify(executionResult);
                 }
-            } catch (error) {
+          } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
                 console.error(`Error executing function ${functionName}: `, error);
                 executionResult = { error: `Error executing function ${functionName}: ${errorMessage}` };
@@ -358,11 +372,20 @@ export class MessagingService {
             // J. Continue loop
             continue;
 
-    } else {
+      } else {
             // --- No Function Call Detected - Final Response ---
             console.log("LLM provided final response (no function_call in content). Processing final actions.");
             finalAssistantMessage = processedResult.message;
             
+            // ---> NEW: Post-process message for WhatsApp formatting
+            if (finalAssistantMessage) {
+                // Replace Markdown bold (**) with WhatsApp bold (*)
+                // Using regex to capture content between double asterisks
+                finalAssistantMessage = finalAssistantMessage.replace(/\*\*(.*?)\*\*/g, '*$1*');
+                console.log("[Formatting] Applied WhatsApp bold conversion.");
+            }
+            // <--- END NEW
+
             // --- Keep existing K, L, M, N steps for final processing ---
             // K. Perform Actions based on Final Processed Result
             // ... (rest of the code) ...
@@ -417,9 +440,11 @@ export class MessagingService {
             }
 
             // M. Send Final Message to User
-            // ... (existing logic using user.phoneNumber and processedResult.message) ...
-             if (user.phoneNumber && user.contactPreference === 'whatsapp') {
-                 await this.sendWhatsAppMessage(user.phoneNumber, processedResult.message);
+            // If user has a verified phone number, send the response via WhatsApp
+            // regardless of original contact preference, to keep chats synced.
+             if (user.phoneNumber) { // Maybe add && user.isPhoneVerified later if needed
+                 console.log(`[Sync] Attempting to send final response to WhatsApp for user ${userId}`);
+                 await this.sendWhatsAppMessage(user.phoneNumber, finalAssistantMessage);
              }
 
             // N. Exit Loop
@@ -470,6 +495,7 @@ export class MessagingService {
         messageType: contextType,
         systemRequestType: systemRequestType, // Pass the specific type
         userResponse: contextData.userRequest || undefined, // Include if system request is based on prior user input
+        taskDetails: contextData.taskDetails 
       };
 
       // 2. Prepare Conversation History for API
@@ -491,6 +517,14 @@ export class MessagingService {
       const finalContent = assistantMessage.content || `{ "message": "System message generation failed." }`;
       const processedResult = this.processLLMResponse(finalContent);
 
+       // ---> NEW: Apply WhatsApp formatting
+       let messageToUser = processedResult.message;
+       if (messageToUser) {
+           messageToUser = messageToUser.replace(/\*\*(.*?)\*\*/g, '*$1*');
+           console.log("[Formatting] Applied WhatsApp bold conversion to system message.");
+       }
+       // <--- END NEW
+
        // 4. Perform Actions (Save Message, Send to User if needed)
        const finalMetadata: any = { systemInitiated: true, type: systemRequestType };
         // Store proposal updates if it's a reschedule request, don't process yet
@@ -505,7 +539,7 @@ export class MessagingService {
 
       await db.insert(messageHistory).values({
         userId,
-        content: processedResult.message,
+        content: messageToUser, // ---> Use formatted message
         type: "coach_response", // Mark as coach response, metadata indicates system initiated
         status: "sent",
         metadata: Object.keys(finalMetadata).length > 0 ? finalMetadata : undefined,
@@ -513,15 +547,16 @@ export class MessagingService {
       });
 
        // Only send interactive system messages (like summaries/proposals) to the user
-       const shouldSendMessage = systemRequestType === 'morning_summary' || systemRequestType === 'reschedule_request';
-       if (user.phoneNumber && user.contactPreference === 'whatsapp' && shouldSendMessage) {
-            await this.sendWhatsAppMessage(user.phoneNumber, processedResult.message);
-            console.log(`Sent system-initiated message (${systemRequestType}) to user ${userId}`);
-        } else {
-            console.log(`System message type ${systemRequestType} generated, but not sent directly to user.`);
+       const shouldSendMessage = systemRequestType === 'morning_summary' || systemRequestType === 'reschedule_request' || systemRequestType.startsWith('task_'); // Send reminders/followups
+       // ---> FIX: Check if user.phoneNumber exists before comparing contactPreference
+       if (user.phoneNumber && shouldSendMessage) { // Send system messages via WhatsApp if phone exists
+            console.log(`[Sync] Attempting to send system-initiated message (${systemRequestType}) to WhatsApp for user ${userId}`);
+            await this.sendWhatsAppMessage(user.phoneNumber, messageToUser); // ---> Use formatted message
+    } else {
+            console.log(`System message type ${systemRequestType} generated, but not sent directly to user (no phone or type mismatch).`);
         }
 
-      return processedResult.message; // Return generated message content
+      return messageToUser; // ---> Return formatted message
 
         } catch (error) {
       console.error(`Error handling system message (${systemRequestType}) for user ${userId}: `, error);
@@ -570,7 +605,7 @@ export class MessagingService {
       if (looksLikeJson) {
         // Try standard parsing on the cleaned content
         parsed = JSON.parse(cleanContent);
-                } else {
+    } else {
         // If it doesn't look like JSON after cleaning, treat as plain text message
         console.warn("Content did not look like JSON after cleaning, treating as plain text:", cleanContent);
         return {
@@ -586,7 +621,7 @@ export class MessagingService {
        if (typeof parsed.message !== 'string' && !parsed.function_call) {
            console.warn("Parsed JSON response lacks both 'message' string field and 'function_call'. Using raw content as fallback message.", cleanContent);
             // Return a fallback structure, but use the cleaned content as the message
-          return {
+      return {
                message: cleanContent, 
                scheduleUpdates: [],
                scheduledMessages: [],
@@ -881,40 +916,65 @@ export class MessagingService {
 
               // Parse HH:MM time and combine with today's date in user's timezone
               const [hours, minutes] = task.scheduledTime.split(':').map(Number);
-              // Create a date object representing the target time in the user's local timezone
-              const scheduledTimeLocal = new Date(todayStartLocal); // Start with today at 00:00 local
-              scheduledTimeLocal.setHours(hours, minutes, 0, 0);
+              const taskTimeLocal = new Date(todayStartLocal); // Start with today at 00:00 local
+              taskTimeLocal.setHours(hours, minutes, 0, 0);
 
-              // Ensure the parsed time is valid
-              if (!isValidDate(scheduledTimeLocal)) {
+              if (!isValidDate(taskTimeLocal)) {
                  console.log(`[Scheduler] Invalid date created for task ${task.id} (${task.title}) at time ${task.scheduledTime}. Skipping.`);
                  continue;
               }
 
-              // The scheduledTimeLocal Date object already represents the correct UTC instant
-              // ---> FIX: Use the local Date object directly for storage (it's UTC based)
-              const scheduledForDb = scheduledTimeLocal;
-
-              // Avoid scheduling reminders in the past (e.g., if scheduler runs late)
-              if (scheduledForDb < now) {
-                  // Use formatInTimeZone for logging the local time accurately
-                  const logTimeLocal = formatInTimeZone(scheduledTimeLocal, timeZone, 'yyyy-MM-dd HH:mm:ssXXX');
-                  console.log(`[Scheduler] Calculated reminder time for task ${task.id} (${logTimeLocal}) is in the past. Skipping.`);
-                  continue;
+              // --- Schedule Pre-Reminder (15 mins before) ---
+              const preReminderTimeLocal = new Date(taskTimeLocal.getTime() - 15 * 60000);
+              if (preReminderTimeLocal >= now) { // Only schedule if not in the past
+                 await db.insert(messageSchedules).values({
+                   userId: user.id,
+                   type: 'pre_reminder',
+                   title: `Pre-Reminder: ${task.title}`,
+                   content: `Reminder: "${task.title}" is coming up in about 15 minutes!`, // Placeholder
+                   scheduledFor: preReminderTimeLocal,
+                   status: 'pending',
+                   metadata: { taskId: task.id, taskTitle: task.title, taskScheduledTime: task.scheduledTime },
+                   createdAt: now,
+                   updatedAt: now,
+                 });
+                 scheduledCount++;
               }
 
-              await db.insert(messageSchedules).values({
-                userId: user.id,
-                type: 'reminder',
-                title: `Reminder: ${task.title}`,
-                content: `Time for your task: "${task.title}"!`, // Simple reminder message
-                scheduledFor: scheduledForDb, // Store the Date object
-                status: 'pending',
-                metadata: { taskId: task.id, taskTitle: task.title, taskScheduledTime: task.scheduledTime },
-                createdAt: now,
-                updatedAt: now,
-              });
-              scheduledCount++;
+              // --- Schedule On-Time Reminder --- 
+              const onTimeReminderTimeLocal = taskTimeLocal;
+              if (onTimeReminderTimeLocal >= now) { // Only schedule if not in the past
+                 await db.insert(messageSchedules).values({
+                   userId: user.id,
+                   type: 'reminder',
+                   title: `Reminder: ${task.title}`,
+                   content: `It's time for your task: "${task.title}"!`, // Placeholder
+                   scheduledFor: onTimeReminderTimeLocal,
+                   status: 'pending',
+                   metadata: { taskId: task.id, taskTitle: task.title, taskScheduledTime: task.scheduledTime },
+                   createdAt: now,
+                   updatedAt: now,
+                 });
+                 scheduledCount++;
+              }
+
+              // --- Schedule Post-Reminder Follow-up (15 mins after) --- 
+              const postReminderTimeLocal = new Date(taskTimeLocal.getTime() + 15 * 60000);
+              if (postReminderTimeLocal >= now) { // Only schedule if not in the past
+                 await db.insert(messageSchedules).values({
+                   userId: user.id,
+                   type: 'post_reminder_follow_up',
+                   title: `Check-in: ${task.title}`,
+                   content: `Just checking: Did you manage to do "${task.title}"?`, // Placeholder
+                   scheduledFor: postReminderTimeLocal,
+                   status: 'pending',
+                   metadata: { taskId: task.id, taskTitle: task.title, taskScheduledTime: task.scheduledTime },
+                   createdAt: now,
+                   updatedAt: now,
+                 });
+                 scheduledCount++;
+              }
+
             } catch (taskError) {
               console.error(`[Scheduler] Error scheduling reminder for task ${task.id} (User ${user.id}):`, taskError);
             }
@@ -976,6 +1036,14 @@ export class MessagingService {
 
               if (!isValidDate(taskTimeLocal)) continue; // Skip invalid dates
 
+              // ---> NEW: Check if task was marked as skipped today
+              const todayDateStr = format(todayStartLocal, 'yyyy-MM-dd'); // Get today's date string
+              if ((task.metadata as { skippedDate?: string } | null)?.skippedDate === todayDateStr) {
+                  console.log(`[Scheduler] Skipping follow-up for task ${task.id} (User ${user.id}) because it was marked skipped for today (${todayDateStr}).`);
+                  continue;
+              }
+              // <--- END NEW
+
               // Calculate the time when follow-up should be considered (task time + buffer)
               const followUpConsiderTimeLocal = new Date(taskTimeLocal.getTime() + FOLLOW_UP_BUFFER_MINUTES * 60000);
 
@@ -984,21 +1052,31 @@ export class MessagingService {
                 continue; // Not overdue enough yet
               }
 
-              // Check if a follow-up for this task was already SENT today
-              // Check message_schedules for sent follow-ups today targeting this task
+              // Check if a follow-up for this task was already SENT or is PENDING today
               const existingFollowUp = await db.select().from(messageSchedules).where(
                  and(
                      eq(messageSchedules.userId, user.id),
                      eq(messageSchedules.type, 'follow_up'),
-                     // Match based on taskId stored in metadata
                      sql`${messageSchedules.metadata}->>'taskId' = ${task.id}`, 
-                     gte(messageSchedules.sentAt, todayStartLocal), // Sent today (local time)
-                     lt(messageSchedules.sentAt, tomorrowStartLocal) 
+                     // Check if scheduledFor or sentAt falls within today (local time)
+                     // Use OR to catch pending ones scheduled today OR sent ones sent today
+                     or(
+                         and( // Pending check
+                            eq(messageSchedules.status, 'pending'),
+                            gte(messageSchedules.scheduledFor, todayStartLocal),
+                            lt(messageSchedules.scheduledFor, tomorrowStartLocal)
+                         ),
+                         and( // Sent check
+                             eq(messageSchedules.status, 'sent'),
+                             gte(messageSchedules.sentAt, todayStartLocal),
+                             lt(messageSchedules.sentAt, tomorrowStartLocal)
+                         )
+                     )
                  )
               ).limit(1);
 
               if (existingFollowUp.length > 0) {
-                 // console.log(`[Scheduler] Follow-up already sent today for task ${task.id} (User ${user.id}). Skipping.`);
+                 console.log(`[Scheduler] Follow-up already pending or sent today for task ${task.id} (User ${user.id}). Skipping.`);
                  continue;
               }
 
@@ -1072,6 +1150,10 @@ export class MessagingService {
          if (schedule.type === 'morning_message') systemRequestType = 'morning_summary';
          else if (schedule.type === 'reminder') systemRequestType = 'task_reminder'; // Example mapping
          else if (schedule.type === 'follow_up') systemRequestType = 'task_follow_up'; // Example mapping
+         // ---> NEW Mappings
+         else if (schedule.type === 'pre_reminder') systemRequestType = 'task_pre_reminder';
+         else if (schedule.type === 'post_reminder_follow_up') systemRequestType = 'task_post_reminder_follow_up';
+         // <--- END NEW
          // Add other mappings if needed
 
          // Use handleSystemMessage to generate and send the message
