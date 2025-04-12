@@ -443,12 +443,6 @@ export class MessagingService {
                  console.log(`Processing ${processedResult.scheduledMessages.length} scheduled messages.`);
                  await this.processScheduledMessages(userId, processedResult.scheduledMessages);
             }
-            if ((!processedResult.scheduledMessages || processedResult.scheduledMessages.length === 0) && !isProposal && !isConfirmation) {
-                 const sentiment = await this.analyzeSentiment(processedResult.message, userId);
-                 if (sentiment.needsFollowUp) {
-                     await this.scheduleFollowUp(userId, sentiment.type);
-                 }
-            }
 
             // L. Save Final Assistant Message to History
             // ... (existing logic using finalAssistantMessage and finalMetadata) ...
