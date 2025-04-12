@@ -847,113 +847,37 @@ export class LLMFunctions {
     const { userId, messagingService } = context;
     try {
       console.log("Executing update_task with params:", params);
-      
-      // --- REVERTING argument handling --- 
       const { taskId, updates } = params;
 
-      if (!taskId || typeof taskId !== 'number') {
-        throw new Error("Missing required parameter: taskId must be a number.");
+      if (typeof taskId !== 'number' || typeof updates !== 'object' || updates === null) {
+        return { success: false, error: "Invalid arguments. Requires taskId (number) and updates (object)." };
       }
 
-      // Ensure updates is an object and not empty
-      if (!updates || typeof updates !== 'object' || updates === null || Object.keys(updates).length === 0) {
-        throw new Error("Missing required parameter: updates must be a non-empty object.");
-      }
-      // --- End Revert ---
-
-      // --- Clean up existing reminders before update ---
-      let user: User | null | undefined = null;
       try {
-         user = await storage.getUser(userId);
-         if (user && user.timeZone && messagingService) {
-            await messagingService.cleanupPendingRemindersForTask(taskId, user.id, new Date(), user.timeZone);
-         } else {
-            console.warn(`[LLM update_task] Cannot clean up reminders for task ${taskId}: User ${userId} not found, missing timezone, or missing messagingService.`);
-         }
-      } catch (cleanupError) {
-         console.error(`[LLM update_task] Error cleaning up reminders for task ${taskId}:`, cleanupError);
-         // Continue with the update even if cleanup fails
-      }
-      // --- End reminder cleanup ---
+        // Update task in storage (storage should handle permissions)
+        const updatedTask = await storage.updateTask(taskId, userId, updates);
+        console.log("Task updated successfully:", updatedTask);
 
-      // Convert deadline string to Date object if present in updates
-      if (updates.deadline && typeof updates.deadline === 'string') {
-        try {
-          const deadlineDate = new Date(updates.deadline); 
-          if (isNaN(deadlineDate.getTime())) {
-            console.warn(`Invalid deadline date format in updates: ${updates.deadline}. Keeping original or setting null.`);
-            // Decide whether to remove the invalid key or let storage handle it
-            delete updates.deadline; 
-          } else {
-            updates.deadline = deadlineDate;
+        // If task was completed or archived, or if time was changed, clean up old reminders
+        const shouldCleanup = updates.status === 'completed' || updates.status === 'archived' || updates.scheduledTime !== undefined;
+        if (shouldCleanup) {
+          try {
+            await messagingService.cleanupPendingRemindersForTask(userId, taskId); // Correct function call
+          } catch (cleanupError) {
+            // Log the cleanup error but don't fail the whole operation
+            console.error(`[LLM update_task] Error cleaning up reminders for task ${taskId}:`, cleanupError);
           }
-        } catch (e) {
-          console.warn(`Error parsing deadline date in updates: ${updates.deadline}. Keeping original or setting null.`);
-          delete updates.deadline;
         }
+        
+        return { success: true, taskId: taskId, message: "Task updated successfully." };
+      } catch (error) {
+        console.error("Error updating task in storage:", error);
+        const errorMessage = error instanceof Error ? error.message : "Failed to update task in storage.";
+        return { success: false, error: errorMessage };
       }
-
-      // Format scheduledTime if present in updates
-      if (updates.scheduledTime) {
-        let formattedScheduledTime = updates.scheduledTime;
-        const timeMatch = updates.scheduledTime.match(/(\d{1,2}):(\d{2})\s*(am|pm)?/i);
-        if (timeMatch) {
-          let hours = parseInt(timeMatch[1], 10);
-          const minutes = parseInt(timeMatch[2], 10);
-          const period = timeMatch[3]?.toLowerCase();
-
-          if (period === 'pm' && hours !== 12) hours += 12;
-          if (period === 'am' && hours === 12) hours = 0;
-
-          if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
-            formattedScheduledTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-             console.log(`Formatted scheduledTime update from "${updates.scheduledTime}" to "${formattedScheduledTime}"`);
-            updates.scheduledTime = formattedScheduledTime;
-          } else {
-            console.warn(`Parsed time invalid (${hours}:${minutes}) from "${updates.scheduledTime}" update. Storing original.`);
-            // Keep original descriptive time if parsing fails
-          }
-        } else {
-           console.log(`Storing descriptive scheduledTime update: "${updates.scheduledTime}"`);
-        }
-      }
-
-      // Perform the update
-      const updatedTask: TaskWithSubtasks = await storage.updateTask(taskId, userId, updates);
-      console.log("Task updated successfully:", updatedTask);
-
-      // --- Schedule new reminders based on updated task ---
-      try {
-         // User should already be fetched from the cleanup step
-         if (user && messagingService) {
-            await messagingService.scheduleRemindersForTask(updatedTask, user);
-         } else {
-            // Attempt to fetch user again if cleanup fails to get it
-            const freshUser = await storage.getUser(userId);
-             if (freshUser && messagingService) {
-                 await messagingService.scheduleRemindersForTask(updatedTask, freshUser);
-             } else {
-                 console.error(`[LLM update_task] Could not find user ${userId} or missing messagingService to schedule reminders after update.`);
-             }
-         }
-      } catch (scheduleError) {
-         console.error(`[LLM update_task] Error scheduling new reminders for updated task ${updatedTask.id}:`, scheduleError);
-         // Do not throw; task update succeeded, scheduling is secondary
-      }
-      // --- End schedule new reminders ---
-
-      return { success: true, taskId: updatedTask.id, message: "Task updated successfully." };
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error in update_task:", error);
-      // Check if the error is because the task was not found
-      if (error instanceof Error) {
-        if (error.message.toLowerCase().includes('not found')) {
-            return { success: false, error: `Task with ID ${params.taskId} not found.` };
-        }
-        return { success: false, error: error.message };
-      } else {
-         return { success: false, error: String(error) };
-      }
+      return { success: false, error: String(error) };
     }
   }
 

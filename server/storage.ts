@@ -7,7 +7,7 @@ import {
   taskEvents
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and, desc, gte, lte, inArray, isNull } from "drizzle-orm";
+import { eq, and, desc, gte, lte, inArray, isNull, not, lt } from "drizzle-orm";
 import { 
   users, goals, checkIns, contactVerifications, knownUserFacts, tasks, subtasks, messageSchedules,
   dailySchedules, scheduleItems, scheduleRevisions 

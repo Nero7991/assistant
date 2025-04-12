@@ -332,14 +332,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // GET specific task by ID
   app.get("/api/tasks/:id", async (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
+    if (!req.isAuthenticated() || !req.user) return res.sendStatus(401);
     try {
       const taskId = parseInt(req.params.id);
       if (isNaN(taskId)) {
         return res.status(400).json({ message: "Invalid task ID" });
       }
-      const task = await storage.getTask(taskId);
-      if (!task || task.userId !== req.user.id) {
+      const task = await storage.getTask(taskId, req.user.id);
+      if (!task) {
         return res.status(404).json({ message: "Task not found" });
       }
       res.json(task);
@@ -405,29 +405,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.patch("/api/tasks/:id", async (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
-    const updatedTask = await storage.updateTask(parseInt(req.params.id), req.body);
-    res.json(updatedTask);
+    if (!req.isAuthenticated() || !req.user) return res.sendStatus(401);
+    try {
+      const taskId = parseInt(req.params.id);
+      if (isNaN(taskId)) {
+        return res.status(400).json({ error: "Invalid task ID" });
+      }
+      const updatedTask = await storage.updateTask(taskId, req.user.id, req.body);
+      res.json(updatedTask);
+    } catch (error) {
+      console.error(`Error updating task ${req.params.id}:`, error);
+      res.status(500).json({ message: "Failed to update task" });
+    }
   });
 
   app.delete("/api/tasks/:id", async (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
-    await storage.deleteTask(parseInt(req.params.id));
-    res.sendStatus(204);
+    if (!req.isAuthenticated() || !req.user) return res.sendStatus(401);
+    try {
+      const taskId = parseInt(req.params.id);
+      if (isNaN(taskId)) {
+        return res.status(400).json({ error: "Invalid task ID" });
+      }
+      await storage.deleteTask(taskId, req.user.id);
+      res.sendStatus(204);
+    } catch (error) {
+      console.error("Error deleting task:", error);
+      res.status(500).json({ message: "Failed to delete task" });
+    }
   });
 
   app.post("/api/tasks/:taskId/complete", async (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
-    const completedTask = await storage.completeTask(parseInt(req.params.taskId));
-    res.json(completedTask);
+    if (!req.isAuthenticated() || !req.user) return res.sendStatus(401);
+    try {
+      const taskId = parseInt(req.params.taskId);
+      if (isNaN(taskId)) {
+        return res.status(400).json({ error: "Invalid task ID" });
+      }
+      const completedTask = await storage.completeTask(taskId, req.user.id);
+      res.json(completedTask);
+    } catch (error) {
+      console.error("Error completing task:", error);
+      res.status(500).json({ error: "Failed to complete task" });
+    }
   });
 
 
   // Subtask creation endpoint
   app.post("/api/tasks/:taskId/subtasks", async (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
+    if (!req.isAuthenticated() || !req.user) return res.sendStatus(401);
 
     const taskId = parseInt(req.params.taskId);
+    if (isNaN(taskId)) {
+      return res.status(400).json({ error: "Invalid task ID" });
+    }
     console.log('Creating subtask for task:', taskId, 'Data:', req.body);
 
     const parsed = insertSubtaskSchema.safeParse(req.body);
@@ -437,11 +467,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
 
     try {
-      const subtask = await storage.createSubtask(taskId, parsed.data);
+      const subtask = await storage.createSubtask(taskId, req.user.id, parsed.data);
       console.log('Created subtask:', subtask);
       res.status(201).json(subtask);
     } catch (error) {
       console.error("Error creating subtask:", error);
+      if (error instanceof Error && error.message.includes("permission")) {
+        return res.status(403).json({ message: "Permission denied to add subtask to this task." });
+      } else if (error instanceof Error && error.message.includes("not found")) {
+        return res.status(404).json({ message: "Parent task not found." });
+      }
       res.status(500).json({ message: "Failed to create subtask" });
     }
   });
@@ -456,12 +491,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Direct subtask creation endpoint
   app.post("/api/subtasks", async (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
+    if (!req.isAuthenticated() || !req.user) return res.sendStatus(401);
     
     const { parentTaskId, ...subtaskData } = req.body;
     
-    if (!parentTaskId) {
-      return res.status(400).json({ message: "parentTaskId is required" });
+    if (!parentTaskId || isNaN(parseInt(parentTaskId))) {
+      return res.status(400).json({ message: "Valid parentTaskId is required" });
     }
     
     try {
@@ -470,75 +505,85 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json(parsed.error);
       }
       
-      const subtask = await storage.createSubtask(parentTaskId, parsed.data);
+      const subtask = await storage.createSubtask(parseInt(parentTaskId), req.user.id, parsed.data);
       res.status(201).json(subtask);
     } catch (error) {
       console.error("Error creating subtask:", error);
+      if (error instanceof Error && error.message.includes("permission")) {
+        return res.status(403).json({ message: "Permission denied to add subtask to this task." });
+      } else if (error instanceof Error && error.message.includes("not found")) {
+        return res.status(404).json({ message: "Parent task not found." });
+      }
       res.status(500).json({ message: "Failed to create subtask", error: error instanceof Error ? error.message : 'Unknown error' });
     }
   });
 
   // Add route to mark subtask as complete
   app.post("/api/subtasks/:id/complete", async (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
-
-    const subtaskId = parseInt(req.params.id);
-    const completedSubtask = await storage.completeSubtask(subtaskId);
-    res.json(completedSubtask);
+    if (!req.isAuthenticated() || !req.user) return res.sendStatus(401);
+    try {
+      const subtaskId = parseInt(req.params.id);
+      if (isNaN(subtaskId)) {
+        return res.status(400).json({ error: "Invalid subtask ID" });
+      }
+      const completedSubtask = await storage.completeSubtask(subtaskId, req.user.id);
+      res.json(completedSubtask);
+    } catch (error) {
+      console.error(`Error completing subtask ${req.params.id}:`, error);
+      if (error instanceof Error && error.message.includes("permission")) {
+        return res.status(403).json({ message: "Permission denied to complete this subtask." });
+      } else if (error instanceof Error && error.message.includes("not found")) {
+        return res.status(404).json({ message: "Subtask not found." });
+      }
+      res.status(500).json({ error: "Failed to complete subtask" });
+    }
   });
 
   // Add new route for deleting subtasks
   app.delete("/api/tasks/:taskId/subtasks/:subtaskId", async (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
+    if (!req.isAuthenticated() || !req.user) return res.sendStatus(401);
 
     const taskId = parseInt(req.params.taskId);
     const subtaskId = parseInt(req.params.subtaskId);
+    if (isNaN(subtaskId)) {
+      return res.status(400).json({ error: "Invalid subtask ID" });
+    }
 
     try {
-      await storage.deleteSubtask(taskId, subtaskId);
+      await storage.deleteSubtask(subtaskId, req.user.id);
       res.sendStatus(204);
     } catch (error) {
       console.error("Error deleting subtask:", error);
+      if (error instanceof Error && error.message.includes("permission")) {
+        return res.status(403).json({ message: "Permission denied to delete this subtask." });
+      } else if (error instanceof Error && error.message.includes("not found")) {
+        return res.status(404).json({ message: "Subtask not found." });
+      }
       res.status(500).json({ message: "Failed to delete subtask" });
     }
   });
   
   // Update a subtask's schedule information
   app.patch("/api/tasks/:taskId/subtasks/:subtaskId", async (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
+    if (!req.isAuthenticated() || !req.user) return res.sendStatus(401);
     
     const taskId = parseInt(req.params.taskId);
     const subtaskId = parseInt(req.params.subtaskId);
+    if (isNaN(subtaskId)) {
+      return res.status(400).json({ error: "Invalid subtask ID" });
+    }
     const updates = req.body;
     
     try {
-      // Verify the task belongs to the user
-      const tasks = await storage.getTasks(req.user.id, undefined);
-      const task = tasks.find(t => t.id === taskId);
-      
-      if (!task) {
-        return res.status(404).send("Task not found");
-      }
-      
-      // Get the subtasks to verify the subtask exists
-      const subtasks = await storage.getSubtasks(taskId);
-      const subtaskExists = subtasks.some(s => s.id === subtaskId);
-      
-      if (!subtaskExists) {
-        return res.status(404).send("Subtask not found");
-      }
-      
-      // Only allow updating schedule-related fields
-      const allowedUpdates = {
-        scheduledTime: updates.scheduledTime,
-        recurrencePattern: updates.recurrencePattern
-      };
-      
-      // Update the subtask
-      const subtask = await storage.updateSubtask(subtaskId, allowedUpdates);
+      const subtask = await storage.updateSubtask(subtaskId, req.user.id, updates);
       res.status(200).json(subtask);
     } catch (error) {
       console.error("Error updating subtask:", error);
+      if (error instanceof Error && error.message.includes("permission")) {
+        return res.status(403).json({ message: "Permission denied to update this subtask." });
+      } else if (error instanceof Error && error.message.includes("not found")) {
+        return res.status(404).json({ message: "Subtask not found." });
+      }
       res.status(500).send("Error updating subtask");
     }
   });

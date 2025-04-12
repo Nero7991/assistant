@@ -3,7 +3,7 @@ const require = createRequire(import.meta.url);
 
 // Import necessary modules
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { eq, sql, and, or, lte, gte, not, isNull, asc, desc, lt } from 'drizzle-orm'; // Added lt
+import { eq, sql, and, or, lte, gte, not, isNull, asc, desc, lt, inArray } from 'drizzle-orm'; // Added lt and inArray
 import { db } from '../db.js'; // Correct path
 import * as schema from '../../shared/schema.js';
 const { users, tasks, TaskType, messageSchedules, messageHistory, taskEvents, knownUserFacts } = schema;
@@ -15,7 +15,7 @@ import twilio from 'twilio'; // Added twilio import
 import { 
   toZonedTime, 
   formatInTimeZone, 
-  format as formatTz // Keep format from tz if needed, or remove if unused
+  toDate // Keep only necessary functions
 } from 'date-fns-tz';
 import { 
   startOfDay, 
@@ -33,7 +33,7 @@ import {
   parseISO, 
   subDays, 
   isValid as isValidDate, 
-  format // Keep format from date-fns if needed
+  format // Keep format from date-fns
 } from 'date-fns'; // Consolidated date-fns imports
 
 // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
@@ -938,16 +938,30 @@ export class MessagingService {
 
         // Calculate task time in user's local timezone
         const [hours, minutes] = task.scheduledTime.split(':').map(Number);
+        // --- BEGIN DEBUG LOGGING ---
+        console.log(`[_scheduleRemindersForTask DEBUG taskId=${task.id}] Parsed HH:MM: hours=${hours}, minutes=${minutes}`);
+        // --- END DEBUG LOGGING ---
         if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
             console.log(`[_scheduleRemindersForTask] Invalid hours/minutes parsed from scheduledTime "${task.scheduledTime}" for task ${task.id}. Skipping.`);
             return 0;
         }
 
-        const taskTimeLocal = new Date(todayStartLocal); // Clone the date representing 00:00 local
-        taskTimeLocal.setHours(hours, minutes, 0, 0); // Set the time
+        // --- NEW Calculation using string parsing in target timezone ---
+        // 1. Get the date string (YYYY-MM-DD) in the target timezone
+        const dateStringInZone = format(todayStartLocal, 'yyyy-MM-dd');
+        // 2. Combine date string with HH:MM:SS time string
+        const dateTimeString = `${dateStringInZone}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+        // 3. Parse this string explicitly in the target timezone using toDate
+        const taskTimeLocal = toDate(dateTimeString, { timeZone: timeZone });
+        // --- END NEW Calculation ---
+
+        // --- BEGIN DEBUG LOGGING ---
+        console.log(`[_scheduleRemindersForTask DEBUG taskId=${task.id}] Constructed dateTimeString='${dateTimeString}' for zone '${timeZone}'`);
+        console.log(`[_scheduleRemindersForTask DEBUG taskId=${task.id}] Calculated taskTimeLocal='${taskTimeLocal.toISOString()}' using toDate`);
+        // --- END DEBUG LOGGING ---
 
         if (!isValidDate(taskTimeLocal)) {
-            console.log(`[_scheduleRemindersForTask] Invalid date created after setting hours/minutes for task ${task.id}. Original time: ${task.scheduledTime}. Skipping.`);
+            console.log(`[_scheduleRemindersForTask] Invalid date created using toDate for task ${task.id}. Original time: ${task.scheduledTime}. Skipping.`);
             return 0;
         }
 
@@ -955,33 +969,38 @@ export class MessagingService {
 
         // Schedule Pre-Reminder (15 mins before)
         const preReminderTime = subMinutes(taskTimeLocal, 15);
-        if (preReminderTime >= now) {
-            await db.insert(messageSchedules).values({
-                userId: user.id, type: 'pre_reminder', title: `Pre-Reminder: ${task.title}`,
-                scheduledFor: preReminderTime, status: 'pending', metadata, createdAt: now, updatedAt: now,
-            });
-            scheduledCount++;
-        }
+        // --- BEGIN DEBUG LOGGING ---
+        console.log(`[_scheduleRemindersForTask DEBUG taskId=${task.id}] Calculated preReminderTime='${preReminderTime.toISOString()}'`);
+        // --- END DEBUG LOGGING ---
+        await db.insert(messageSchedules).values({
+            userId: user.id, type: 'pre_reminder', title: `Pre-Reminder: ${task.title}`,
+            scheduledFor: preReminderTime, status: 'pending', metadata, createdAt: new Date(), updatedAt: new Date(), // Use new Date() for creation time
+        });
+        scheduledCount++;
+        
 
         // Schedule On-Time Reminder
         const onTimeReminderTime = taskTimeLocal;
-        if (onTimeReminderTime >= now) {
-            await db.insert(messageSchedules).values({
-                userId: user.id, type: 'reminder', title: `Reminder: ${task.title}`,
-                scheduledFor: onTimeReminderTime, status: 'pending', metadata, createdAt: now, updatedAt: now,
-            });
-            scheduledCount++;
-        }
+        // --- BEGIN DEBUG LOGGING ---
+        console.log(`[_scheduleRemindersForTask DEBUG taskId=${task.id}] Calculated onTimeReminderTime='${onTimeReminderTime.toISOString()}'`);
+        // --- END DEBUG LOGGING ---
+        await db.insert(messageSchedules).values({
+            userId: user.id, type: 'reminder', title: `Reminder: ${task.title}`,
+            scheduledFor: onTimeReminderTime, status: 'pending', metadata, createdAt: new Date(), updatedAt: new Date(), // Use new Date() for creation time
+        });
+        scheduledCount++;
+        
 
         // Schedule Post-Reminder Follow-up (15 mins after)
         const postReminderTime = addMinutes(taskTimeLocal, 15);
-        if (postReminderTime >= now) {
-            await db.insert(messageSchedules).values({
-                userId: user.id, type: 'post_reminder_follow_up', title: `Check-in: ${task.title}`,
-                scheduledFor: postReminderTime, status: 'pending', metadata, createdAt: now, updatedAt: now,
-            });
-            scheduledCount++;
-        }
+        // --- BEGIN DEBUG LOGGING ---
+        console.log(`[_scheduleRemindersForTask DEBUG taskId=${task.id}] Calculated postReminderTime='${postReminderTime.toISOString()}'`);
+        // --- END DEBUG LOGGING ---
+        await db.insert(messageSchedules).values({
+            userId: user.id, type: 'post_reminder_follow_up', title: `Check-in: ${task.title}`,
+            scheduledFor: postReminderTime, status: 'pending', metadata, createdAt: new Date(), updatedAt: new Date(), // Use new Date() for creation time
+        });
+        scheduledCount++;
 
     } catch (taskError) {
         console.error(`[_scheduleRemindersForTask] Error scheduling reminder for task ${task.id} (User ${user.id}):`, taskError);
@@ -1395,6 +1414,35 @@ export class MessagingService {
       console.warn(`[RecurrenceCheck] Unknown recurrence pattern: ${recurrencePattern}`);
       return false;
   }
+
+  // --- ADD New Cleanup Function ---
+  async cleanupPendingRemindersForTask(userId: number, taskId: number): Promise<void> {
+    console.log(`[MessagingService] Cleaning up pending reminders for task ${taskId}, user ${userId}`);
+    try {
+      const reminderTypes = ['pre_reminder', 'reminder', 'post_reminder_follow_up'];
+      const updateResult = await db.update(messageSchedules)
+        .set({ status: 'cancelled', updatedAt: new Date() })
+        .where(
+          and(
+            eq(messageSchedules.userId, userId),
+            eq(sql`(metadata->>'taskId')::integer`, taskId),
+            eq(messageSchedules.status, 'pending'),
+            inArray(messageSchedules.type, reminderTypes)
+          )
+        ).returning({ id: messageSchedules.id });
+        
+      if (updateResult.length > 0) {
+         console.log(`[MessagingService] Cancelled ${updateResult.length} pending reminders for task ${taskId}. IDs: ${updateResult.map(r => r.id).join(', ')}`);
+      } else {
+         console.log(`[MessagingService] No pending reminders found to cancel for task ${taskId}.`);
+      }
+    } catch (error) {
+      console.error(`[MessagingService] Error cleaning up reminders for task ${taskId}:`, error);
+      // Decide if we should throw or just log
+      // throw error; // Optional: re-throw if the caller needs to know
+    }
+  }
+  // --- END New Cleanup Function ---
 }
 
 export const messagingService = new MessagingService();
