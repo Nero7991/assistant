@@ -1,0 +1,1 @@
+ALTER TABLE "users" ADD COLUMN "last_user_initiated_message_at" timestamp;

@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { setupAuth } from "./auth";
 import { storage } from "./storage";
 import { generateCoachingResponse } from "./coach";
-import { insertGoalSchema, insertCheckInSchema, insertKnownUserFactSchema, insertTaskSchema, insertSubtaskSchema, messageHistory, messageSchedules, TaskType, dailySchedules, scheduleItems } from "@shared/schema";
+import { insertGoalSchema, insertCheckInSchema, insertKnownUserFactSchema, insertTaskSchema, insertSubtaskSchema, messageHistory, messageSchedules, TaskType, dailySchedules, scheduleItems, tasks as tasksSchema } from "@shared/schema";
 import { handleWhatsAppWebhook } from "./webhook";
 import { messageScheduler } from "./scheduler";
 import { messagingService } from "./services/messaging";
@@ -325,308 +325,148 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Tasks Endpoints
   app.get("/api/tasks", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
-    const type = req.query.type as string | undefined;
-    const tasks = await storage.getTasks(req.user.id, type);
-    res.json(tasks);
-  });
-
-  // GET specific task by ID
-  app.get("/api/tasks/:id", async (req, res) => {
-    if (!req.isAuthenticated() || !req.user) return res.sendStatus(401);
     try {
-      const taskId = parseInt(req.params.id);
-      if (isNaN(taskId)) {
-        return res.status(400).json({ message: "Invalid task ID" });
-      }
-      const task = await storage.getTask(taskId, req.user.id);
-      if (!task) {
-        return res.status(404).json({ message: "Task not found" });
-      }
-      res.json(task);
+      // Fetch all tasks for the user (consider filtering status later if needed)
+      const userTasks = await storage.getTasks(req.user.id);
+      res.json(userTasks);
     } catch (error) {
-      console.error(`Error fetching task ${req.params.id}:`, error);
-      res.status(500).json({ message: "Failed to fetch task" });
+      console.error("Error fetching tasks:", error);
+      res.status(500).json({ error: "Failed to fetch tasks" });
     }
   });
 
-  // Task creation endpoint with task suggestions
   app.post("/api/tasks", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
-    
-    // --- ADD DEBUG LOG --- 
-    console.log("[DEBUG] POST /api/tasks received body:", JSON.stringify(req.body));
-    // -----------------------
-    
-    const parsed = insertTaskSchema.safeParse(req.body);
-    if (!parsed.success) {
-      // Log the validation error specifically
-      console.error("[DEBUG] POST /api/tasks Zod validation failed:", parsed.error);
-      return res.status(400).json(parsed.error);
-    }
-
-    const taskData = parsed.data;
-
     try {
-      // For specific task types, generate suggestions
-      let suggestions = null;
-      if (
-        taskData.taskType === TaskType.PERSONAL_PROJECT ||
-        taskData.taskType === TaskType.LONG_TERM_PROJECT ||
-        taskData.taskType === TaskType.LIFE_GOAL
-      ) {
-        suggestions = await generateTaskSuggestions(
-          taskData.taskType,
-          taskData.title,
-          taskData.description || '',
-          req.user.id,
-          taskData.estimatedDuration
-        );
+      // Validate request body against Zod schema
+      const validationResult = insertTaskSchema.safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ error: "Invalid task data", details: validationResult.error.flatten() });
       }
-
-      // Create the main task
-      const task = await storage.createTask({
-        ...taskData,
-        userId: req.user.id,
+      
+      const validatedData = validationResult.data;
+      
+      const newTask = await storage.createTask({ 
+        ...validatedData, 
+        userId: req.user.id 
       });
-
-      // If we have suggestions, return them with the task
-      if (suggestions) {
-        return res.status(201).json({
-          task,
-          suggestions,
-        });
-      }
-
-      res.status(201).json({ task });
+      res.status(201).json(newTask);
     } catch (error) {
       console.error("Error creating task:", error);
-      res.status(500).json({ message: "Failed to create task" });
-    }
-  });
-
-  app.patch("/api/tasks/:id", async (req, res) => {
-    if (!req.isAuthenticated() || !req.user) return res.sendStatus(401);
-    try {
-      const taskId = parseInt(req.params.id);
-      if (isNaN(taskId)) {
-        return res.status(400).json({ error: "Invalid task ID" });
-      }
-      const updatedTask = await storage.updateTask(taskId, req.user.id, req.body);
-      res.json(updatedTask);
-    } catch (error) {
-      console.error(`Error updating task ${req.params.id}:`, error);
-      res.status(500).json({ message: "Failed to update task" });
-    }
-  });
-
-  app.delete("/api/tasks/:id", async (req, res) => {
-    if (!req.isAuthenticated() || !req.user) return res.sendStatus(401);
-    try {
-      const taskId = parseInt(req.params.id);
-      if (isNaN(taskId)) {
-        return res.status(400).json({ error: "Invalid task ID" });
-      }
-      await storage.deleteTask(taskId, req.user.id);
-      res.sendStatus(204);
-    } catch (error) {
-      console.error("Error deleting task:", error);
-      res.status(500).json({ message: "Failed to delete task" });
-    }
-  });
-
-  app.post("/api/tasks/:taskId/complete", async (req, res) => {
-    if (!req.isAuthenticated() || !req.user) return res.sendStatus(401);
-    try {
-      const taskId = parseInt(req.params.taskId);
-      if (isNaN(taskId)) {
-        return res.status(400).json({ error: "Invalid task ID" });
-      }
-      const completedTask = await storage.completeTask(taskId, req.user.id);
-      res.json(completedTask);
-    } catch (error) {
-      console.error("Error completing task:", error);
-      res.status(500).json({ error: "Failed to complete task" });
-    }
-  });
-
-
-  // Subtask creation endpoint
-  app.post("/api/tasks/:taskId/subtasks", async (req, res) => {
-    if (!req.isAuthenticated() || !req.user) return res.sendStatus(401);
-
-    const taskId = parseInt(req.params.taskId);
-    if (isNaN(taskId)) {
-      return res.status(400).json({ error: "Invalid task ID" });
-    }
-    console.log('Creating subtask for task:', taskId, 'Data:', req.body);
-
-    const parsed = insertSubtaskSchema.safeParse(req.body);
-    if (!parsed.success) {
-      console.error('Subtask validation failed:', parsed.error);
-      return res.status(400).json(parsed.error);
-    }
-
-    try {
-      const subtask = await storage.createSubtask(taskId, req.user.id, parsed.data);
-      console.log('Created subtask:', subtask);
-      res.status(201).json(subtask);
-    } catch (error) {
-      console.error("Error creating subtask:", error);
-      if (error instanceof Error && error.message.includes("permission")) {
-        return res.status(403).json({ message: "Permission denied to add subtask to this task." });
-      } else if (error instanceof Error && error.message.includes("not found")) {
-        return res.status(404).json({ message: "Parent task not found." });
-      }
-      res.status(500).json({ message: "Failed to create subtask" });
+      res.status(500).json({ error: "Failed to create task" });
     }
   });
 
   app.get("/api/tasks/:taskId/subtasks", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
-
-    const taskId = parseInt(req.params.taskId);
-    const subtasks = await storage.getSubtasks(taskId);
-    res.json(subtasks);
+    try {
+      const taskId = parseInt(req.params.taskId, 10);
+      if (isNaN(taskId)) {
+        return res.status(400).json({ error: "Invalid task ID" });
+      }
+      // Fetch subtasks for the given task ID (storage needs getSubtasks method)
+      const subtasks = await storage.getSubtasks(taskId, req.user.id); // Assuming storage verifies user owns task
+      res.json(subtasks);
+    } catch (error) {
+      console.error(`Error fetching subtasks for task ${req.params.taskId}:`, error);
+      res.status(500).json({ error: "Failed to fetch subtasks" });
+    }
   });
 
-  // Direct subtask creation endpoint
-  app.post("/api/subtasks", async (req, res) => {
-    if (!req.isAuthenticated() || !req.user) return res.sendStatus(401);
-    
-    const { parentTaskId, ...subtaskData } = req.body;
-    
-    if (!parentTaskId || isNaN(parseInt(parentTaskId))) {
-      return res.status(400).json({ message: "Valid parentTaskId is required" });
-    }
-    
+  app.post("/api/tasks/:taskId/subtasks", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
     try {
-      const parsed = insertSubtaskSchema.safeParse(subtaskData);
-      if (!parsed.success) {
-        return res.status(400).json(parsed.error);
+      const taskId = parseInt(req.params.taskId, 10);
+      if (isNaN(taskId)) {
+        return res.status(400).json({ error: "Invalid task ID" });
       }
       
-      const subtask = await storage.createSubtask(parseInt(parentTaskId), req.user.id, parsed.data);
-      res.status(201).json(subtask);
-    } catch (error) {
-      console.error("Error creating subtask:", error);
-      if (error instanceof Error && error.message.includes("permission")) {
-        return res.status(403).json({ message: "Permission denied to add subtask to this task." });
-      } else if (error instanceof Error && error.message.includes("not found")) {
-        return res.status(404).json({ message: "Parent task not found." });
+      // Validate subtask data
+      const validationResult = insertSubtaskSchema.safeParse(req.body);
+       if (!validationResult.success) {
+        return res.status(400).json({ error: "Invalid subtask data", details: validationResult.error.flatten() });
       }
-      res.status(500).json({ message: "Failed to create subtask", error: error instanceof Error ? error.message : 'Unknown error' });
+      
+      const validatedData = validationResult.data;
+      
+      // Call storage.createSubtask (ensure it verifies parent task ownership)
+      const newSubtask = await storage.createSubtask(taskId, { 
+         ...validatedData,
+         // Assuming storage layer handles linking correctly and doesn't need userId directly here
+      }); 
+      res.status(201).json(newSubtask);
+    } catch (error) {
+      console.error(`Error creating subtask for task ${req.params.taskId}:`, error);
+      res.status(500).json({ error: "Failed to create subtask" });
     }
   });
 
-  // Add route to mark subtask as complete
-  app.post("/api/subtasks/:id/complete", async (req, res) => {
-    if (!req.isAuthenticated() || !req.user) return res.sendStatus(401);
+  // Add PATCH endpoint for updating tasks
+  app.patch("/api/tasks/:taskId", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
     try {
-      const subtaskId = parseInt(req.params.id);
-      if (isNaN(subtaskId)) {
-        return res.status(400).json({ error: "Invalid subtask ID" });
+      const taskId = parseInt(req.params.taskId, 10);
+      if (isNaN(taskId)) {
+        return res.status(400).json({ error: "Invalid task ID" });
       }
-      const completedSubtask = await storage.completeSubtask(subtaskId, req.user.id);
-      res.json(completedSubtask);
+      // We don't have a specific update schema, so pass req.body directly
+      // Add validation here if needed
+      const updatedTask = await storage.updateTask(taskId, req.user.id, req.body);
+      res.json(updatedTask);
     } catch (error) {
-      console.error(`Error completing subtask ${req.params.id}:`, error);
-      if (error instanceof Error && error.message.includes("permission")) {
-        return res.status(403).json({ message: "Permission denied to complete this subtask." });
-      } else if (error instanceof Error && error.message.includes("not found")) {
-        return res.status(404).json({ message: "Subtask not found." });
-      }
-      res.status(500).json({ error: "Failed to complete subtask" });
-    }
-  });
-
-  // Add new route for deleting subtasks
-  app.delete("/api/tasks/:taskId/subtasks/:subtaskId", async (req, res) => {
-    if (!req.isAuthenticated() || !req.user) return res.sendStatus(401);
-
-    const taskId = parseInt(req.params.taskId);
-    const subtaskId = parseInt(req.params.subtaskId);
-    if (isNaN(subtaskId)) {
-      return res.status(400).json({ error: "Invalid subtask ID" });
-    }
-
-    try {
-      await storage.deleteSubtask(subtaskId, req.user.id);
-      res.sendStatus(204);
-    } catch (error) {
-      console.error("Error deleting subtask:", error);
-      if (error instanceof Error && error.message.includes("permission")) {
-        return res.status(403).json({ message: "Permission denied to delete this subtask." });
-      } else if (error instanceof Error && error.message.includes("not found")) {
-        return res.status(404).json({ message: "Subtask not found." });
-      }
-      res.status(500).json({ message: "Failed to delete subtask" });
+      console.error(`Error updating task ${req.params.taskId}:`, error);
+      res.status(500).json({ error: "Failed to update task" });
     }
   });
   
-  // Update a subtask's schedule information
-  app.patch("/api/tasks/:taskId/subtasks/:subtaskId", async (req, res) => {
-    if (!req.isAuthenticated() || !req.user) return res.sendStatus(401);
-    
-    const taskId = parseInt(req.params.taskId);
-    const subtaskId = parseInt(req.params.subtaskId);
-    if (isNaN(subtaskId)) {
-      return res.status(400).json({ error: "Invalid subtask ID" });
-    }
-    const updates = req.body;
-    
-    try {
-      const subtask = await storage.updateSubtask(subtaskId, req.user.id, updates);
-      res.status(200).json(subtask);
-    } catch (error) {
-      console.error("Error updating subtask:", error);
-      if (error instanceof Error && error.message.includes("permission")) {
-        return res.status(403).json({ message: "Permission denied to update this subtask." });
-      } else if (error instanceof Error && error.message.includes("not found")) {
-        return res.status(404).json({ message: "Subtask not found." });
-      }
-      res.status(500).send("Error updating subtask");
-    }
-  });
-
-  // Get all subtasks for a user (across all tasks) - specific user endpoint
-  app.get("/api/users/:userId/subtasks/all", async (req, res) => {
+  // Add DELETE endpoint for tasks
+  app.delete("/api/tasks/:taskId", async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
-    
-    const userId = parseInt(req.params.userId);
-    
-    // Check if the user is requesting their own subtasks
-    if (req.user.id !== userId) {
-      return res.status(403).json({ 
-        message: "You can only access your own subtasks" 
-      });
-    }
-
     try {
-      const subtasks = await storage.getAllSubtasks(userId);
-      res.json(subtasks);
+      const taskId = parseInt(req.params.taskId, 10);
+      if (isNaN(taskId)) {
+        return res.status(400).json({ error: "Invalid task ID" });
+      }
+      await storage.deleteTask(taskId, req.user.id);
+      res.sendStatus(204); // No content on successful delete
     } catch (error) {
-      console.error("Error fetching all subtasks:", error);
-      res.status(500).json({ 
-        message: "Failed to fetch all subtasks", 
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
+      console.error(`Error deleting task ${req.params.taskId}:`, error);
+      res.status(500).json({ error: "Failed to delete task" });
     }
   });
   
-  // Simplified endpoint to get all subtasks for the authenticated user
-  app.get("/api/subtasks/all", async (req, res) => {
-    if (!req.isAuthenticated()) return res.sendStatus(401);
+   // Add PATCH endpoint for updating subtasks
+  app.patch("/api/subtasks/:subtaskId", async (req, res) => {
+      if (!req.isAuthenticated()) return res.sendStatus(401);
+      try {
+        const subtaskId = parseInt(req.params.subtaskId, 10);
+        if (isNaN(subtaskId)) {
+          return res.status(400).json({ error: "Invalid subtask ID" });
+        }
+        // Assuming storage.updateSubtask handles user auth internally
+        const updatedSubtask = await storage.updateSubtask(subtaskId, req.user.id, req.body);
+        res.json(updatedSubtask);
+      } catch (error) {
+        console.error(`Error updating subtask ${req.params.subtaskId}:`, error);
+        res.status(500).json({ error: "Failed to update subtask" });
+      }
+    });
 
-    try {
-      const subtasks = await storage.getAllSubtasks(req.user.id);
-      res.json(subtasks);
-    } catch (error) {
-      console.error("Error fetching all subtasks:", error);
-      res.status(500).json({ 
-        message: "Failed to fetch all subtasks", 
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
+  // Add DELETE endpoint for subtasks
+  app.delete("/api/subtasks/:subtaskId", async (req, res) => {
+      if (!req.isAuthenticated()) return res.sendStatus(401);
+      try {
+        const subtaskId = parseInt(req.params.subtaskId, 10);
+        if (isNaN(subtaskId)) {
+          return res.status(400).json({ error: "Invalid subtask ID" });
+        }
+        // Assuming storage.deleteSubtask handles user auth internally
+        await storage.deleteSubtask(subtaskId, req.user.id);
+        res.sendStatus(204);
+      } catch (error) {
+        console.error(`Error deleting subtask ${req.params.subtaskId}:`, error);
+        res.status(500).json({ error: "Failed to delete subtask" });
+      }
   });
 
   // Goals

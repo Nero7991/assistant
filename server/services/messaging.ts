@@ -96,6 +96,23 @@ export interface ScheduleUpdate {
 }
 
 export class MessagingService {
+  // ---> Define Template Mapping
+  private readonly templateMap: Record<string, { sid: string; variables: number }> = {
+      schedule_proposal_v1: { sid: 'HX118e176b98fd0d9bfad5efe73332430b', variables: 2 },
+      task_completion_check_v1: { sid: 'HX1aa504f2343fd4325c6afedd7725ec50', variables: 3 },
+      task_reminder_now_v1: { sid: 'HX1c1c3d487beccebea02565da8075df85', variables: 3 },
+      task_pre_reminder_v1: { sid: 'HXb0c9959392c9a2751b19faa0b12ed91c', variables: 3 },
+      morning_brief: { sid: 'HXce60783e6501ba932f9e4386c0bb9d40', variables: 2 },
+      // Map internal types to template names/SIDs
+      task_follow_up: { sid: 'HX1aa504f2343fd4325c6afedd7725ec50', variables: 3 }, // Reuse completion check
+      task_reminder: { sid: 'HX1c1c3d487beccebea02565da8075df85', variables: 3 }, // Alias for task_reminder_now_v1
+      task_post_reminder_follow_up: { sid: 'HX1aa504f2343fd4325c6afedd7725ec50', variables: 3 }, // Reuse completion check
+      morning_summary: { sid: 'HXce60783e6501ba932f9e4386c0bb9d40', variables: 2 }, // Alias for morning_brief
+       // Add other system types if they need templates (e.g., reschedule_request)
+       // reschedule_request: { sid: 'TEMPLATE_SID_HERE', variables: X },
+  };
+  // <--- End Template Mapping
+
   // --- Helper: Get User's Preferred Model ---
   private async getUserPreferredModel(userId: number): Promise<string> {
     try {
@@ -113,14 +130,14 @@ export class MessagingService {
     const userId = user.id;
 
     // Construct the system prompt portion
-    const prompt = `You are an expert AI Assistant Coach specialized in helping users with ADHD manage their tasks, schedule, and well-being.\nCurrent User ID: ${userId}\nCurrent Time (${user.timeZone || 'UTC'}): ${currentDateTime}\n\nUSER PROFILE:\n- Username: ${user.username}\n- Email: ${user.email} ${user.isEmailVerified ? '(Verified)' : '(Not Verified)'}\n- Phone: ${user.phoneNumber || 'Not provided'} ${user.isPhoneVerified ? '(Verified)' : '(Not Verified)'}\n- Contact Preference: ${user.contactPreference}\n- Schedule: Wake ${user.wakeTime}, Start Routine ${user.routineStartTime}, Sleep ${user.sleepTime}\n- Preferred LLM: ${user.preferredModel}\n\nUSER FACTS:\n${facts.length > 0 ? facts.map((fact) => `- ${fact.category}: ${fact.content}`).join("\n") : "No specific facts known."}\n\nActive Tasks (for context, use functions to get latest status/details):\n${tasks.length > 0 ? tasks.filter(t => t.status === 'active').map((task) => `- ID:${task.id} | ${task.title} | Type: ${task.taskType}${task.scheduledTime ? ` | Scheduled: ${task.scheduledTime}` : ""}`).join("\n") : "No active tasks."}\n\nAVAILABLE FUNCTIONS:\n- \`get_task_list({ status: 'active'|'completed'|'all' = 'active' })\`: Retrieves the user's tasks. Default status is 'active'.\n- \`create_task({ title: string, description?: string, taskType: 'daily'|'personal_project'|'long_term_project'|'life_goal', priority?: number (1-5), estimatedDuration?: string ('30m', '2h', '1d', '1w', '1M', '1y'), deadline?: string (ISO8601), scheduledTime?: string ('HH:MM'), recurrencePattern?: string ('daily', 'weekly:1,3,5', 'monthly:15') })\`: Creates a new task.\n    - **IMPORTANT**: If \`taskType\` is 'daily', you MUST ask the user for a \`scheduledTime\` (e.g., "09:00") if they haven't provided one before calling this function.\n    - **IMPORTANT**: If \`taskType\` is 'personal_project', 'long_term_project', or 'life_goal', follow this sequence:\n        1. Ask the user for a brief \`description\` AND the overall \`estimatedDuration\` (e.g., '2w', '3M', '1y') for the project/goal.\n        2. WAIT for the user's response.\n        3. THEN, **suggest** 3-5 relevant initial subtasks with estimated durations/deadlines based on the description and overall duration. Ask the user to confirm or modify these suggestions.\n        4. WAIT for the user's response confirming or modifying the subtasks.\n        5. FINALLY, call \`create_task\` with the title, description, and duration, then call \`create_subtask\` for each confirmed/modified subtask.\n- \`update_task({ taskId: number, updates: { title?: string, description?: string, status?: 'active'|'completed'|'archived', priority?: number, estimatedDuration?: string, deadline?: string, scheduledTime?: string, recurrencePattern?: string } })\`: Updates an existing task. **Requires** \`taskId\` and an \`updates\` object containing the fields to change. Example: \`{ "taskId": 123, "updates": { "status": "completed" } }\`.\n- \`delete_task({ taskId: number })\`: Deletes a task. Requires \`taskId\`.\n- \`create_subtask({ parentTaskId: number, title: string, description?: string, estimatedDuration?: string })\`: Adds a subtask to a parent task. Requires \`parentTaskId\` and \`title\`.
+    const prompt = `You are an expert AI Assistant Coach specialized in helping users with ADHD manage their tasks, schedule, and well-being.\nCurrent User ID: ${userId}\nCurrent Time (${user.timeZone || 'UTC'}): ${currentDateTime}\n\nUSER PROFILE:\n- Username: ${user.username}\n- Email: ${user.email} ${user.isEmailVerified ? '(Verified)' : '(Not Verified)'}\n- Phone: ${user.phoneNumber || 'Not provided'} ${user.isPhoneVerified ? '(Verified)' : '(Not Verified)'}\n- Contact Preference: ${user.contactPreference}\n- Schedule: Wake ${user.wakeTime}, Start Routine ${user.routineStartTime}, Sleep ${user.sleepTime}\n- Preferred LLM: ${user.preferredModel}\n\nUSER FACTS:\n${facts.length > 0 ? facts.map((fact) => `- ${fact.category}: ${fact.content}`).join("\n") : "No specific facts known."}\n\nActive Tasks (for context, use functions to get latest status/details):\n${tasks.length > 0 ? tasks.filter(t => t.status === 'active').map((task) => `- ID:${task.id} | ${task.title} | Type: ${task.taskType}${task.scheduledTime ? ` | Scheduled: ${task.scheduledTime}` : ""}`).join("\n") : "No active tasks."}\n\nAVAILABLE FUNCTIONS:\n- \`get_task_list({ status: 'active'|'completed'|'all' = 'active' })\`: Retrieves the user's tasks. Default status is 'active'.\n- \`create_task({ title: string, description?: string, taskType: 'regular'|'personal_project'|'long_term_project'|'life_goal', priority?: number (1-5), estimatedDuration?: string ('30m', '2h', '1d', '1w', '1M', '1y'), deadline?: string (ISO8601), scheduledTime?: string ('HH:MM'), recurrencePattern?: string ('daily', 'weekly:1,3,5', 'monthly:15', 'none') })\`: Creates a new task.\n    - **IMPORTANT (Scheduling & Recurrence)**: If a task is time-sensitive (e.g., 'Take medication') or the user wants it to repeat, ask for clarification:\n        - For timing: \"What time should this be scheduled for (e.g., 9am, 14:30)?\" (Provide \`scheduledTime\` argument)\n        - For recurrence: \"Should this task repeat? If so, how often (e.g., daily, specific weekdays, monthly)?\" (Provide \`recurrencePattern\` argument: 'daily', 'weekly:1,3,5', 'monthly:15').\n        - **If the user doesn't specify recurrence, assume it's a one-off task and use \`recurrencePattern: 'none'\`.**\n        - A recurring task usually needs a \`scheduledTime\`. If recurrence is given but time is missing, ask for the time.\n    - **IMPORTANT (Projects/Goals)**: If \`taskType\` is 'personal_project', 'long_term_project', or 'life_goal', follow this sequence:\n        1. Ask for \`description\` AND overall \`estimatedDuration\` (e.g., '2w', '3M', '1y').\n        2. WAIT for the user's response.\n        3. THEN, **suggest** 3-5 relevant initial subtasks with estimated durations/deadlines based on the description and overall duration. Ask the user to confirm or modify these suggestions.\n        4. WAIT for the user's response confirming or modifying the subtasks.\n        5. FINALLY, call \`create_task\` with the title, description, and duration, then call \`create_subtask\` for each confirmed/modified subtask.\n- \`update_task({ taskId: number, updates: { title?: string, description?: string, status?: 'active'|'completed'|'archived', priority?: number, estimatedDuration?: string, deadline?: string, scheduledTime?: string, recurrencePattern?: string } })\`: Updates an existing task. **Requires** \`taskId\` and an \`updates\` object containing the fields to change. Example: \`{ "taskId": 123, "updates": { "status": "completed" } }\`.\n- \`delete_task({ taskId: number })\`: Deletes a task. Requires \`taskId\`.\n- \`create_subtask({ parentTaskId: number, title: string, description?: string, estimatedDuration?: string })\`: Adds a subtask to a parent task. Requires \`parentTaskId\` and \`title\`.
 - \`update_subtask({ subtaskId: number, updates: { title?: string, description?: string, status?: 'active'|'completed'|'archived', estimatedDuration?: string, ... } })\`: Updates an existing subtask. **Requires** \`subtaskId\` and an \`updates\` object containing the fields to change.
 - \`delete_subtask({ subtaskId: number, parentTaskId: number })\`: Deletes a subtask. **Requires** both \`subtaskId\` and \`parentTaskId\`.
 - \`get_user_facts({ category?: 'life_event'|'core_memory'|...|'custom' })\`: Retrieves known facts about the user, optionally filtered by category.
 - \`add_user_fact({ factType: string, category: 'life_event'|'core_memory'|...|'custom', content: string })\`: Adds a new fact about the user.
 - \`propose_daily_schedule({ date: string (YYYY-MM-DD) })\`: Generates a proposed schedule for the user for a specific date. Output the schedule clearly in the 'message' field, marked with \"PROPOSED_SCHEDULE_AWAITING_CONFIRMATION\".
 - \`mark_task_skipped_today({ taskId: number })\`: Marks a task as skipped for today. Use this when the user explicitly says they didn't do a task today.
-\nIMPORTANT NOTES & WORKFLOW:\n1.  **PRIORITY OF INFORMATION**: Function results provided in the conversation history (FUNCTION EXECUTION RESULTS section below) are the MOST current state. Always use the data from the latest function result for tasks, facts, etc., over older messages or your internal knowledge.\n2.  **Task Management**:\n    *   Before creating ANY task, ALWAYS call \`get_task_list({ status: \'active\' })\` to check if a similar task already exists. Ask the user if they want to proceed if duplicates are found.\n    *   Ensure \`taskType\` is one of the valid values: \'daily\', \'personal_project\', \'long_term_project\', \'life_goal\'. If the user is vague, ask them to clarify the type.\n    *   Follow the specific instructions within the \`create_task\` description regarding \`scheduledTime\` for daily tasks and the multi-step process (description + duration -> wait -> suggest subtasks -> wait -> create) for larger projects/goals.\n3.  **Function Result Handling (VERY IMPORTANT!)**: \n    *   After a function is executed, its results appear in the FUNCTION EXECUTION RESULTS section.\n    *   If a function like \`create_task\` or \`update_task\` was successful (e.g., result contains \`{\"success\": true, ...\`}), your response to the user MUST simply confirm the action based on the result (e.g., \"Okay, I\'ve created the task '[Task Title]'.\"). \n    *   **DO NOT** re-check for duplicates or ask to perform the same action again immediately after seeing a success result for that action.\n    *   If the function result indicates an error (e.g., \`{\"error\": ...\`}), inform the user about the error.\n    *   If the function returned data (like \`get_task_list\`), use that data to inform your *next* step (e.g., check the list for duplicates before deciding whether to ask the user or call \`create_task\`).\n4.  **Fact Management**: Use \`get_user_facts\` to recall information. Use \`add_user_fact\` to store new persistent information learned about the user during conversation.\n5.  **Scheduling**: Use \`propose_daily_schedule\` to generate structured plans. Your schedule proposal *must* be included in the \`message\` field of your JSON response and clearly marked.\n\nRESPONSE FORMAT (CRITICAL):\nYour output MUST be a single JSON object with the following potential keys:\n- "message": (string, Required) The conversational text response to the user.\n- "function_call": (object, Optional) If a function needs to be called. Structure: { "name": "function_name", "arguments": { "arg1": "value1", ... } }\n- "scheduleUpdates": (array, Optional) List of schedule items to create/update. Use this ONLY if the user explicitly confirms a proposed schedule or asks for direct item modifications. Structure: [{ id?: number, date: string (YYYY-MM-DD), taskId?: number | string, subtaskId?: number, title: string, startTime: string (HH:MM), endTime?: string (HH:MM), status?: string, action?: 'create'|'update'|'delete'|'skip' }]\n- "scheduledMessages": (array, Optional) List of messages to schedule. Structure: [{ type: 'follow_up'|'reminder', title: string, content?: string, scheduledFor: string (ISO8601 or "HH:MM" for today), metadata?: object }]\n\nGoal/Instruction:\n`;
+\nIMPORTANT NOTES & WORKFLOW:\n1.  **PRIORITY OF INFORMATION**: Function results provided in the conversation history (FUNCTION EXECUTION RESULTS section below) are the MOST current state. Always use the data from the latest function result for tasks, facts, etc., over older messages or your internal knowledge.\n2.  **Task Management**:\n    *   Before creating ANY task, ALWAYS call \`get_task_list({ status: \'active\' })\` to check if a similar task already exists. Ask the user if they want to proceed if duplicates are found.\n    *   Ensure \`taskType\` is one of the valid values: \'regular\', \'personal_project\', \'long_term_project\', \'life_goal\'. If the user is vague, ask them to clarify the type.\n    *   **Follow the specific instructions within the \`create_task\` description regarding asking for \`scheduledTime\` and \`recurrencePattern\` for regular tasks, and the multi-step process for projects/goals.**\n3.  **Function Result Handling (VERY IMPORTANT!)**: \n    *   After a function is executed, its results appear in the FUNCTION EXECUTION RESULTS section.\n    *   If a function like \`create_task\` or \`update_task\` was successful (e.g., result contains \`{\"success\": true, ...\`}), your response to the user MUST simply confirm the action based on the result (e.g., \"Okay, I\'ve created the task '[Task Title]'.\"). \n    *   **DO NOT** re-check for duplicates or ask to perform the same action again immediately after seeing a success result for that action.\n    *   If the function result indicates an error (e.g., \`{\"error\": ...\`}), inform the user about the error.\n    *   If the function returned data (like \`get_task_list\`), use that data to inform your *next* step (e.g., check the list for duplicates before deciding whether to ask the user or call \`create_task\`).\n4.  **Fact Management**: Use \`get_user_facts\` to recall information. Use \`add_user_fact\` to store new persistent information learned about the user during conversation.\n5.  **Scheduling**: Use \`propose_daily_schedule\` to generate structured plans. Your schedule proposal *must* be included in the \`message\` field of your JSON response and clearly marked.\n\nRESPONSE FORMAT (CRITICAL):\nYour output MUST be a single JSON object with the following potential keys:\n- "message": (string, Required) The conversational text response to the user.\n- "function_call": (object, Optional) If a function needs to be called. Structure: { "name": "function_name", "arguments": { "arg1": "value1", ... } }\n- "scheduleUpdates": (array, Optional) List of schedule items to create/update. Use this ONLY if the user explicitly confirms a proposed schedule or asks for direct item modifications. Structure: [{ id?: number, date: string (YYYY-MM-DD), taskId?: number | string, subtaskId?: number, title: string, startTime: string (HH:MM), endTime?: string (HH:MM), status?: string, action?: 'create'|'update'|'delete'|'skip' }]\n- "scheduledMessages": (array, Optional) List of messages to schedule. Structure: [{ type: 'follow_up'|'reminder', title: string, content?: string, scheduledFor: string (ISO8601 or "HH:MM" for today), metadata?: object }]\n\nGoal/Instruction:\n`;
 
     // Determine the goal instruction based on message type
     let goalInstruction = "";
@@ -128,30 +145,69 @@ export class MessagingService {
 
     switch (messageType) {
       case "morning":
-        goalInstruction = `Generate the morning summary and plan for ${currentDateTime.split(",")[0]}. Propose a schedule using 'propose_daily_schedule'. Your response MUST be JSON.`;
+        // Corrected multi-line template literal
+        goalInstruction = `Generate the morning summary and plan for ${currentDateTime.split(",")[0]}. 
+Review the user's active non-daily tasks (personal projects, long-term projects, life goals) listed in the context. 
+Ask the user if they want to dedicate time today to work on any specific project or goal, perhaps suggesting one or two based on recent activity or priority. 
+Then, propose a daily schedule using 'propose_daily_schedule', incorporating any daily tasks and any project work the user wants to schedule. Your response MUST be JSON.`;
         break;
       case "reschedule":
         goalInstruction = `User wants help rescheduling tasks or their day. Analyze their request and the current tasks/schedule. If appropriate, propose a new schedule using 'propose_daily_schedule'. Your response MUST be JSON.`;
         break;
       case "system_request":
-        let baseInstruction = `This is a system-initiated request for: ${systemRequestType}.`;
-        if (systemRequestType === 'task_pre_reminder') {
-          goalInstruction = `${baseInstruction} Generate a brief, friendly pre-reminder message focused *only* on this task${specificTaskInfo}.`;
-        } else if (systemRequestType === 'task_reminder') {
-          goalInstruction = `${baseInstruction} Generate a brief, friendly message reminding the user to do this task now, focused *only* on this task${specificTaskInfo}.`;
-        } else if (systemRequestType === 'task_post_reminder_follow_up') {
-          goalInstruction = `${baseInstruction} Generate a brief, friendly follow-up message asking if the user completed the task, focused *only* on this task${specificTaskInfo}. Do not list other tasks.`;
-        } else if (systemRequestType === 'task_follow_up') {
-          goalInstruction = `${baseInstruction} The user hasn't marked this task as done significantly after its scheduled time. Generate a brief, friendly follow-up message asking about the task, focused *only* on this task${specificTaskInfo}. Do not list other tasks.`;
-        } else {
-          // Default system request instruction
-          goalInstruction = `${baseInstruction} Generate the appropriate content.`;
+        // --- Updated instructions for system requests (reminders, follow-ups) ---
+        let intentDescription = "";
+        let taskFocus = taskDetails ? ` for task "${taskDetails.taskTitle}" (ID: ${taskDetails.taskId})` : "";
+        
+        switch (systemRequestType) {
+            case 'task_pre_reminder': 
+                intentDescription = `You are about to send a PRE-REMINDER${taskFocus}.`; 
+                break;
+            case 'task_reminder': 
+                intentDescription = `You are about to send an ON-TIME REMINDER${taskFocus}.`; 
+                break;
+            case 'task_post_reminder_follow_up': 
+                intentDescription = `You are about to send a quick FOLLOW-UP asking if the user completed the task${taskFocus}, shortly after its scheduled time.`; 
+                break;
+            case 'task_follow_up': 
+                intentDescription = `You are about to send a general FOLLOW-UP asking about the task${taskFocus}, as it seems overdue.`; 
+                break;
+            default:
+                 intentDescription = `This is a system-initiated request for: ${systemRequestType}.`;
         }
-        goalInstruction += " Your response MUST be JSON."; // Ensure JSON format for all system requests?
+        
+        goalInstruction = `${intentDescription}
+
+IMPORTANT EVALUATION:
+1. Review the recent conversation history provided below.
+2. Based ONLY on the recent messages, is sending this specific ${systemRequestType} message still relevant and appropriate? (Consider: Did the user recently say they already completed this task? Did they reschedule it for much later today? Did they say they skipped it today?)
+
+YOUR ACTION:
+- If YES (Message is still relevant): Generate the appropriate brief, friendly message content in the "message" field of your JSON response. Focus ONLY on the specific task mentioned.
+- If NO (Message is NO LONGER relevant due to recent conversation): Respond with ONLY the following exact JSON object: { "message": null }
+
+Your response MUST be JSON.`;
+        // --- End updated instructions ---
         break;
       case "response":
       default:
-        goalInstruction = `Respond to the user's latest message: "${userResponse}". Address their request, manage tasks/schedule, or ask clarifying questions as needed based on the workflow. \nIMPORTANT: If the user is responding to a follow-up about a task and indicates they did NOT complete it today, acknowledge their response AND call the function \`mark_task_skipped_today({taskId: <task_id>})\` to prevent further follow-ups for that task today. Your response MUST be JSON.`;
+        // Updated instruction for handling user responses, including schedule adjustments
+        goalInstruction = `Respond to the user's latest message: "${userResponse}". Address their request, manage tasks/schedule, or ask clarifying questions as needed based on the workflow. 
+
+IMPORTANT: Schedule Adjustment Logic:
+1. Analyze if the user response indicates a change of plan for a specific task **for today only**. Examples: "I'll do the 10am task later at 3pm", "I actually finished Task X already", "Can't do Task Y today".
+2. **DO NOT** call 'update_task' for these temporary changes unless the user explicitly asks to change the task's default time, recurrence, or other core details.
+3. If the user indicates a change for **today**:
+    a. Identify the relevant 'taskId'.
+    b. Call 'get_scheduled_messages({taskId: <task_id>, status: "pending"})' to find pending reminders/follow-ups for that task scheduled for today.
+    c. If irrelevant pending messages are found (e.g., a 10:15am follow-up when the user says they'll do it at 3pm), call 'cancel_scheduled_message({scheduleId: <id_from_get>})' for each one.
+    d. If the user specified a **new time for today** (e.g., "at 3pm"), calculate the corresponding UTC timestamp in ISO8601 format (YYYY-MM-DDTHH:mm:ssZ) and call 'schedule_one_off_reminder({taskId: <task_id>, remindAt: "<ISO_timestamp>"})'.
+    e. If the user indicates they **skipped or cannot do** the task today, call 'mark_task_skipped_today({taskId: <task_id>})' INSTEAD of cancelling/rescheduling reminders.
+    f. If the user says they **already completed** the task, call 'update_task({ taskId: <task_id>, updates: { status: "completed" } })'.
+4. **CRITICAL:** Use ONLY the functions listed above (get_scheduled_messages, cancel_scheduled_message, schedule_one_off_reminder, mark_task_skipped_today, update_task) for these adjustments. **DO NOT use the 'scheduleUpdates' field** in your JSON response for these temporary, same-day changes.
+5. Inform the user about the actions taken using the specific function calls.
+
+Your response MUST be JSON.`;
     }
 
     // Include function results if available from a previous loop iteration
@@ -277,8 +333,12 @@ export class MessagingService {
   async handleUserResponse(userId: number, userMessageContent: string): Promise<string | null> {
     console.log(`Processing response from user ${userId}: "${userMessageContent.substring(0, 50)}..."`);
 
-    // 1. Store User Message
-    await db.insert(messageHistory).values({ userId, content: userMessageContent, type: "user_message", status: "received", createdAt: new Date() });
+    const now = new Date(); // Get current time once
+
+    // 1. Store User Message & Update User Timestamp
+    await db.insert(messageHistory).values({ userId, content: userMessageContent, type: "user_message", status: "received", createdAt: now });
+    await db.update(users).set({ last_user_initiated_message_at: now }).where(eq(users.id, userId)); // Update the timestamp
+    console.log(`Updated last_user_initiated_message_at for user ${userId}`);
 
     // 2. Prepare Initial Context & History
     const user = await storage.getUser(userId);
@@ -287,16 +347,18 @@ export class MessagingService {
     const userFacts = await storage.getKnownUserFacts(userId);
     const dbHistory = await db.select().from(messageHistory).where(eq(messageHistory.userId, userId)).orderBy(desc(messageHistory.createdAt)).limit(20);
 
-    // Convert DB history to Standardized format
+    // Convert DB history to Standardized format, adding localized timestamp
     let conversationHistory: StandardizedChatCompletionMessage[] = dbHistory.map(msg => {
+          const timestamp = `(${(formatInTimeZone(msg.createdAt, user.timeZone || 'UTC', 'h:mm a'))}) `; // Format: (9:30 AM) 
           return {
             role: (msg.type === "user_message" || msg.type === "system_request") ? "user" as const : "assistant" as const,
-            content: msg.content || "",
+            content: `${timestamp}${msg.content || ""}`, // Prepend timestamp
             name: undefined,
-            tool_calls: undefined // TODO: Reconstruct from metadata if needed
+            tool_calls: undefined
         };
     }).reverse();
 
+    // Add current user message (without timestamp, as it's the latest)
     conversationHistory.push({ role: "user", content: userMessageContent, name: undefined });
 
     let messageContext: MessageContext = { // Initial context for the *first* prompt
@@ -489,22 +551,22 @@ export class MessagingService {
   // --- Refactored handleSystemMessage ---
   async handleSystemMessage(
     userId: number,
-    systemRequestType: "reschedule_request" | "morning_summary" | "task_suggestion" | string, // Allow other types
+    systemRequestType: string, // Now just string
     contextData: Record<string, any> = {},
   ): Promise<string> { // Returns the message content for potential immediate use
     console.log(`Handling system message type: ${systemRequestType} for user ${userId}`);
     try {
-      // 1. Prepare Context
-      const user = await storage.getUser(userId);
+      // 1. Prepare Context (Fetch user WITH the new timestamp field)
+      const user = await db.select().from(users).where(eq(users.id, userId)).limit(1).then(res => res[0]); // Fetch directly
       if (!user) throw new Error(`User ${userId} not found`);
+      
       const userTasks = await storage.getTasks(userId);
       const userFacts = await storage.getKnownUserFacts(userId);
-       // Limit history for system messages? Maybe not needed if prompt is specific.
-      const dbHistory = await db.select().from(messageHistory).where(eq(messageHistory.userId, userId)).orderBy(desc(messageHistory.createdAt)).limit(10);
+      const dbHistory = await db.select().from(messageHistory).where(eq(messageHistory.userId, userId)).orderBy(desc(messageHistory.createdAt)).limit(20);
 
       const currentDateTime = new Date().toLocaleString("en-US", { timeZone: user.timeZone || undefined, dateStyle: "full", timeStyle: "long" });
 
-      // Map system message type
+      // Map system message type for prompt generation context
       let contextType: MessageContext['messageType'] = 'system_request';
       if (systemRequestType === 'morning_summary') contextType = 'morning';
       else if (systemRequestType === 'reschedule_request') contextType = 'reschedule';
@@ -516,84 +578,182 @@ export class MessagingService {
         previousMessages: dbHistory,
         currentDateTime,
         messageType: contextType,
-        systemRequestType: systemRequestType, // Pass the specific type
-        userResponse: contextData.userRequest || undefined, // Include if system request is based on prior user input
+        systemRequestType: systemRequestType,
+        userResponse: contextData.userRequest || undefined,
         taskDetails: contextData.taskDetails 
       };
 
-      // 2. Prepare Conversation History for API
-       // System messages might not need deep history, but include some for context.
-      let conversationHistory: StandardizedChatCompletionMessage[] = dbHistory.map(msg => ({
-         role: (msg.type === "user_message" || msg.type === "system_request") ? "user" as const : "assistant" as const,
-         content: msg.content || "",
-       })).reverse(); // Chronological
+      // Prepare conversation history for LLM
+      let conversationHistory: StandardizedChatCompletionMessage[] = dbHistory.map(msg => {
+         const timestamp = `(${(formatInTimeZone(msg.createdAt, user.timeZone || 'UTC', 'h:mm a'))}) `;
+         return {
+           role: (msg.type === "user_message" || msg.type === "system_request") ? "user" as const : "assistant" as const,
+           content: `${timestamp}${msg.content || ""}`,
+         }
+      }).reverse();
+      conversationHistory.push({ role: "user", content: `System Request: Initiate ${systemRequestType}` });
 
-       // Add a placeholder message representing the system's intent for this turn
-       conversationHistory.push({ role: "user", content: `System Request: Initiate ${systemRequestType}` });
-
-
-      // 3. Generate Response (Assume no tool calls needed for most system messages)
-       // If system messages *could* require tools (e.g., complex task suggestion),
-       // this would need the same loop structure as handleUserResponse.
+      // Generate LLM response
       const prompt = this.createUnifiedPrompt(messageContext);
       const assistantMessage = await this.generateUnifiedResponse(userId, prompt, conversationHistory);
-      const finalContent = assistantMessage.content || `{ "message": "System message generation failed." }`;
+      const finalContent = assistantMessage.content || `{ \"message\": \"System message generation failed.\" }`;
       const processedResult = this.processLLMResponse(finalContent);
 
-       // ---> NEW: Apply WhatsApp formatting
-       let messageToUser = processedResult.message;
-       if (messageToUser) {
-           messageToUser = messageToUser.replace(/\*\*(.*?)\*\*/g, '*$1*');
-           console.log("[Formatting] Applied WhatsApp bold conversion to system message.");
-       }
-       // <--- END NEW
+      // ---> Explicitly check for null message to skip sending
+      if (processedResult.message === null) {
+          console.log(`[handleSystemMessage] LLM evaluation determined message type '${systemRequestType}' for user ${userId} is no longer relevant. Skipping send.`);
+          // Consider updating schedule status to 'skipped_by_llm'
+          // if (contextData.messageScheduleId) await db.update(messageSchedules)... 
+          return ""; // Indicate no message was sent
+      }
+      // <--- End null check
 
-       // 4. Perform Actions (Save Message, Send to User if needed)
-       const finalMetadata: any = { systemInitiated: true, type: systemRequestType };
-        // Store proposal updates if it's a reschedule request, don't process yet
-        if (processedResult.scheduleUpdates && systemRequestType === 'reschedule_request') {
-            finalMetadata.scheduleUpdates = processedResult.scheduleUpdates;
-            console.log("Storing proposed schedule updates from system message.");
-        }
-        // Process scheduled messages immediately if generated
-        if (processedResult.scheduledMessages && processedResult.scheduledMessages.length > 0) {
-            await this.processScheduledMessages(userId, processedResult.scheduledMessages);
-        }
+      // If we are here, processedResult.message is a string.
+      let messageToUser: string = processedResult.message;
 
-      await db.insert(messageHistory).values({
-        userId,
-        content: messageToUser, // ---> Use formatted message
-        type: "coach_response", // Mark as coach response, metadata indicates system initiated
-        status: "sent",
-        metadata: Object.keys(finalMetadata).length > 0 ? finalMetadata : undefined,
-        createdAt: new Date(),
-      });
+      // ---> Apply WhatsApp formatting (can potentially result in empty string)
+      messageToUser = messageToUser.replace(/\*\*(.*?)\*\*/g, '*$1*');
+      console.log("[Formatting] Applied WhatsApp bold conversion to system message.");
+      // <--- End formatting
 
-       // Only send interactive system messages (like summaries/proposals) to the user
-       const shouldSendMessage = systemRequestType === 'morning_summary' || systemRequestType === 'reschedule_request' || systemRequestType.startsWith('task_'); // Send reminders/followups
-       // ---> FIX: Check if user.phoneNumber exists before comparing contactPreference
-       if (user.phoneNumber && shouldSendMessage) { // Send system messages via WhatsApp if phone exists
-            console.log(`[Sync] Attempting to send system-initiated message (${systemRequestType}) to WhatsApp for user ${userId}`);
-            await this.sendWhatsAppMessage(user.phoneNumber, messageToUser); // ---> Use formatted message
-    } else {
-            console.log(`System message type ${systemRequestType} generated, but not sent directly to user (no phone or type mismatch).`);
-        }
+      // 4. Perform Actions (Save Message, Send to User) only if there's content
+      const finalMetadata: any = { systemInitiated: true, type: systemRequestType };
 
-      return messageToUser; // ---> Return formatted message
+      // Store proposal updates if present
+      if (processedResult.scheduleUpdates && systemRequestType === 'reschedule_request') {
+          finalMetadata.scheduleUpdates = processedResult.scheduleUpdates;
+          console.log("Storing proposed schedule updates from system message.");
+      }
+      // Process scheduled messages immediately if generated
+      if (processedResult.scheduledMessages && processedResult.scheduledMessages.length > 0) {
+          await this.processScheduledMessages(userId, processedResult.scheduledMessages);
+      }
 
-        } catch (error) {
+      // ---> Save to History only if messageToUser is a non-empty string AFTER formatting
+      let savedMessageId: number | null = null;
+      if (messageToUser && messageToUser.trim().length > 0) {
+          const insertResult = await db.insert(messageHistory).values({
+            userId,
+            content: messageToUser, // Save the non-empty string
+            type: "coach_response",
+            status: "generated", // Change status initially to 'generated'
+            metadata: Object.keys(finalMetadata).length > 0 ? finalMetadata : undefined,
+            createdAt: new Date(),
+          }).returning({ insertedId: messageHistory.id });
+          savedMessageId = insertResult[0]?.insertedId;
+          console.log(`[handleSystemMessage] Saved generated message ${savedMessageId} to history (status: generated).`);
+      } else {
+          console.log("[handleSystemMessage] Skipping database insert for empty message content.");
+      }
+      // <--- End DB insert block
+
+      // ---> Conditional Sending Logic (Regular vs Template)
+      const shouldAttemptSend = systemRequestType === 'morning_summary' || systemRequestType === 'reschedule_request' || systemRequestType.startsWith('task_'); 
+      let sentVia: 'regular' | 'template' | 'none' = 'none'; // Track how message was sent
+      let sendError: string | null = null;
+
+      if (user.phoneNumber && shouldAttemptSend && savedMessageId) { // Only attempt send if message was generated and saved
+          const now = new Date();
+          const lastUserMessageTime = user.last_user_initiated_message_at;
+          const twentyThreeHalfHoursInMillis = 23.5 * 60 * 60 * 1000;
+          let useTemplate = false;
+
+          if (lastUserMessageTime) {
+              const timeDiff = now.getTime() - new Date(lastUserMessageTime).getTime();
+              if (timeDiff > twentyThreeHalfHoursInMillis) {
+                  useTemplate = true;
+                  console.log(`[handleSystemMessage] User ${userId} last message > 23.5 hours ago. Attempting to use template.`);
+              }
+          } else {
+              useTemplate = true;
+              console.log(`[handleSystemMessage] User ${userId} has no last message time recorded. Using template.`);
+          }
+
+          if (useTemplate) {
+              const templateInfo = this.templateMap[systemRequestType];
+              if (templateInfo) {
+                  let bodyVariables: string[] = [];
+                  const userName = user.firstName || 'there';
+                  try {
+                       // --- Variable preparation logic based on systemRequestType ---
+                       if (['schedule_proposal_v1', 'morning_summary', 'morning_brief'].includes(systemRequestType)) {
+                           const summary = messageToUser.length > 200 ? messageToUser.substring(0, 197) + "..." : messageToUser;
+                           bodyVariables = [userName, summary];
+                       } else if (['task_completion_check_v1', 'task_follow_up', 'task_post_reminder_follow_up'].includes(systemRequestType)) {
+                           const taskTitle = contextData.taskDetails?.taskTitle || "your task";
+                           const scheduledTime = contextData.taskDetails?.taskScheduledTime || "earlier";
+                           bodyVariables = [userName, taskTitle, scheduledTime];
+                       } else if (['task_reminder_now_v1', 'task_reminder'].includes(systemRequestType)) {
+                           const taskTitle = contextData.taskDetails?.taskTitle || "your task";
+                           const scheduledTime = contextData.taskDetails?.taskScheduledTime || "now";
+                           const reminderContent = messageToUser.includes(taskTitle) ? messageToUser : `It's time for \"${taskTitle}\"`;
+                           bodyVariables = [userName, reminderContent, scheduledTime];
+                       } else if (systemRequestType === 'task_pre_reminder_v1') {
+                           const taskTitle = contextData.taskDetails?.taskTitle || "your upcoming task";
+                           const scheduledTime = contextData.taskDetails?.taskScheduledTime || "soon";
+                           bodyVariables = [userName, taskTitle, scheduledTime];
+                       } else {
+                           console.warn(`[handleSystemMessage] Template mapping for ${systemRequestType} fallback. Variables: name, summary.`);
+                           const fallbackSummary = messageToUser.length > 100 ? messageToUser.substring(0, 97) + "..." : messageToUser;
+                           bodyVariables = [userName, fallbackSummary];
+                       }
+                       // ---------------------------------------------------------------
+
+                       // Ensure correct variable count
+                       while (bodyVariables.length < templateInfo.variables) bodyVariables.push("-");
+                       bodyVariables = bodyVariables.slice(0, templateInfo.variables);
+                       
+                       const templateSent = await this.sendWhatsAppTemplateMessage(user.phoneNumber, templateInfo.sid, bodyVariables);
+                       if(templateSent) sentVia = 'template'; else sendError = 'Template send failed';
+                   } catch (varError: any) {
+                       sendError = `Error preparing template variables: ${varError.message}`;
+                       console.error(`[handleSystemMessage] ${sendError}`);
+                   }
+              } else {
+                  sendError = `No template mapping for ${systemRequestType}`;
+                  console.error(`[handleSystemMessage] ${sendError}. Cannot send message outside 24h window.`);
+              }
+          } else {
+              // Within 24h window, send regular message
+              console.log(`[Sync] Attempting to send regular system-initiated message (${systemRequestType}) to WhatsApp for user ${userId}`);
+              const regularSent = await this.sendWhatsAppMessage(user.phoneNumber, messageToUser);
+              if(regularSent) sentVia = 'regular'; else sendError = 'Regular send failed';
+          }
+
+          // Update message history status based on send attempt
+          let finalStatus = 'failed_send';
+          if (sentVia !== 'none') {
+               finalStatus = 'sent';
+          } else if (sendError?.includes('No template mapping')) {
+               finalStatus = 'failed_window';
+          }
+          await db.update(messageHistory).set({ status: finalStatus }).where(eq(messageHistory.id, savedMessageId));
+          console.log(`[handleSystemMessage] Updated message ${savedMessageId} status to ${finalStatus}. Sent via: ${sentVia}. Error: ${sendError}`);
+
+      } else {
+          console.log(`System message type ${systemRequestType} generated, but not attempted to send (no phone, type mismatch, or empty content).`);
+          // If message was saved but not sent, update status? Maybe keep as 'generated'?
+          if (savedMessageId) {
+               await db.update(messageHistory).set({ status: 'generated_not_sent' }).where(eq(messageHistory.id, savedMessageId));
+               console.log(`[handleSystemMessage] Updated message ${savedMessageId} status to generated_not_sent.`);
+          }
+      }
+      // <--- End conditional sending block
+
+      return messageToUser; // Return the original generated message content
+
+    } catch (error) {
       console.error(`Error handling system message (${systemRequestType}) for user ${userId}: `, error);
       // Don't save or send anything on error
       return "Sorry, I encountered an error processing the system request.";
     }
   }
 
-
-  // --- Supporting Functions (Keep Existing Implementations) ---
+  // --- Supporting Functions ---
 
   // processLLMResponse (Modified for in-JSON function calls)
   processLLMResponse(content: string): {
-    message: string;
+    message: string | null; // Allow message to be null
     function_call?: { 
       name: string;
       arguments: Record<string, any>;
@@ -632,7 +792,8 @@ export class MessagingService {
         // If it doesn't look like JSON after cleaning, treat as plain text message
         console.warn("Content did not look like JSON after cleaning, treating as plain text:", cleanContent);
         return {
-          message: cleanContent, // Return the cleaned, non-JSON content
+          message: cleanContent, // Return the cleaned, non-JSON content as string
+          function_call: undefined,
           scheduleUpdates: [],
           scheduledMessages: [],
         };
@@ -640,18 +801,7 @@ export class MessagingService {
 
       // --- Proceed with parsed JSON logic --- 
       
-      // Basic validation - ensure message exists (or function_call exists)
-       if (typeof parsed.message !== 'string' && !parsed.function_call) {
-           console.warn("Parsed JSON response lacks both 'message' string field and 'function_call'. Using raw content as fallback message.", cleanContent);
-            // Return a fallback structure, but use the cleaned content as the message
-      return {
-               message: cleanContent, 
-               scheduleUpdates: [],
-               scheduledMessages: [],
-           }; 
-       }
-
-       // Extract function call if present and valid
+      // Extract function call if present and valid
        let functionCall = undefined;
        if (parsed.function_call && 
            typeof parsed.function_call.name === 'string' && 
@@ -666,22 +816,37 @@ export class MessagingService {
            console.warn("Parsed JSON contained an invalid 'function_call' field. Ignoring it.", parsed.function_call);
        }
        
-       // Use message field if it's a string, otherwise use a placeholder if a function was called
-       let messageContent = typeof parsed.message === 'string' ? parsed.message : 
-                            (functionCall ? `[System action: Calling function '${functionCall.name}']` : "[System processing...]");
+      // ---> Correctly handle message content (string or null)
+      let messageContent: string | null = parsed.message; // Assign directly
+
+      if (messageContent === null) {
+          // Explicitly handle the null case - this is valid for skipping messages
+          console.log("[processLLMResponse] Parsed message content is null. Preserving null.");
+      } else if (typeof messageContent !== 'string') {
+          // Message is neither null nor a string - this is invalid or a fallback case
+          if (functionCall) {
+              console.log("[processLLMResponse] Message field invalid or missing, using function call placeholder.");
+              messageContent = `[System action: Calling function '${functionCall.name}']`;
+          } else {
+              console.warn("Parsed JSON response lacks a valid 'message' field (string or null) and no 'function_call'. Using raw content as fallback.", cleanContent);
+              messageContent = cleanContent; // Fallback to raw content as string
+          }
+      }
+      // <--- End message content handling
 
       return {
-        message: messageContent, // Use extracted message or placeholder
+        message: messageContent, // Return the string, null, or fallback string
         function_call: functionCall, 
         scheduleUpdates: Array.isArray(parsed.scheduleUpdates) ? parsed.scheduleUpdates : [],
         scheduledMessages: Array.isArray(parsed.scheduledMessages) ? parsed.scheduledMessages : [],
       };
 
             } catch (error: unknown) {
-      // --- Fallback Logic if JSON parsing failed on cleaned content ---
-      console.warn("Could not parse cleaned LLM response as JSON. Treating cleaned content as message:", cleanContent, error);
+      console.error(`Error processing LLM response content: ${content}`, error);
+      // Return a safe fallback string in case of JSON parsing errors etc.
       return {
-        message: cleanContent, // Use the cleaned content
+        message: `Sorry, there was an issue processing the response: ${content}`,
+        function_call: undefined,
         scheduleUpdates: [],
         scheduledMessages: [],
       };
@@ -711,6 +876,36 @@ export class MessagingService {
       return false;
     }
   }
+
+  // ---> NEW: Send WhatsApp Template Message
+  private async sendWhatsAppTemplateMessage(
+    to: string, 
+    templateSid: string, 
+    bodyVariables: string[] // Array of strings for {{1}}, {{2}}, etc.
+  ): Promise<boolean> {
+    console.log(`Attempting to send WhatsApp template ${templateSid} to ${to}`);
+    try {
+      // Construct the parameters for the Twilio API call
+      // The `contentVariables` need to be a JSON string mapping placeholders to values
+      const contentVariables = bodyVariables.reduce((acc, value, index) => {
+        acc[`${index + 1}`] = value; // Creates { "1": value1, "2": value2, ... }
+        return acc;
+      }, {} as Record<string, string>);
+
+      await twilioClient.messages.create({
+        contentSid: templateSid,
+        contentVariables: JSON.stringify(contentVariables),
+        from: `whatsapp:${process.env.TWILIO_PHONE_NUMBER}`,
+        to: `whatsapp:${to}`,
+      });
+      console.log(`Successfully sent WhatsApp template ${templateSid} to ${to}`);
+      return true;
+    } catch (error) {
+      console.error(`Failed to send WhatsApp template ${templateSid} to ${to}:`, error);
+      return false;
+    }
+  }
+  // <--- END NEW
 
   // processScheduleUpdates (Keep existing)
   async processScheduleUpdates(userId: number, updates: ScheduleUpdate[]): Promise<void> {
@@ -781,9 +976,9 @@ export class MessagingService {
         userId,
                 title: update.title,
                 description: update.description || "",
-                         taskType: TaskType.DAILY, // Default or derive from context?
+                         taskType: TaskType.REGULAR, // Updated from DAILY
                 status: "active",
-                         estimatedDuration: "30 minutes",
+                         estimatedDuration: "30 minutes", // Should this be updated? Maybe remove default?
                 scheduledTime: update.scheduledTime,
                 recurrencePattern: update.recurrencePattern || "none",
         });
@@ -1022,25 +1217,25 @@ export class MessagingService {
           const todayStartLocal = toZonedTime(systemStartOfToday, timeZone);
           const tomorrowStartLocal = addDays(todayStartLocal, 1);
 
-          // Get active daily tasks with a scheduled time
-          const dailyTasks = await db.select().from(tasks).where(
+          // Get active regular tasks with a scheduled time
+          const regularTasks = await db.select().from(tasks).where( // Renamed variable
             and(
               eq(tasks.userId, user.id),
-              eq(tasks.taskType, TaskType.DAILY),
+              eq(tasks.taskType, TaskType.REGULAR), // Updated from DAILY
               eq(tasks.status, 'active'),
               not(isNull(tasks.scheduledTime))
             )
           );
 
-          if (dailyTasks.length === 0) {
-            // console.log(`[Scheduler] No active daily tasks with scheduled times found for user ${user.id}.`);
+          if (regularTasks.length === 0) { // Updated variable name
+            // console.log(`[Scheduler] No active regular tasks with scheduled times found for user ${user.id}.`);
             continue;
           }
 
-          console.log(`[Scheduler] Found ${dailyTasks.length} daily tasks for user ${user.id}. Attempting to schedule reminders.`);
+          console.log(`[Scheduler] Found ${regularTasks.length} regular tasks for user ${user.id}. Attempting to schedule reminders.`); // Updated variable name
 
           // --- Call helper for each task --- 
-          for (const task of dailyTasks) {
+          for (const task of regularTasks) { // Use the correct variable name here
             // Pass necessary arguments to the helper
             const count = await this._scheduleRemindersForTask(
                 task, 

@@ -16,6 +16,9 @@ import {
 import { format, startOfToday, addDays } from 'date-fns';
 import { storage, User, TaskWithSubtasks } from '../storage'; // Import storage, User type, and TaskWithSubtasks
 import { toZonedTime } from 'date-fns-tz';
+import { startOfDay, endOfDay, parseISO, isValid } from 'date-fns'; // Ensure necessary date-fns functions are imported
+import { inArray } from "drizzle-orm"; // Added inArray
+import { MessagingService } from './messaging'; // Ensure MessagingService is imported
 
 // Define simplified types for use in this file
 type Task = {
@@ -64,7 +67,7 @@ type Subtask = {
 interface LLMFunctionContext {
   userId: number;
   date?: Date; // If provided, use this date instead of today
-  messagingService: any; // Use 'any' for now, or import the actual type if cycle is broken elsewhere
+  messagingService: MessagingService; // Use 'any' for now, or import the actual type if cycle is broken elsewhere
 }
 
 // Function definitions that will be provided to the LLM
@@ -128,8 +131,8 @@ export const llmFunctionDefinitions = [
         },
         taskType: { 
           type: 'string', 
-          description: "The category/type of the task (e.g., daily task, project, goal). Recurrence is handled separately.",
-          enum: ['daily', 'personal_project', 'long_term_project', 'life_goal'] // Use schema enum
+          description: "The category/type of the task (regular, project, goal). Use \'regular\' for standard tasks.",
+          enum: ['regular', 'personal_project', 'long_term_project', 'life_goal'] // Updated enum
         },
         description: { 
           type: 'string', 
@@ -137,16 +140,15 @@ export const llmFunctionDefinitions = [
         },
         scheduledTime: { 
           type: 'string', 
-          description: "Optional scheduled time (e.g., '14:30', 'evening'). Relevant mainly for 'daily' tasks."
+          description: "Optional specific time for the task (HH:MM format, e.g., \'09:00\', \'14:30\'). If provided, reminders will be scheduled."
         },
         recurrencePattern: { 
           type: 'string', 
-          description: "Optional recurrence pattern (e.g., 'daily', 'weekly:1,3,5' for MWF, 'monthly:15', 'none')."
+          description: "How often the task repeats. Use \'none\' (default if omitted) for one-off tasks. Examples: \'daily\', \'weekly:1,3,5\' (Mon, Wed, Fri - 1 is Monday), \'monthly:15\' (15th of month). Ask the user to clarify if unsure. Important: If recurrence is specified, \'scheduledTime\' is usually also required."
         },
-        // Add other relevant properties if needed, e.g., estimatedDuration, deadline
         estimatedDuration: { 
           type: 'string',
-          description: "Optional estimated duration (e.g., '30m', '2h' for daily; '3d', '2w' for projects; '6M' for long-term; '1y' for goals)."
+          description: "Optional estimated duration (e.g., \'30m\', \'2h\' for regular; \'3d\', \'2w\' for projects; \'6M\' for long-term; \'1y\' for goals)."
         },
         deadline: {
           type: 'string',
@@ -386,7 +388,46 @@ export const llmFunctionDefinitions = [
       },
       required: ['messageScheduleId']
     }
-  }
+  },
+  {
+    name: "get_scheduled_messages",
+    description: "Retrieves a list of pending scheduled messages (reminders, follow-ups) for the user, optionally filtered by task ID, type, or date. Useful for checking if irrelevant reminders need cancelling after a plan change.",
+    parameters: {
+      type: "object",
+      properties: {
+        taskId: { type: "number", description: "Optional. Filter messages related to this specific task ID." },
+        type: { type: "string", description: "Optional. Filter by message type (e.g., 'reminder', 'follow_up', 'pre_reminder')." },
+        status: { type: "string", description: "Optional. Filter by status. Defaults to 'pending'.", default: "pending" },
+        date: { type: "string", format: "date", description: "Optional. Filter messages scheduled for this specific date (YYYY-MM-DD). Defaults to the current date." }
+      },
+      required: []
+    }
+  },
+  {
+    name: "cancel_scheduled_message",
+    description: "Cancels a specific PENDING scheduled message (reminder or follow-up) by its unique schedule ID. Get the ID using get_scheduled_messages first.",
+    parameters: {
+      type: "object",
+      properties: {
+        scheduleId: { type: "number", description: "The unique ID of the message schedule record to cancel." }
+      },
+      required: ["scheduleId"]
+    }
+  },
+  {
+    name: "schedule_one_off_reminder",
+    description: "Schedules a single, non-recurring reminder for a specific task at a specific time TODAY. Use this if the user says they will do a task at a different time just for today.",
+    parameters: {
+      type: "object",
+      properties: {
+        taskId: { type: "number", description: "The ID of the task this reminder is for." },
+        remindAt: { type: "string", format: "date-time", description: "The exact date and time (ISO8601 format in UTC) when the reminder should be sent. e.g., YYYY-MM-DDTHH:mm:ssZ" },
+        title: { type: "string", description: "Optional. A title for the reminder message." },
+        content: { type: "string", description: "Optional. Specific content for the reminder message." }
+      },
+      required: ["taskId", "remindAt"]
+    }
+  },
 ];
 
 // Implementation of LLM functions
@@ -788,47 +829,6 @@ export class LLMFunctions {
       const newTaskWithSubtasks: TaskWithSubtasks = await storage.createTask(newTaskData);
       console.log("Task created successfully:", newTaskWithSubtasks);
 
-      // --- Schedule reminders --- 
-      try {
-          const user = await storage.getUser(userId);
-          if (user && messagingService) {
-              if (newTaskWithSubtasks.taskType === 'daily' && newTaskWithSubtasks.scheduledTime) {
-                try {
-                  // We need the full user object for timezone calculations
-                  if (!user || !user.timeZone) throw new Error(`User ${userId} not found or missing timezone for scheduling reminders.`);
-
-                  // ---> FIX: Call the correct helper and pass necessary arguments
-                  const timeZone = user.timeZone;
-                  const now = new Date();
-                  const systemStartOfToday = startOfToday(); // Get UTC start of today
-                  const todayStartLocal = toZonedTime(systemStartOfToday, timeZone); // Convert to user's local start of day
-                  const tomorrowStartLocal = addDays(todayStartLocal, 1); // Next day local
-
-                  // Call the messaging service's private helper to handle reminder scheduling
-                  const count = await messagingService._scheduleRemindersForTask(
-                    newTaskWithSubtasks as Task, 
-                    user, 
-                    timeZone, 
-                    todayStartLocal, 
-                    tomorrowStartLocal, 
-                    now
-                  );
-                  // <--- END FIX
-                  console.log(`[LLM create_task] Scheduled ${count} initial reminders for new task ${newTaskWithSubtasks.id}`);
-                } catch (reminderError) {
-                  console.error(`[LLM create_task] Error scheduling reminders for new task ${newTaskWithSubtasks.id}:`, reminderError);
-                  // Do not throw; task creation succeeded, scheduling is secondary
-                }
-              }
-          } else {
-              console.error(`[LLM create_task] Could not find user ${userId} or missing messagingService to schedule reminders.`);
-          }
-      } catch (scheduleError) {
-          console.error(`[LLM create_task] Error scheduling reminders for new task ${newTaskWithSubtasks.id}:`, scheduleError);
-          // Do not throw; task creation succeeded, scheduling is secondary
-      }
-      // --- End schedule reminders ---
-
       return { success: true, taskId: newTaskWithSubtasks.id, message: "Task created successfully." };
     } catch (error: any) {
       console.error("Error in create_task:", error);
@@ -843,42 +843,30 @@ export class LLMFunctions {
   /**
    * Update an existing task
    */
-  async update_task(context: LLMFunctionContext, params: any) {
+  async update_task(context: LLMFunctionContext, params: { taskId: number, updates: Partial<Task> }): Promise<any> {
     const { userId, messagingService } = context;
-    try {
-      console.log("Executing update_task with params:", params);
-      const { taskId, updates } = params;
-
-      if (typeof taskId !== 'number' || typeof updates !== 'object' || updates === null) {
-        return { success: false, error: "Invalid arguments. Requires taskId (number) and updates (object)." };
-      }
-
-      try {
-        // Update task in storage (storage should handle permissions)
-        const updatedTask = await storage.updateTask(taskId, userId, updates);
-        console.log("Task updated successfully:", updatedTask);
-
-        // If task was completed or archived, or if time was changed, clean up old reminders
-        const shouldCleanup = updates.status === 'completed' || updates.status === 'archived' || updates.scheduledTime !== undefined;
-        if (shouldCleanup) {
-          try {
-            await messagingService.cleanupPendingRemindersForTask(userId, taskId); // Correct function call
-          } catch (cleanupError) {
-            // Log the cleanup error but don't fail the whole operation
-            console.error(`[LLM update_task] Error cleaning up reminders for task ${taskId}:`, cleanupError);
-          }
-        }
-        
-        return { success: true, taskId: taskId, message: "Task updated successfully." };
-      } catch (error) {
-        console.error("Error updating task in storage:", error);
-        const errorMessage = error instanceof Error ? error.message : "Failed to update task in storage.";
-        return { success: false, error: errorMessage };
-      }
-    } catch (error) {
-      console.error("Error in update_task:", error);
-      return { success: false, error: String(error) };
+    const { taskId, updates } = params;
+    console.log(`[LLM Func] update_task called for user ${userId}, task ${taskId}`, updates);
+    if (typeof taskId !== 'number' || typeof updates !== 'object' || updates === null) {
+       return { success: false, error: "Invalid arguments. Requires taskId (number) and updates (object)." };
     }
+    try {
+       const updatedTask = await storage.updateTask(taskId, userId, updates);
+       console.log("Task updated successfully:", updatedTask);
+       const shouldCleanup = updates.status === 'completed' || updates.status === 'archived' || updates.scheduledTime !== undefined;
+       if (shouldCleanup) {
+         try {
+           await messagingService.cleanupPendingRemindersForTask(userId, taskId);
+         } catch (cleanupError) {
+           console.error(`[LLM update_task] Error cleaning up reminders for task ${taskId}:`, cleanupError);
+         }
+       }
+       return { success: true, taskId: taskId, message: "Task updated successfully." };
+     } catch (error) {
+       console.error("Error updating task in storage:", error);
+       const errorMessage = error instanceof Error ? error.message : "Failed to update task in storage.";
+       return { success: false, error: errorMessage };
+     }
   }
 
   /**
@@ -1191,6 +1179,126 @@ export class LLMFunctions {
       }
     }
   }
+
+  // ---> ADD NEW METHODS HERE <---
+  async get_scheduled_messages(context: LLMFunctionContext, params: { taskId?: number, type?: string, status?: string, date?: string }): Promise<any> {
+    const { userId } = context;
+    const { taskId, type, status = 'pending', date } = params;
+    console.log(`[LLM Func] get_scheduled_messages called for user ${userId}`, params);
+    try {
+        const user = await storage.getUser(userId);
+        const timeZone = user?.timeZone || 'UTC';
+        const targetDate = date ? parseISO(date) : new Date();
+        if (!isValid(targetDate)) {
+          return { success: false, error: `Invalid date format: ${date}. Use YYYY-MM-DD.` };
+        }
+        const startOfTargetDay = startOfDay(toZonedTime(targetDate, timeZone));
+        const endOfTargetDay = endOfDay(toZonedTime(targetDate, timeZone));
+        const conditions = [
+          eq(messageSchedules.userId, userId),
+          eq(messageSchedules.status, status),
+          gte(messageSchedules.scheduledFor, startOfTargetDay),
+          lt(messageSchedules.scheduledFor, endOfTargetDay)
+        ];
+        if (taskId !== undefined) {
+          if (typeof taskId !== 'number') return { success: false, error: 'taskId must be a number.' };
+          conditions.push(eq(sql`(metadata->>'taskId')::integer`, taskId));
+        }
+        if (type !== undefined) {
+          if (typeof type !== 'string') return { success: false, error: 'type must be a string.' };
+          conditions.push(eq(messageSchedules.type, type));
+        }
+        const schedules = await db.select({
+            id: messageSchedules.id,
+            type: messageSchedules.type,
+            status: messageSchedules.status,
+            scheduledFor: messageSchedules.scheduledFor,
+            title: messageSchedules.title,
+            content: messageSchedules.content,
+            metadata: messageSchedules.metadata
+          })
+            .from(messageSchedules)
+            .where(and(...conditions))
+            .orderBy(messageSchedules.scheduledFor);
+        console.log(`[LLM Func] Found ${schedules.length} scheduled messages for user ${userId}.`);
+        return { success: true, schedules };
+    } catch (error) {
+        console.error("[LLM Func] Error in get_scheduled_messages:", error);
+        return { success: false, error: error instanceof Error ? error.message : "Failed to get scheduled messages." };
+    }
+  }
+
+  async cancel_scheduled_message(context: LLMFunctionContext, params: { scheduleId: number }): Promise<any> {
+    const { userId } = context;
+    const { scheduleId } = params;
+    console.log(`[LLM Func] cancel_scheduled_message called for user ${userId}, scheduleId ${scheduleId}`);
+    if (typeof scheduleId !== 'number') {
+      return { success: false, error: 'Invalid scheduleId. Must be a number.' };
+    }
+    try {
+        const updateResult = await db.update(messageSchedules)
+          .set({ status: 'cancelled', updatedAt: new Date() })
+          .where(and(
+            eq(messageSchedules.id, scheduleId),
+            eq(messageSchedules.userId, userId),
+            eq(messageSchedules.status, 'pending')
+          ))
+          .returning({ id: messageSchedules.id });
+        if (updateResult.length > 0) {
+          console.log(`[LLM Func] Successfully cancelled message schedule ${scheduleId} for user ${userId}.`);
+          return { success: true, message: `Cancelled scheduled message ID ${scheduleId}.` };
+        } else {
+          console.log(`[LLM Func] Could not cancel schedule ${scheduleId}. Might not exist, not pending, or belong to another user.`);
+          return { success: false, error: `Could not cancel schedule ID ${scheduleId}.` };
+        }
+    } catch (error) {
+        console.error("[LLM Func] Error in cancel_scheduled_message:", error);
+        return { success: false, error: error instanceof Error ? error.message : "Failed to cancel scheduled message." };
+    }
+  }
+
+  async schedule_one_off_reminder(context: LLMFunctionContext, params: { taskId: number, remindAt: string, title?: string, content?: string }): Promise<any> {
+    const { userId } = context;
+    const { taskId, remindAt, title, content } = params;
+    console.log(`[LLM Func] schedule_one_off_reminder called for user ${userId}`, params);
+    if (typeof taskId !== 'number') {
+      return { success: false, error: 'taskId must be a number.' };
+    }
+    if (typeof remindAt !== 'string') {
+      return { success: false, error: 'remindAt must be an ISO8601 UTC string.' };
+    }
+    try {
+        const remindAtDate = parseISO(remindAt);
+        if (!isValid(remindAtDate)) {
+          return { success: false, error: `Invalid remindAt format: ${remindAt}. Use ISO8601 UTC format.` };
+        }
+        let taskTitle = 'Task Reminder';
+        const task = await storage.getTask(taskId, userId);
+        if (task) taskTitle = task.title;
+        const finalTitle = title || `Reminder: ${taskTitle}`;
+        const finalContent = content || `Just a reminder about your task: "${taskTitle}".`;
+        const [newSchedule] = await db.insert(messageSchedules).values({
+          userId: userId,
+          type: 'reminder', 
+          title: finalTitle,
+          content: finalContent,
+          scheduledFor: remindAtDate,
+          status: 'pending',
+          metadata: { taskId: taskId, reminderType: 'one_off' },
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }).returning();
+        console.log(`[LLM Func] Successfully scheduled one-off reminder ${newSchedule.id} for task ${taskId} at ${remindAt} for user ${userId}.`);
+        return { success: true, scheduleId: newSchedule.id, message: `Scheduled a one-off reminder for ${remindAtDate.toISOString()}.` };
+    } catch (error) {
+        console.error("[LLM Func] Error in schedule_one_off_reminder:", error);
+         if (error instanceof Error && error.message.includes("not found")) {
+            return { success: false, error: `Task with ID ${taskId} not found or user ${userId} lacks permission.` };
+        }
+        return { success: false, error: error instanceof Error ? error.message : "Failed to schedule one-off reminder." };
+    }
+  }
+  // --- END NEW METHODS ---
 }
 
 // --- Create and Export the Function Executor Map ---
@@ -1206,9 +1314,6 @@ export const llmFunctionExecutors: { [key: string]: Function } = {
   create_task: llmFunctionsInstance.create_task.bind(llmFunctionsInstance),
   update_task: llmFunctionsInstance.update_task.bind(llmFunctionsInstance),
   delete_task: llmFunctionsInstance.delete_task.bind(llmFunctionsInstance),
-  create_subtask: llmFunctionsInstance.create_subtask.bind(llmFunctionsInstance),
-  update_subtask: llmFunctionsInstance.update_subtask.bind(llmFunctionsInstance),
-  delete_subtask: llmFunctionsInstance.delete_subtask.bind(llmFunctionsInstance),
   // ---> COMMENT OUT bindings for non-existent schedule item functions
   // create_schedule_item: llmFunctionsInstance.create_schedule_item.bind(llmFunctionsInstance),
   // update_schedule_item: llmFunctionsInstance.update_schedule_item.bind(llmFunctionsInstance),
@@ -1216,4 +1321,7 @@ export const llmFunctionExecutors: { [key: string]: Function } = {
   schedule_message: llmFunctionsInstance.schedule_message.bind(llmFunctionsInstance),
   delete_scheduled_message: llmFunctionsInstance.delete_scheduled_message.bind(llmFunctionsInstance),
   mark_task_skipped_today: llmFunctionsInstance.mark_task_skipped_today.bind(llmFunctionsInstance),
+  get_scheduled_messages: llmFunctionsInstance.get_scheduled_messages.bind(llmFunctionsInstance),
+  cancel_scheduled_message: llmFunctionsInstance.cancel_scheduled_message.bind(llmFunctionsInstance),
+  schedule_one_off_reminder: llmFunctionsInstance.schedule_one_off_reminder.bind(llmFunctionsInstance),
 };

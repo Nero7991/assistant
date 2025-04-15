@@ -37,6 +37,55 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { AddSubtaskDialog } from "@/components/add-subtask-dialog";
 
+interface DayHighlightProps {
+  pattern: string; // Expects patterns like "weekly:1,3,5" or "daily"
+}
+
+const DayHighlight: React.FC<DayHighlightProps> = ({ pattern }) => {
+  const days = ['S', 'M', 'T', 'W', 'T', 'F', 'S']; // Sun=0, Mon=1, ..., Sat=6
+  let activeIndices = new Set<number>();
+
+  if (pattern === 'daily') {
+    activeIndices = new Set([0, 1, 2, 3, 4, 5, 6]);
+  } else if (pattern.startsWith('weekly:')) {
+    try {
+      const dayStr = pattern.split(':')[1];
+      dayStr.split(',').forEach(d => {
+        const index = parseInt(d.trim(), 10);
+        if (!isNaN(index) && index >= 0 && index <= 6) {
+          activeIndices.add(index);
+        }
+      });
+    } catch (e) {
+      console.error("Error parsing weekly pattern:", e);
+      // Don't highlight anything if pattern is invalid
+    }
+  } else {
+    // Not daily or weekly, don't render anything specific
+    return null;
+  }
+
+  // Don't render if no days are active (e.g., invalid pattern)
+  if (activeIndices.size === 0 && pattern !== 'daily') return null;
+
+  return (
+    <div className="flex gap-1 mt-1">
+      {days.map((day, index) => (
+        <span
+          key={index}
+          className={`text-xs w-4 h-4 flex items-center justify-center rounded-sm ${
+            activeIndices.has(index)
+              ? 'bg-primary text-primary-foreground font-semibold'
+              : 'bg-muted text-muted-foreground'
+          }`}
+        >
+          {day}
+        </span>
+      ))}
+    </div>
+  );
+};
+
 interface TaskListProps {
   tasks: Task[];
   type: string;
@@ -52,8 +101,8 @@ const supportsSubtasks = (taskType: string): boolean => {
 // Function to get a human-readable label for task types
 const getTypeLabel = (type: string): string => {
   switch (type) {
-    case TaskType.DAILY:
-      return "Daily Task";
+    case TaskType.REGULAR:
+      return "Task";
     case TaskType.PERSONAL_PROJECT:
       return "Personal Project";
     case TaskType.LONG_TERM_PROJECT:
@@ -230,6 +279,35 @@ export function TaskList({ tasks, type }: TaskListProps) {
     },
   });
 
+  // ---> Helper function for formatting recurrence pattern
+  const formatRecurrence = (pattern: string | null | undefined): string => {
+    if (!pattern || pattern === 'none') {
+      return 'One-time';
+    }
+    if (pattern === 'daily') {
+      return 'Daily';
+    }
+    if (pattern.startsWith('weekly:')) {
+      const days = pattern.split(':')[1];
+      if (days === '1,2,3,4,5') return 'Weekdays';
+      if (days === '6,0') return 'Weekends'; // Assuming Sunday=0, Saturday=6 based on typical DB/JS
+      if (days === '1,3,5') return 'Mon, Wed, Fri';
+      // Add more specific labels or fall back
+      const dayMap = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      try {
+        const dayIndices = days.split(',').map(d => parseInt(d.trim()));
+        const dayNames = dayIndices.map(i => dayMap[i] || '?').join(', ');
+        return `Weekly (${dayNames})`;
+      } catch (e) { return `Weekly (${days})`; }
+    }
+    if (pattern.startsWith('monthly:')) {
+      const day = pattern.split(':')[1];
+      return `Monthly (Day ${day})`;
+    }
+    return pattern; // Fallback to raw pattern
+  };
+  // <--- End helper function
+
   if (tasks.length === 0) {
     return (
       <div className="text-center py-12">
@@ -291,7 +369,7 @@ export function TaskList({ tasks, type }: TaskListProps) {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center gap-4 text-sm text-muted-foreground mb-4">
+            <div className="flex items-center flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground mb-4">
               {task.estimatedDuration && (
                 <div className="flex items-center gap-1">
                   <Clock className="w-4 h-4" />
@@ -299,44 +377,26 @@ export function TaskList({ tasks, type }: TaskListProps) {
                 </div>
               )}
               {task.deadline && (
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 mr-2">
                   <Calendar className="w-4 h-4" />
                   {format(new Date(task.deadline), 'MMM d, yyyy')}
                 </div>
               )}
               {task.scheduledTime && (
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1 mr-2">
                   <AlarmClock className="w-4 h-4" />
                   {task.scheduledTime}
                 </div>
               )}
-              {task.recurrencePattern && task.recurrencePattern !== 'none' && (
+              <div className="flex flex-col items-start">
                 <div className="flex items-center gap-1">
                   <Repeat className="w-4 h-4" />
-                  {task.recurrencePattern.startsWith('daily')
-                    ? 'Daily'
-                    : task.recurrencePattern.startsWith('weekly:1,2,3,4,5')
-                      ? 'Weekdays'
-                      : task.recurrencePattern.startsWith('weekly:6,7')
-                        ? 'Weekends'
-                        : task.recurrencePattern.startsWith('weekly:1')
-                          ? 'Monday'
-                          : task.recurrencePattern.startsWith('weekly:2')
-                            ? 'Tuesday'
-                            : task.recurrencePattern.startsWith('weekly:3')
-                              ? 'Wednesday'
-                              : task.recurrencePattern.startsWith('weekly:4')
-                                ? 'Thursday'
-                                : task.recurrencePattern.startsWith('weekly:5')
-                                  ? 'Friday'
-                                  : task.recurrencePattern.startsWith('weekly:6')
-                                    ? 'Saturday'
-                                    : task.recurrencePattern.startsWith('weekly:7')
-                                      ? 'Sunday'
-                                      : task.recurrencePattern
-                  }
+                  {formatRecurrence(task.recurrencePattern)}
                 </div>
-              )}
+                {(task.recurrencePattern === 'daily' || task.recurrencePattern?.startsWith('weekly:')) && (
+                  <DayHighlight pattern={task.recurrencePattern!} />
+                )}
+              </div>
               
               {/* Subtask progress indicator */}
               {subtasksByTask[task.id]?.length > 0 && (
@@ -421,33 +481,15 @@ export function TaskList({ tasks, type }: TaskListProps) {
                               {subtask.scheduledTime}
                             </div>
                           )}
-                          {subtask.recurrencePattern && subtask.recurrencePattern !== 'none' && (
+                          <div className="flex flex-col items-start">
                             <div className="flex items-center gap-1">
                               <Repeat className="w-3 h-3" />
-                              {subtask.recurrencePattern.startsWith('daily')
-                                ? 'Daily'
-                                : subtask.recurrencePattern.startsWith('weekly:1,2,3,4,5')
-                                  ? 'Weekdays'
-                                  : subtask.recurrencePattern.startsWith('weekly:6,7')
-                                    ? 'Weekends'
-                                    : subtask.recurrencePattern.startsWith('weekly:1')
-                                      ? 'Monday'
-                                      : subtask.recurrencePattern.startsWith('weekly:2')
-                                        ? 'Tuesday'
-                                        : subtask.recurrencePattern.startsWith('weekly:3')
-                                          ? 'Wednesday'
-                                          : subtask.recurrencePattern.startsWith('weekly:4')
-                                            ? 'Thursday'
-                                            : subtask.recurrencePattern.startsWith('weekly:5')
-                                              ? 'Friday'
-                                              : subtask.recurrencePattern.startsWith('weekly:6')
-                                                ? 'Saturday'
-                                                : subtask.recurrencePattern.startsWith('weekly:7')
-                                                  ? 'Sunday'
-                                                  : subtask.recurrencePattern
-                              }
+                              {formatRecurrence(subtask.recurrencePattern)}
                             </div>
-                          )}
+                            {(subtask.recurrencePattern === 'daily' || subtask.recurrencePattern?.startsWith('weekly:')) && (
+                              <DayHighlight pattern={subtask.recurrencePattern!} />
+                            )}
+                          </div>
                         </div>
                       </div>
                       <div className="flex items-start gap-2">
@@ -568,25 +610,25 @@ export function TaskList({ tasks, type }: TaskListProps) {
               
               <div className="grid grid-cols-1 gap-2">
                 <Label htmlFor="recurrencePattern">Recurrence Pattern</Label>
-                <Select 
-                  defaultValue={taskToEdit.recurrencePattern || 'none'}
-                  onValueChange={(value) => setTaskToEdit({...taskToEdit, recurrencePattern: value})}
+                <Select
+                   value={taskToEdit.recurrencePattern || 'none'}
+                   onValueChange={(value) => setTaskToEdit({...taskToEdit, recurrencePattern: value === 'none' ? null : value})}
                 >
                   <SelectTrigger id="recurrencePattern">
                     <SelectValue placeholder="Select a pattern" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">No recurrence</SelectItem>
+                    <SelectItem value="none">One-time (No Recurrence)</SelectItem>
                     <SelectItem value="daily">Daily</SelectItem>
                     <SelectItem value="weekly:1,2,3,4,5">Weekdays (Mon-Fri)</SelectItem>
-                    <SelectItem value="weekly:6,7">Weekends (Sat-Sun)</SelectItem>
-                    <SelectItem value="weekly:1">Every Monday</SelectItem>
-                    <SelectItem value="weekly:2">Every Tuesday</SelectItem>
-                    <SelectItem value="weekly:3">Every Wednesday</SelectItem>
-                    <SelectItem value="weekly:4">Every Thursday</SelectItem>
-                    <SelectItem value="weekly:5">Every Friday</SelectItem>
-                    <SelectItem value="weekly:6">Every Saturday</SelectItem>
-                    <SelectItem value="weekly:7">Every Sunday</SelectItem>
+                    <SelectItem value="weekly:6,0">Weekends (Sat-Sun)</SelectItem>
+                    <SelectItem value="weekly:1">Weekly on Monday</SelectItem>
+                    <SelectItem value="weekly:2">Weekly on Tuesday</SelectItem>
+                    <SelectItem value="weekly:3">Weekly on Wednesday</SelectItem>
+                    <SelectItem value="weekly:4">Weekly on Thursday</SelectItem>
+                    <SelectItem value="weekly:5">Weekly on Friday</SelectItem>
+                    <SelectItem value="weekly:6">Weekly on Saturday</SelectItem>
+                    <SelectItem value="weekly:0">Weekly on Sunday</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-sm text-muted-foreground">
@@ -647,36 +689,36 @@ export function TaskList({ tasks, type }: TaskListProps) {
               
               <div className="grid grid-cols-1 gap-2">
                 <Label htmlFor="recurrencePattern">Recurrence Pattern</Label>
-                <Select 
-                  defaultValue={subtaskToEdit.subtask.recurrencePattern || 'none'}
-                  onValueChange={(value) => setSubtaskToEdit({
-                    ...subtaskToEdit, 
-                    subtask: {...subtaskToEdit.subtask, recurrencePattern: value}
-                  })}
-                >
+                <Select
+                   value={subtaskToEdit.subtask.recurrencePattern || 'none'}
+                   onValueChange={(value) => setSubtaskToEdit({
+                    ...subtaskToEdit,
+                    subtask: {...subtaskToEdit.subtask, recurrencePattern: value === 'none' ? null : value}
+                   })}
+                 >
                   <SelectTrigger id="recurrencePattern">
                     <SelectValue placeholder="Select a pattern" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">No recurrence</SelectItem>
-                    <SelectItem value="daily">Daily</SelectItem>
-                    <SelectItem value="weekly:1,2,3,4,5">Weekdays (Mon-Fri)</SelectItem>
-                    <SelectItem value="weekly:6,7">Weekends (Sat-Sun)</SelectItem>
-                    <SelectItem value="weekly:1">Every Monday</SelectItem>
-                    <SelectItem value="weekly:2">Every Tuesday</SelectItem>
-                    <SelectItem value="weekly:3">Every Wednesday</SelectItem>
-                    <SelectItem value="weekly:4">Every Thursday</SelectItem>
-                    <SelectItem value="weekly:5">Every Friday</SelectItem>
-                    <SelectItem value="weekly:6">Every Saturday</SelectItem>
-                    <SelectItem value="weekly:7">Every Sunday</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-sm text-muted-foreground">
-                  Set how often this subtask should repeat.
-                </p>
-              </div>
-            </div>
-          )}
+                     <SelectItem value="none">One-time (No Recurrence)</SelectItem>
+                     <SelectItem value="daily">Daily</SelectItem>
+                     <SelectItem value="weekly:1,2,3,4,5">Weekdays (Mon-Fri)</SelectItem>
+                     <SelectItem value="weekly:6,0">Weekends (Sat-Sun)</SelectItem>
+                     <SelectItem value="weekly:1">Weekly on Monday</SelectItem>
+                     <SelectItem value="weekly:2">Weekly on Tuesday</SelectItem>
+                     <SelectItem value="weekly:3">Weekly on Wednesday</SelectItem>
+                     <SelectItem value="weekly:4">Weekly on Thursday</SelectItem>
+                     <SelectItem value="weekly:5">Weekly on Friday</SelectItem>
+                     <SelectItem value="weekly:6">Weekly on Saturday</SelectItem>
+                     <SelectItem value="weekly:0">Weekly on Sunday</SelectItem>
+                   </SelectContent>
+                 </Select>
+                 <p className="text-sm text-muted-foreground">
+                   Set how often this subtask should repeat.
+                 </p>
+               </div>
+             </div>
+           )}
           
           <DialogFooter>
             <Button variant="outline" onClick={() => setSubtaskToEdit(null)}>

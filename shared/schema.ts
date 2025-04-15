@@ -23,6 +23,7 @@ export const users = pgTable("users", {
   preferredModel: text("preferred_model").default("o1-mini"), // Default to o1-mini, alternatives: gpt-4o, gpt-4o-mini, etc.
   isActive: boolean("is_active").notNull().default(true),
   deactivatedAt: timestamp("deactivated_at"),
+  last_user_initiated_message_at: timestamp("last_user_initiated_message_at"), // New field to track last user text
 });
 
 export const goals = pgTable("goals", {
@@ -67,7 +68,7 @@ export const knownUserFacts = pgTable("known_user_facts", {
 
 // Task types enum
 export const TaskType = {
-  DAILY: 'daily',
+  REGULAR: 'regular',
   PERSONAL_PROJECT: 'personal_project',
   LONG_TERM_PROJECT: 'long_term_project',
   LIFE_GOAL: 'life_goal',
@@ -350,9 +351,9 @@ const baseTaskSchemaFields = {
 };
 
 // Task-type specific schemas (no longer need refine for scheduledTime)
-export const dailyTaskSchema = z.object({
+export const regularTaskSchema = z.object({
   ...baseTaskSchemaFields,
-  taskType: z.literal(TaskType.DAILY),
+  taskType: z.literal(TaskType.REGULAR),
   estimatedDuration: z.string().regex(/^\d+[mh]$/, "Duration must be minutes (m) or hours (h)"),
   deadline: z.date().optional(),
 });
@@ -379,7 +380,7 @@ export const lifeGoalSchema = z.object({
 
 // Combined task schema using discriminated union and refinement
 export const insertTaskSchema = z.discriminatedUnion("taskType", [
-  dailyTaskSchema,
+  regularTaskSchema,
   personalProjectSchema,
   longTermProjectSchema,
   lifeGoalSchema,
@@ -388,8 +389,8 @@ export const insertTaskSchema = z.discriminatedUnion("taskType", [
   // REMOVED Rule 1 for scheduledTime as z.union handles it now.
   
   // Rule 2: Ensure estimatedDuration format matches taskType (Example)
-  if (data.taskType === TaskType.DAILY && data.estimatedDuration && !/^\d+[mh]$/.test(data.estimatedDuration)) {
-     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Daily task duration must be in minutes (m) or hours (h)", path: ["estimatedDuration"] });
+  if (data.taskType === TaskType.REGULAR && data.estimatedDuration && !/^\d+[mh]$/.test(data.estimatedDuration)) {
+     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Regular task duration must be in minutes (m) or hours (h)", path: ["estimatedDuration"] });
   }
   if (data.taskType === TaskType.PERSONAL_PROJECT && data.estimatedDuration && !/^\d+[dw]$/.test(data.estimatedDuration)) {
      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Personal project duration must be in days (d) or weeks (w)", path: ["estimatedDuration"] });

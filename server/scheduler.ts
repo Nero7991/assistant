@@ -2,6 +2,15 @@ import { MessagingService, messagingService } from "./services/messaging";
 import { db } from "./db";
 import { users, messagingPreferences, messageSchedules, messageHistory } from "@shared/schema";
 import { eq, and, lte, desc, gt } from "drizzle-orm";
+import { toZonedTime, formatInTimeZone } from 'date-fns-tz';
+import { set, addDays } from 'date-fns';
+import fs from 'fs/promises';
+import path from 'path';
+
+// Define the log directory path (e.g., logs directory in the workspace root)
+const logDir = path.join(process.cwd(), 'logs');
+const errorLogPath = 'scheduler_errors.log';
+const scheduleLogPath = 'morning_schedules.log';
 
 export class MessageScheduler {
   private schedulerInterval: NodeJS.Timeout | null = null;
@@ -15,11 +24,29 @@ export class MessageScheduler {
     this.checkInterval = this.isTestMode ? 60000 : 300000;
   }
 
+  // ---> NEW: Helper function for logging to a file
+  private async logToFile(filePath: string, message: string): Promise<void> {
+      try {
+          // Ensure log directory exists
+          await fs.mkdir(logDir, { recursive: true });
+          const timestamp = new Date().toISOString();
+          const logMessage = `${timestamp} - ${message}\n`; // Add timestamp and newline
+          await fs.appendFile(path.join(logDir, filePath), logMessage);
+      } catch (logError) {
+          // Log to console if file logging fails
+          console.error(`[Logger] Failed to write to log file ${filePath}:`, logError);
+          console.error(`[Logger] Original message: ${message}`);
+      }
+  }
+  // <--- END NEW
+
   start() {
     // Check for pending messages based on the configured interval
     this.schedulerInterval = setInterval(() => {
       this.processPendingMessages().catch(error => {
-        console.error("Error processing pending messages:", error);
+        const msg = `Error processing pending messages: ${error instanceof Error ? error.message : String(error)}`;
+        console.error(msg);
+        this.logToFile(errorLogPath, msg);
       });
     }, this.checkInterval);
 
@@ -27,13 +54,17 @@ export class MessageScheduler {
     const dailyScheduleInterval = this.isTestMode ? 5 * 60000 : 24 * 60 * 60000;
     this.dailySchedulerInterval = setInterval(() => {
       this.scheduleAllMorningMessages().catch(error => {
-        console.error("Error scheduling morning messages:", error);
+        const msg = `Error scheduling morning messages (interval): ${error instanceof Error ? error.message : String(error)}`;
+        console.error(msg);
+        this.logToFile(errorLogPath, msg);
       });
     }, dailyScheduleInterval);
 
     // Also schedule morning messages immediately on startup
     this.scheduleAllMorningMessages().catch(error => {
-      console.error("Error scheduling initial morning messages:", error);
+      const msg = `Error scheduling initial morning messages: ${error instanceof Error ? error.message : String(error)}`;
+      console.error(msg);
+      this.logToFile(errorLogPath, msg);
     });
 
     console.log(`Message scheduler started in ${this.isTestMode ? 'test' : 'normal'} mode`);
@@ -58,7 +89,10 @@ export class MessageScheduler {
     try {
       await messagingService.processPendingSchedules();
     } catch (error) {
-      console.error("Error in processPendingMessages:", error);
+      // Log error from processPendingSchedules
+      const msg = `Error in processPendingMessages calling processPendingSchedules: ${error instanceof Error ? error.message : String(error)}`;
+      console.error(msg);
+      this.logToFile(errorLogPath, msg); 
     }
   }
 
@@ -94,12 +128,15 @@ export class MessageScheduler {
 
       return scheduledFor;
     } catch (error) {
-      console.error(`Error scheduling test message for user ${userId}:`, error);
-      throw error;
+      const msg = `Error scheduling test message for user ${userId}: ${error instanceof Error ? error.message : String(error)}`;
+      console.error(msg);
+      this.logToFile(errorLogPath, msg);
+      throw error; // Re-throw original error
     }
   }
 
   private async scheduleAllMorningMessages() {
+    console.log(`[Scheduler] Starting scheduleAllMorningMessages run...`);
     try {
       // Get all users with messaging preferences and verified phone numbers
       const userPrefs = await db
@@ -133,11 +170,22 @@ export class MessageScheduler {
           continue;
         }
         
-        await this.scheduleMorningMessage(user);
+        // Add try/catch around individual scheduling to prevent one user error stopping all
+        try {
+          await this.scheduleMorningMessage(user);
+        } catch (individualError) {
+           const msg = `Error scheduling for individual user ${user.userId} (${user.username}): ${individualError instanceof Error ? individualError.message : String(individualError)}`;
+           console.error(msg);
+           this.logToFile(errorLogPath, msg);
+        }
       }
     } catch (error) {
-      console.error("Error scheduling morning messages:", error);
+      // Log error from scheduleAllMorningMessages itself
+      const msg = `Error in scheduleAllMorningMessages main block: ${error instanceof Error ? error.message : String(error)}`;
+      console.error(msg);
+      this.logToFile(errorLogPath, msg);
     }
+    console.log(`[Scheduler] Finished scheduleAllMorningMessages run.`);
   }
 
   private async scheduleMorningMessage(user: {
@@ -166,50 +214,46 @@ export class MessageScheduler {
         return;
       }
       
-      // Parse the preferred time (default to 8:00 AM if not set)
+      // Use default values if necessary
+      const timeZone = user.timeZone || "UTC";
       const preferredTime = user.preferredTime || "08:00";
       const [hours, minutes] = preferredTime.split(":").map(Number);
+
+      // Check if hours/minutes are valid
+      if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+         const msg = `[Scheduler] Invalid preferredTime format '${preferredTime}' for user ${user.userId}. Skipping.`;
+         console.error(msg);
+         this.logToFile(errorLogPath, msg); // Log validation error
+         return;
+      }
+
+      // Get the current time in the user's timezone
       const now = new Date();
+      const nowInUserTz = toZonedTime(now, timeZone);
       
-      // Convert to user's local time zone to determine the next occurrence
-      let userTime;
-      try {
-        // Use UTC if the user hasn't set a timezone
-        const timeZone = user.timeZone || "UTC";
-        userTime = new Date(now.toLocaleString("en-US", { timeZone }));
-      } catch (error) {
-        console.error(`Invalid time zone for user ${user.userId}: ${user.timeZone}. Using UTC.`);
-        userTime = new Date(now.toLocaleString("en-US", { timeZone: "UTC" }));
+      // Calculate the target time for today in the user's timezone
+      let targetTimeInUserTz = set(nowInUserTz, {
+        hours: hours,
+        minutes: minutes,
+        seconds: 0,
+        milliseconds: 0
+      });
+
+      // If the target time has already passed today, schedule for tomorrow
+      if (targetTimeInUserTz <= nowInUserTz) {
+        targetTimeInUserTz = addDays(targetTimeInUserTz, 1);
+        console.log(`[Scheduler] Preferred time ${preferredTime} already passed today for user ${user.userId}. Scheduling for tomorrow.`);
       }
 
-      // Set the target time for the next morning message
-      const targetTime = new Date(userTime);
-      
-      if (this.isTestMode) {
-        // For test mode, schedule near future
-        targetTime.setMinutes(targetTime.getMinutes() + 2);
-        console.log(`TEST MODE: Scheduling message for user ${user.userId} in 2 minutes`);
-      } else {
-        // Set to the user's preferred time
-        targetTime.setHours(hours || 8, minutes || 0, 0, 0);
-        
-        // If the time has already passed today, schedule for tomorrow
-        if (targetTime <= userTime) {
-          targetTime.setDate(targetTime.getDate() + 1);
-        }
-      }
-
-      // Convert target time back to UTC for storage
-      // Use a more precise way to convert time zones
-      const timezoneOffset = new Date().getTimezoneOffset();
-      const scheduledTime = new Date(targetTime.getTime() - timezoneOffset * 60000);
+      // The targetTimeInUserTz Date object now represents the correct instant (implicitly UTC)
+      const scheduledTime = targetTimeInUserTz; 
 
       // Insert the scheduled message
-      await db.insert(messageSchedules).values({
+      const insertResult = await db.insert(messageSchedules).values({
         userId: user.userId,
         type: "morning_message",
         title: "Daily Morning Schedule",
-        scheduledFor: scheduledTime,
+        scheduledFor: scheduledTime, // Store the calculated UTC instant
         status: "pending", 
         metadata: { 
           type: "morning_message",
@@ -217,11 +261,23 @@ export class MessageScheduler {
           phoneNumber: user.phoneNumber
         },
         createdAt: new Date()
-      });
+        // Removed updatedAt, as it defaults
+      }).returning({ id: messageSchedules.id }); // Return ID for logging
+      
+      const logTimestampUTC = scheduledTime.toISOString();
+      const logTimestampLocal = formatInTimeZone(scheduledTime, timeZone, 'yyyy-MM-dd HH:mm:ss zzzz');
+      const successMsg = `Scheduled morning message ID ${insertResult[0]?.id} for user ${user.userId} (${user.username}) at ${logTimestampUTC} (UTC) / ${logTimestampLocal}`;
+      console.log(successMsg);
+      // ---> Log success to file
+      await this.logToFile(scheduleLogPath, successMsg);
+      // <--- End success log
 
-      console.log(`Scheduled morning message for user ${user.userId} (${user.username}) at ${scheduledTime}`);
     } catch (error) {
-      console.error(`Error scheduling morning message for user ${user.userId}:`, error);
+      // Log error from scheduleMorningMessage
+      const msg = `Error scheduling morning message for user ${user.userId}: ${error instanceof Error ? error.message : String(error)}`;
+      console.error(msg);
+      this.logToFile(errorLogPath, msg);
+      // Do not re-throw here, allow scheduleAllMorningMessages to continue with next user
     }
   }
   
