@@ -15,9 +15,11 @@ import {
 import connectPg from "connect-pg-simple";
 import { pool } from "./db";
 import { toZonedTime, formatInTimeZone } from 'date-fns-tz'; 
-import { addDays } from 'date-fns';
+import { addDays, formatISO, parseISO, addMonths, setDate, isBefore, parse as parseTime } from 'date-fns';
 import { sql } from 'drizzle-orm';
 import { or } from 'drizzle-orm';
+import { getDay, set as setTime } from 'date-fns';
+import { MessagingService } from './services/messaging';
 
 export type TaskWithSubtasks = Task & { subtasks: Subtask[] };
 export type { User };
@@ -109,6 +111,86 @@ export interface IStorage {
   scheduleItemNotification(itemId: number, scheduledTime: Date): Promise<MessageSchedule>;
   getUpcomingNotifications(userId: number): Promise<MessageSchedule[]>;
 }
+
+// ---> Implement calculateNextOccurrence
+function calculateNextOccurrence(pattern: string, scheduledTime: string | null, lastOccurrence: Date, timeZone: string): Date | null {
+  try {
+    const baseDate = toZonedTime(lastOccurrence, timeZone);
+    let nextDate = new Date(baseDate); // Start with the last occurrence date in the correct timezone
+
+    // Set the time based on scheduledTime if provided
+    let targetHour = 0;
+    let targetMinute = 0;
+    if (scheduledTime) {
+      const timeParts = scheduledTime.match(/(\d{1,2}):(\d{2})/);
+      if (timeParts) {
+        targetHour = parseInt(timeParts[1], 10);
+        targetMinute = parseInt(timeParts[2], 10);
+        if (isNaN(targetHour) || isNaN(targetMinute) || targetHour < 0 || targetHour > 23 || targetMinute < 0 || targetMinute > 59) {
+          console.error(`[calculateNextOccurrence] Invalid scheduledTime format: ${scheduledTime}`);
+          return null; // Invalid time format
+        }
+      } else {
+         console.error(`[calculateNextOccurrence] Could not parse scheduledTime: ${scheduledTime}`);
+         return null; // Cannot parse time
+      }
+    }
+    // Apply the target time to the base date
+    nextDate = setTime(nextDate, { hours: targetHour, minutes: targetMinute, seconds: 0, milliseconds: 0 });
+
+    // --- Calculate based on pattern --- 
+    if (pattern === 'daily') {
+      // Add 1 day
+      nextDate = addDays(nextDate, 1);
+    } else if (pattern.startsWith('weekly:')) {
+      const daysStr = pattern.split(':')[1];
+      const targetDays = daysStr.split(',').map(d => parseInt(d.trim(), 10)).filter(d => !isNaN(d) && d >= 0 && d <= 6);
+      if (targetDays.length === 0) return null; // No valid days
+      targetDays.sort((a, b) => a - b);
+
+      let currentDay = getDay(baseDate); // Day of the week for last occurrence (0=Sun, 6=Sat)
+      nextDate = addDays(nextDate, 1); // Start checking from the day *after* last occurrence
+
+      // Loop until we find the next valid day
+      while (true) {
+        const nextDayOfWeek = getDay(nextDate);
+        if (targetDays.includes(nextDayOfWeek)) {
+          break; // Found the next valid day
+        }
+        nextDate = addDays(nextDate, 1); // Check the next day
+      }
+    } else if (pattern.startsWith('monthly:')) {
+       const dayOfMonthStr = pattern.split(':')[1];
+       const targetDayOfMonth = parseInt(dayOfMonthStr.trim(), 10);
+       if (isNaN(targetDayOfMonth) || targetDayOfMonth < 1 || targetDayOfMonth > 31) return null; // Invalid day
+
+       // Set to the target day in the current month
+       nextDate = setDate(nextDate, targetDayOfMonth);
+       
+       // If this date is still before or the same as the last occurrence, move to next month
+       if (!isBefore(baseDate, nextDate)) { 
+           nextDate = addMonths(nextDate, 1);
+           nextDate = setDate(nextDate, targetDayOfMonth); // Ensure day is correct after month change
+       }
+       // Note: This doesn't handle cases where targetDayOfMonth > days in month (e.g., 31 in Feb). date-fns setDate handles this reasonably.
+
+    } else {
+      console.error(`[calculateNextOccurrence] Unsupported pattern: ${pattern}`);
+      return null; // Unsupported pattern
+    }
+    
+    // Ensure the final calculated date has the correct time applied again
+    nextDate = setTime(nextDate, { hours: targetHour, minutes: targetMinute, seconds: 0, milliseconds: 0 });
+
+    console.log(`[calculateNextOccurrence] Calculated next for pattern '${pattern}' (last: ${formatISO(baseDate)}): ${formatISO(nextDate)}`);
+    return nextDate; // Return the calculated Date object
+
+  } catch (error) {
+      console.error(`[calculateNextOccurrence] Error calculating next occurrence for pattern '${pattern}':`, error);
+      return null;
+  }
+}
+// <--- End implementation
 
 export class DatabaseStorage implements IStorage {
   sessionStore: session.Store;
@@ -399,6 +481,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async completeTask(id: number, userId: number): Promise<TaskWithSubtasks> {
+    // Fetch the existing task first to check status and get recurrence details later
     const [existingTask] = await db.select().from(tasks).where(eq(tasks.id, id));
     if (!existingTask) { throw new Error(`Task ${id} not found.`); }
     if (existingTask.userId !== userId) { throw new Error(`User ${userId} does not have permission to complete task ${id}.`); }
@@ -409,13 +492,17 @@ export class DatabaseStorage implements IStorage {
     }
 
     const completionTime = new Date();
+    
+    // Mark as completed
     const [updatedTask] = await db
       .update(tasks)
       .set({ status: 'completed', completedAt: completionTime, updatedAt: completionTime })
       .where(and(eq(tasks.id, id), eq(tasks.userId, userId)))
-      .returning();
+      .returning(); // Return the full updated task object
+      
     if (!updatedTask) { throw new Error(`Failed to mark task ${id} as completed.`); }
 
+    // Log the completion event
     await db.insert(taskEvents).values({
         taskId: id, userId: userId, eventType: 'completed',
         eventDate: completionTime, timestamp: completionTime
@@ -424,29 +511,75 @@ export class DatabaseStorage implements IStorage {
 
     const user = await this.getUser(userId);
     const timeZone = user?.timeZone;
-    if (timeZone) {
-        const dayStartLocal = toZonedTime(completionTime, timeZone);
-        dayStartLocal.setHours(0, 0, 0, 0);
-        const dayEndLocal = addDays(dayStartLocal, 1);
-        const reminderTypes = ['pre_reminder', 'reminder', 'post_reminder_follow_up', 'follow_up'];
 
-        const deletedSchedules = await db.delete(messageSchedules).where(
-            and(
-                eq(messageSchedules.userId, userId),
-                eq(messageSchedules.status, 'pending'),
-                sql`${messageSchedules.metadata}->>'taskId' = ${id}`,
-                inArray(messageSchedules.type, reminderTypes),
-                gte(messageSchedules.scheduledFor, dayStartLocal),
-                lt(messageSchedules.scheduledFor, dayEndLocal)
-            )
-        ).returning({id: messageSchedules.id});
-        console.log(`[Storage completeTask] Deleted ${deletedSchedules.length} pending schedules for task ${id} today.`);
-    } else {
-         console.warn(`[Storage completeTask] Cannot delete schedules for task ${id}, user ${userId} timezone unknown.`);
+    // --- Recurrence Handling --- 
+    if (updatedTask.recurrencePattern && updatedTask.recurrencePattern !== 'none' && timeZone) {
+      console.log(`[Storage completeTask] Task ${id} is recurring (${updatedTask.recurrencePattern}). Scheduling next occurrence.`);
+      
+      const nextOccurrenceDate = calculateNextOccurrence(
+          updatedTask.recurrencePattern,
+          updatedTask.scheduledTime,
+          completionTime, // Base calculation on when it was completed
+          timeZone
+      );
+
+      if (nextOccurrenceDate) {
+          console.log(`[Storage completeTask] Calculated next occurrence for task ${id}: ${formatISO(nextOccurrenceDate)}`);
+          try {
+              // Ensure user object is valid before proceeding
+              if (!user) {
+                  throw new Error(`User ${userId} not found, cannot schedule reminders.`);
+              }
+              const messagingService = new MessagingService(); // Instantiate service
+              
+              // Replace the TODO log with the actual call
+              console.log(`[Storage completeTask] Calling messagingService.scheduleRemindersForSpecificDate for task ${id} at ${formatISO(nextOccurrenceDate)}`);
+              await messagingService.scheduleRemindersForSpecificDate(updatedTask, user, nextOccurrenceDate, timeZone);
+              
+              // Reset status for the next occurrence
+              await db.update(tasks)
+                  .set({ status: 'pending', completedAt: null, updatedAt: new Date() })
+                  .where(eq(tasks.id, id));
+              console.log(`[Storage completeTask] Task ${id} status reset to 'pending' for next occurrence.`);
+
+          } catch (scheduleError) {
+              console.error(`[Storage completeTask] Failed to schedule next occurrence for task ${id}:`, scheduleError);
+              // Consider reverting the status change if scheduling fails? Maybe not, keep it simple for now.
+          }
+      } else {
+          console.warn(`[Storage completeTask] Could not calculate next occurrence for task ${id} with pattern ${updatedTask.recurrencePattern}. Task remains completed.`);
+          // If next occurrence calculation fails, the task stays completed.
+      }
+    } 
+    // --- End Recurrence Handling ---
+    else {
+         // If not recurring or no timezone, clear today's pending schedules (original logic)
+         if (timeZone) {
+             const dayStartLocal = toZonedTime(completionTime, timeZone);
+             dayStartLocal.setHours(0, 0, 0, 0);
+             const dayEndLocal = addDays(dayStartLocal, 1);
+             const reminderTypes = ['pre_reminder', 'reminder', 'post_reminder_follow_up', 'follow_up'];
+
+             const deletedSchedules = await db.delete(messageSchedules).where(
+                 and(
+                     eq(messageSchedules.userId, userId),
+                     eq(messageSchedules.status, 'pending'),
+                     sql`${messageSchedules.metadata}->>'taskId' = ${id}`,
+                     inArray(messageSchedules.type, reminderTypes),
+                     gte(messageSchedules.scheduledFor, dayStartLocal),
+                     lt(messageSchedules.scheduledFor, dayEndLocal)
+                 )
+             ).returning({id: messageSchedules.id});
+             console.log(`[Storage completeTask] Task ${id} is not recurring or timezone unknown. Deleted ${deletedSchedules.length} pending schedules for today.`);
+         } else {
+              console.warn(`[Storage completeTask] Cannot delete schedules for task ${id}, user ${userId} timezone unknown.`);
+         }
     }
 
+    // Fetch subtasks and return the (potentially status-reset) task
+    const finalTaskState = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
     const taskSubtasks = await this.getSubtasks(id);
-    return { ...updatedTask, subtasks: taskSubtasks };
+    return { ...(finalTaskState[0] || updatedTask), subtasks: taskSubtasks }; // Return the latest state
   }
 
   // Contact verification methods
@@ -1115,8 +1248,8 @@ export class DatabaseStorage implements IStorage {
           const timeMatch = item.startTime.match(/^(\d{1,2}):(\d{2})$/);
           if (!timeMatch) continue;
           
-          const hours = parseInt(timeMatch[1]);
-          const minutes = parseInt(timeMatch[2]);
+          const hours = parseInt(timeMatch[1], 10);
+          const minutes = parseInt(timeMatch[2], 10);
           
           if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
             continue;

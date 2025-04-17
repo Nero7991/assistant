@@ -3,7 +3,7 @@ const require = createRequire(import.meta.url);
 
 // Import necessary modules
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { eq, sql, and, or, lte, gte, not, isNull, asc, desc, lt, inArray } from 'drizzle-orm'; // Added lt and inArray
+import { eq, sql, and, or, lte, gte, not, isNull, asc, desc, lt, inArray, ne } from 'drizzle-orm'; // Added lt, inArray, and neq
 import { db } from '../db.js'; // Correct path
 import * as schema from '../../shared/schema.js';
 const { users, tasks, TaskType, messageSchedules, messageHistory, taskEvents, knownUserFacts } = schema;
@@ -12,12 +12,12 @@ import OpenAI from 'openai';
 import schedule from 'node-schedule';
 import twilio from 'twilio'; // Added twilio import
 
-import { 
+import {
   toZonedTime, 
   formatInTimeZone, 
   toDate // Keep only necessary functions
 } from 'date-fns-tz';
-import { 
+import {
   startOfDay, 
   startOfToday, 
   startOfTomorrow, 
@@ -55,6 +55,7 @@ import { LLMProvider } from './llm/provider.js'; // Added import
 import { openAIProvider } from './llm/openai_provider.js'; // Added import
 import { gcloudProvider } from './llm/gcloud_provider.js'; // Added import
 import { llmFunctionExecutors, llmFunctionDefinitions } from './llm-functions.js'; // Added import
+import logger from '../logger.js'; // Import the configured logger
 
 // Constants
 const REMINDER_BUFFER_MINUTES = 5; // Send reminder 5 mins before task
@@ -349,7 +350,9 @@ Your response MUST be JSON.`;
 
     // Convert DB history to Standardized format, adding localized timestamp
     let conversationHistory: StandardizedChatCompletionMessage[] = dbHistory.map(msg => {
-          const timestamp = `(${(formatInTimeZone(msg.createdAt, user.timeZone || 'UTC', 'h:mm a'))}) `; // Format: (9:30 AM) 
+          // ---> Change the format to include the date
+          const timestamp = `(${(formatInTimeZone(msg.createdAt, user.timeZone || 'UTC', 'MMM d, h:mm a'))}) `; // e.g., (Apr 18, 9:15 AM)
+          // <--- End format change
           return {
             role: (msg.type === "user_message" || msg.type === "system_request") ? "user" as const : "assistant" as const,
             content: `${timestamp}${msg.content || ""}`, // Prepend timestamp
@@ -554,7 +557,7 @@ Your response MUST be JSON.`;
     systemRequestType: string, // Now just string
     contextData: Record<string, any> = {},
   ): Promise<string> { // Returns the message content for potential immediate use
-    console.log(`Handling system message type: ${systemRequestType} for user ${userId}`);
+    logger.info({ userId, systemRequestType, contextData }, `Handling system message`); // Use logger
     try {
       // 1. Prepare Context (Fetch user WITH the new timestamp field)
       const user = await db.select().from(users).where(eq(users.id, userId)).limit(1).then(res => res[0]); // Fetch directly
@@ -587,63 +590,57 @@ Your response MUST be JSON.`;
       let conversationHistory: StandardizedChatCompletionMessage[] = dbHistory.map(msg => {
          const timestamp = `(${(formatInTimeZone(msg.createdAt, user.timeZone || 'UTC', 'h:mm a'))}) `;
          return {
-           role: (msg.type === "user_message" || msg.type === "system_request") ? "user" as const : "assistant" as const,
+         role: (msg.type === "user_message" || msg.type === "system_request") ? "user" as const : "assistant" as const,
            content: `${timestamp}${msg.content || ""}`,
          }
       }).reverse();
-      conversationHistory.push({ role: "user", content: `System Request: Initiate ${systemRequestType}` });
+       conversationHistory.push({ role: "user", content: `System Request: Initiate ${systemRequestType}` });
 
       // Generate LLM response
       const prompt = this.createUnifiedPrompt(messageContext);
       const assistantMessage = await this.generateUnifiedResponse(userId, prompt, conversationHistory);
-      const finalContent = assistantMessage.content || `{ \"message\": \"System message generation failed.\" }`;
+      const finalContent = assistantMessage.content || `{ "message": "System message generation failed." }`;
       const processedResult = this.processLLMResponse(finalContent);
 
-      // ---> Explicitly check for null message to skip sending
       if (processedResult.message === null) {
-          console.log(`[handleSystemMessage] LLM evaluation determined message type '${systemRequestType}' for user ${userId} is no longer relevant. Skipping send.`);
-          // Consider updating schedule status to 'skipped_by_llm'
-          // if (contextData.messageScheduleId) await db.update(messageSchedules)... 
-          return ""; // Indicate no message was sent
+          // Log skip with logger
+          logger.info({ userId, systemRequestType, scheduleId: contextData.messageScheduleId }, `LLM determined message no longer relevant. Skipping send.`);
+          return ""; 
       }
-      // <--- End null check
 
-      // If we are here, processedResult.message is a string.
-      let messageToUser: string = processedResult.message;
-
-      // ---> Apply WhatsApp formatting (can potentially result in empty string)
+      let messageToUser: string = processedResult.message; // Message is guaranteed non-null here
       messageToUser = messageToUser.replace(/\*\*(.*?)\*\*/g, '*$1*');
-      console.log("[Formatting] Applied WhatsApp bold conversion to system message.");
-      // <--- End formatting
+      logger.debug({ userId, systemRequestType }, `Generated system message content (pre-send): ${messageToUser.substring(0,100)}...`); // Debug log
 
       // 4. Perform Actions (Save Message, Send to User) only if there's content
-      const finalMetadata: any = { systemInitiated: true, type: systemRequestType };
+       const finalMetadata: any = { systemInitiated: true, type: systemRequestType };
 
       // Store proposal updates if present
-      if (processedResult.scheduleUpdates && systemRequestType === 'reschedule_request') {
-          finalMetadata.scheduleUpdates = processedResult.scheduleUpdates;
-          console.log("Storing proposed schedule updates from system message.");
-      }
-      // Process scheduled messages immediately if generated
-      if (processedResult.scheduledMessages && processedResult.scheduledMessages.length > 0) {
-          await this.processScheduledMessages(userId, processedResult.scheduledMessages);
-      }
+        if (processedResult.scheduleUpdates && systemRequestType === 'reschedule_request') {
+            finalMetadata.scheduleUpdates = processedResult.scheduleUpdates;
+            console.log("Storing proposed schedule updates from system message.");
+        }
+        // Process scheduled messages immediately if generated
+        if (processedResult.scheduledMessages && processedResult.scheduledMessages.length > 0) {
+            await this.processScheduledMessages(userId, processedResult.scheduledMessages);
+        }
 
       // ---> Save to History only if messageToUser is a non-empty string AFTER formatting
       let savedMessageId: number | null = null;
       if (messageToUser && messageToUser.trim().length > 0) {
           const insertResult = await db.insert(messageHistory).values({
-            userId,
+        userId,
             content: messageToUser, // Save the non-empty string
             type: "coach_response",
             status: "generated", // Change status initially to 'generated'
-            metadata: Object.keys(finalMetadata).length > 0 ? finalMetadata : undefined,
-            createdAt: new Date(),
+        metadata: Object.keys(finalMetadata).length > 0 ? finalMetadata : undefined,
+        createdAt: new Date(),
           }).returning({ insertedId: messageHistory.id });
           savedMessageId = insertResult[0]?.insertedId;
-          console.log(`[handleSystemMessage] Saved generated message ${savedMessageId} to history (status: generated).`);
+          // Log save with logger
+          logger.info({ userId, messageId: savedMessageId, status: 'generated' }, `Saved generated system message to history.`);
       } else {
-          console.log("[handleSystemMessage] Skipping database insert for empty message content.");
+          logger.warn({ userId, systemRequestType }, "Skipping database insert for empty system message content."); // Warn if empty
       }
       // <--- End DB insert block
 
@@ -664,7 +661,7 @@ Your response MUST be JSON.`;
                   useTemplate = true;
                   console.log(`[handleSystemMessage] User ${userId} last message > 23.5 hours ago. Attempting to use template.`);
               }
-          } else {
+    } else {
               useTemplate = true;
               console.log(`[handleSystemMessage] User ${userId} has no last message time recorded. Using template.`);
           }
@@ -720,31 +717,36 @@ Your response MUST be JSON.`;
               if(regularSent) sentVia = 'regular'; else sendError = 'Regular send failed';
           }
 
-          // Update message history status based on send attempt
+          // Determine final status based on send result
           let finalStatus = 'failed_send';
           if (sentVia !== 'none') {
                finalStatus = 'sent';
           } else if (sendError?.includes('No template mapping')) {
                finalStatus = 'failed_window';
           }
+          
+          // Update DB status
           await db.update(messageHistory).set({ status: finalStatus }).where(eq(messageHistory.id, savedMessageId));
-          console.log(`[handleSystemMessage] Updated message ${savedMessageId} status to ${finalStatus}. Sent via: ${sentVia}. Error: ${sendError}`);
+          
+          // Log update with logger
+          logger.info({ userId, messageId: savedMessageId, status: finalStatus, sentVia, error: sendError }, `Updated system message status after send attempt.`);
 
       } else {
           console.log(`System message type ${systemRequestType} generated, but not attempted to send (no phone, type mismatch, or empty content).`);
           // If message was saved but not sent, update status? Maybe keep as 'generated'?
           if (savedMessageId) {
                await db.update(messageHistory).set({ status: 'generated_not_sent' }).where(eq(messageHistory.id, savedMessageId));
-               console.log(`[handleSystemMessage] Updated message ${savedMessageId} status to generated_not_sent.`);
+               // Log not sent with logger
+               logger.info({ userId, messageId: savedMessageId, status: 'generated_not_sent' }, `System message generated but not sent (no phone/type mismatch/empty).`);
           }
       }
       // <--- End conditional sending block
 
       return messageToUser; // Return the original generated message content
 
-    } catch (error) {
-      console.error(`Error handling system message (${systemRequestType}) for user ${userId}: `, error);
-      // Don't save or send anything on error
+        } catch (error) {
+      // Log error with logger
+      logger.error({ userId, systemRequestType, error: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined }, `Error handling system message`);
       return "Sorry, I encountered an error processing the system request.";
     }
   }
@@ -800,8 +802,8 @@ Your response MUST be JSON.`;
       }
 
       // --- Proceed with parsed JSON logic --- 
-      
-      // Extract function call if present and valid
+
+       // Extract function call if present and valid
        let functionCall = undefined;
        if (parsed.function_call && 
            typeof parsed.function_call.name === 'string' && 
@@ -1161,11 +1163,13 @@ Your response MUST be JSON.`;
         // --- BEGIN DEBUG LOGGING ---
         console.log(`[_scheduleRemindersForTask DEBUG taskId=${task.id}] Calculated preReminderTime='${preReminderTime.toISOString()}'`);
         // --- END DEBUG LOGGING ---
-        await db.insert(messageSchedules).values({
-            userId: user.id, type: 'pre_reminder', title: `Pre-Reminder: ${task.title}`,
+            await db.insert(messageSchedules).values({
+                userId: user.id, type: 'pre_reminder', title: `Pre-Reminder: ${task.title}`,
             scheduledFor: preReminderTime, status: 'pending', metadata, createdAt: new Date(), updatedAt: new Date(), // Use new Date() for creation time
-        });
-        scheduledCount++;
+            });
+            scheduledCount++;
+            logger.debug({ userId: user.id, taskId: task.id, type: 'pre_reminder', scheduledFor: preReminderTime }, `Attempting to schedule pre_reminder`);
+            logger.info({ userId: user.id, taskId: task.id, type: 'pre_reminder', scheduledFor: preReminderTime }, `Scheduled pre_reminder`);
         
 
         // Schedule On-Time Reminder
@@ -1173,11 +1177,13 @@ Your response MUST be JSON.`;
         // --- BEGIN DEBUG LOGGING ---
         console.log(`[_scheduleRemindersForTask DEBUG taskId=${task.id}] Calculated onTimeReminderTime='${onTimeReminderTime.toISOString()}'`);
         // --- END DEBUG LOGGING ---
-        await db.insert(messageSchedules).values({
-            userId: user.id, type: 'reminder', title: `Reminder: ${task.title}`,
+            await db.insert(messageSchedules).values({
+                userId: user.id, type: 'reminder', title: `Reminder: ${task.title}`,
             scheduledFor: onTimeReminderTime, status: 'pending', metadata, createdAt: new Date(), updatedAt: new Date(), // Use new Date() for creation time
-        });
-        scheduledCount++;
+            });
+            scheduledCount++;
+            logger.debug({ userId: user.id, taskId: task.id, type: 'reminder', scheduledFor: onTimeReminderTime }, `Attempting to schedule reminder`);
+            logger.info({ userId: user.id, taskId: task.id, type: 'reminder', scheduledFor: onTimeReminderTime }, `Scheduled reminder`);
         
 
         // Schedule Post-Reminder Follow-up (15 mins after)
@@ -1185,204 +1191,200 @@ Your response MUST be JSON.`;
         // --- BEGIN DEBUG LOGGING ---
         console.log(`[_scheduleRemindersForTask DEBUG taskId=${task.id}] Calculated postReminderTime='${postReminderTime.toISOString()}'`);
         // --- END DEBUG LOGGING ---
-        await db.insert(messageSchedules).values({
-            userId: user.id, type: 'post_reminder_follow_up', title: `Check-in: ${task.title}`,
+            await db.insert(messageSchedules).values({
+                userId: user.id, type: 'post_reminder_follow_up', title: `Check-in: ${task.title}`,
             scheduledFor: postReminderTime, status: 'pending', metadata, createdAt: new Date(), updatedAt: new Date(), // Use new Date() for creation time
-        });
-        scheduledCount++;
+            });
+            scheduledCount++;
+            logger.debug({ userId: user.id, taskId: task.id, type: 'post_reminder_follow_up', scheduledFor: postReminderTime }, `Attempting to schedule post_reminder_follow_up`);
+            logger.info({ userId: user.id, taskId: task.id, type: 'post_reminder_follow_up', scheduledFor: postReminderTime }, `Scheduled post_reminder_follow_up`);
 
     } catch (taskError) {
-        console.error(`[_scheduleRemindersForTask] Error scheduling reminder for task ${task.id} (User ${user.id}):`, taskError);
-        return 0; // Return 0 on error
+        logger.error({ userId: user.id, taskId: task.id, error: taskError instanceof Error ? taskError.message : String(taskError) }, `Error scheduling reminder for task`);
+        return 0; 
     }
     return scheduledCount;
   }
 
   // REVISED: Schedule reminders for daily tasks (uses helper)
   private async scheduleDailyReminders(): Promise<void> {
-    console.log("[Scheduler] Checking for daily task reminders to schedule...");
+    logger.info("[Scheduler] Starting scheduleDailyReminders check..."); // Use logger
     const now = new Date();
     let totalScheduled = 0;
 
     try {
-      // Fetch active users (already corrected to use isActive)
       const activeUsers = await db.select().from(users).where(eq(users.isActive, true));
-      console.log(`[Scheduler] Found ${activeUsers.length} active users to check for reminders.`);
+      logger.debug(`[scheduleDailyReminders] Found ${activeUsers.length} active users.`); // Use logger
 
       for (const user of activeUsers) {
         const timeZone = user.timeZone || 'UTC';
         let userScheduledCount = 0;
+        logger.debug({ userId: user.id, timeZone }, `[scheduleDailyReminders] Processing user.`); // Use logger
         try {
           const systemStartOfToday = startOfToday();
           const todayStartLocal = toZonedTime(systemStartOfToday, timeZone);
           const tomorrowStartLocal = addDays(todayStartLocal, 1);
+          logger.debug({ userId: user.id, todayStartLocal: formatISO(todayStartLocal) }, `[scheduleDailyReminders] Calculated local day range.`); // Use logger
 
-          // Get active regular tasks with a scheduled time
-          const regularTasks = await db.select().from(tasks).where( // Renamed variable
+          const regularTasks = await db.select().from(tasks).where( 
             and(
               eq(tasks.userId, user.id),
-              eq(tasks.taskType, TaskType.REGULAR), // Updated from DAILY
+              eq(tasks.taskType, TaskType.REGULAR), 
               eq(tasks.status, 'active'),
               not(isNull(tasks.scheduledTime))
             )
           );
 
-          if (regularTasks.length === 0) { // Updated variable name
-            // console.log(`[Scheduler] No active regular tasks with scheduled times found for user ${user.id}.`);
+          logger.debug({ userId: user.id, taskCount: regularTasks.length }, `[scheduleDailyReminders] Found active regular tasks with time.`); // Use logger
+          if (regularTasks.length === 0) {
             continue;
           }
 
-          console.log(`[Scheduler] Found ${regularTasks.length} regular tasks for user ${user.id}. Attempting to schedule reminders.`); // Updated variable name
-
-          // --- Call helper for each task --- 
-          for (const task of regularTasks) { // Use the correct variable name here
-            // Pass necessary arguments to the helper
+          for (const task of regularTasks) { 
             const count = await this._scheduleRemindersForTask(
-                task, 
-                user as StorageUser, // Cast needed as db select() doesn't return StorageUser type directly
-                timeZone, 
-                todayStartLocal, 
-                tomorrowStartLocal, 
+                task,
+                user as StorageUser, 
+                timeZone,
+                todayStartLocal,
+                tomorrowStartLocal,
                 now
             );
             userScheduledCount += count;
           }
-          // ----------------------------------
           
           if (userScheduledCount > 0) {
-             console.log(`[Scheduler] Scheduled ${userScheduledCount} reminders for user ${user.id}.`);
+             logger.info({ userId: user.id, count: userScheduledCount }, `[scheduleDailyReminders] Scheduled reminders for user.`); // Use logger
              totalScheduled += userScheduledCount;
           }
 
         } catch (tzError) {
-          console.error(`[Scheduler] Error processing timezone ${timeZone} for user ${user.id}:`, tzError);
+           logger.error({ userId: user.id, timeZone, error: tzError }, `[scheduleDailyReminders] Error processing user timezone.`); // Use logger
         }
       }
-      if (totalScheduled > 0) {
-          console.log(`[Scheduler] Finished daily reminder check. Total reminders scheduled: ${totalScheduled}.`);
-      }
+      logger.info({ totalScheduled }, `[Scheduler] Finished scheduleDailyReminders check.`); // Use logger
     } catch (error) {
-      console.error("[Scheduler] Error fetching active users or general error in scheduleDailyReminders:", error);
+      logger.error({ error }, "[scheduleDailyReminders] General error fetching users or in main loop."); // Use logger
     }
   }
 
   // NEW: Schedule follow-ups for overdue daily tasks
   private async scheduleFollowUpsForUncompletedOptimized() {
-    console.log("[Scheduler] Running optimized check for overdue task follow-ups...");
-    const FOLLOW_UP_BUFFER_MINUTES = 60; // How long after scheduled time to wait before following up
-    const now = new Date(); // Current UTC time
-    let totalFollowUpsScheduled = 0;
+      logger.info("[Scheduler] Starting scheduleFollowUpsForUncompletedOptimized check...");
+      const FOLLOW_UP_BUFFER_MINUTES = 60; // How long after scheduled time to wait before following up
+      const now = new Date(); // Current UTC time
+      let totalFollowUpsScheduled = 0;
 
-    const activeUsers = await db.select().from(users).where(and(eq(users.isActive, true), not(isNull(users.timeZone))));
+      const activeUsers = await db.select().from(users).where(and(eq(users.isActive, true), not(isNull(users.timeZone))));
 
-    for (const user of activeUsers) {
-      const timeZone = user.timeZone!;
-      let userFollowUpsScheduled = 0;
-      try {
-        const nowLocal = toZonedTime(now, timeZone);
-        const todayStartLocal = startOfToday(); // Get UTC start of today
-        const todayStartInUserTz = toZonedTime(todayStartLocal, timeZone); // Convert UTC start to user's start of day
-        const tomorrowStartInUserTz = addDays(todayStartInUserTz, 1);
-        const todayDateStr = format(todayStartInUserTz, 'yyyy-MM-dd');
+      for (const user of activeUsers) {
+        const timeZone = user.timeZone!;
+        let userFollowUpsScheduled = 0;
+        logger.debug({ userId: user.id, timeZone }, `[scheduleFollowUpsForUncompletedOptimized] Processing user.`); // Use logger
+        try {
+          const nowLocal = toZonedTime(now, timeZone);
+          const todayStartLocal = startOfToday(); // Get UTC start of today
+          const todayStartInUserTz = toZonedTime(todayStartLocal, timeZone); // Convert UTC start to user's start of day
+          const tomorrowStartInUserTz = addDays(todayStartInUserTz, 1);
+          const todayDateStr = format(todayStartInUserTz, 'yyyy-MM-dd');
 
-        // Fetch active daily tasks for the user.
-        // Skipped and time-based filtering will happen in application code.
-        const potentiallyOverdueTasks = await db.select().from(tasks).where(
-          and(
-            eq(tasks.userId, user.id),
-            eq(tasks.status, 'active'), 
-            not(isNull(tasks.scheduledTime)),
-            eq(tasks.taskType, 'daily') // Correct: Use taskType field
-          )
-        ).orderBy(tasks.scheduledTime);
+          // Fetch active daily tasks for the user.
+          // Skipped and time-based filtering will happen in application code.
+          const potentiallyOverdueTasks = await db.select().from(tasks).where(
+            and(
+              eq(tasks.userId, user.id),
+              eq(tasks.status, 'active'), 
+              not(isNull(tasks.scheduledTime)),
+              eq(tasks.taskType, 'daily') // Correct: Use taskType field
+            )
+          ).orderBy(tasks.scheduledTime);
 
-        if (potentiallyOverdueTasks.length === 0) continue;
+          if (potentiallyOverdueTasks.length === 0) continue;
 
-        console.log(`[FollowUp] User ${user.id}: Found ${potentiallyOverdueTasks.length} active daily tasks for ${todayDateStr}. Filtering further...`);
+          console.log(`[FollowUp] User ${user.id}: Found ${potentiallyOverdueTasks.length} active daily tasks for ${todayDateStr}. Filtering further...`);
 
-        // --- Check each potentially overdue task --- 
-        for (const task of potentiallyOverdueTasks) {
-           try {
-             // Parse task scheduled time (HH:MM) and check if overdue
-             const timeMatch = task.scheduledTime!.match(/^(\d{2}):(\d{2})$/);
-             if (!timeMatch) continue; // Skip invalid time format
-             const hours = parseInt(timeMatch[1], 10);
-             const minutes = parseInt(timeMatch[2], 10);
-             if (isNaN(hours) || isNaN(minutes)) continue;
+          // --- Check each potentially overdue task --- 
+          for (const task of potentiallyOverdueTasks) {
+             try {
+               // Parse task scheduled time (HH:MM) and check if overdue
+               const timeMatch = task.scheduledTime!.match(/^(\d{2}):(\d{2})$/);
+               if (!timeMatch) continue; // Skip invalid time format
+               const hours = parseInt(timeMatch[1], 10);
+               const minutes = parseInt(timeMatch[2], 10);
+               if (isNaN(hours) || isNaN(minutes)) continue;
 
-             const taskScheduledLocal = new Date(todayStartInUserTz); // Start with 00:00 local
-             taskScheduledLocal.setHours(hours, minutes, 0, 0);
+               const taskScheduledLocal = new Date(todayStartInUserTz); // Start with 00:00 local
+               taskScheduledLocal.setHours(hours, minutes, 0, 0);
 
-             const followUpTimeLocal = addMinutes(taskScheduledLocal, FOLLOW_UP_BUFFER_MINUTES);
+               const followUpTimeLocal = addMinutes(taskScheduledLocal, FOLLOW_UP_BUFFER_MINUTES);
 
-             // Check 1: Is the task actually overdue (past scheduled time + buffer)?
-             if (nowLocal < followUpTimeLocal) {
-                 // This task isn't late enough yet, skip it
-                 continue; 
-             }
-             
-             // Check 2: Was task created *after* its scheduled time passed today?
-             const taskCreatedLocal = toZonedTime(task.createdAt, timeZone);
-             if (taskCreatedLocal >= taskScheduledLocal) {
-                 if (taskCreatedLocal >= followUpTimeLocal) {
-                    console.log(`[FollowUp] Task ${task.id} (${task.title}) was created at ${formatInTimeZone(taskCreatedLocal, timeZone, 'HH:mm')} after follow-up time (${formatInTimeZone(followUpTimeLocal, timeZone, 'HH:mm')}). Skipping.`);
-                    continue;
-                 }
-             }
+               // Check 1: Is the task actually overdue (past scheduled time + buffer)?
+               if (nowLocal < followUpTimeLocal) {
+                   // This task isn't late enough yet, skip it
+                   continue; 
+               }
+               
+               // Check 2: Was task created *after* its scheduled time passed today?
+               const taskCreatedLocal = toZonedTime(task.createdAt, timeZone);
+               if (taskCreatedLocal >= taskScheduledLocal) {
+                   if (taskCreatedLocal >= followUpTimeLocal) {
+                      console.log(`[FollowUp] Task ${task.id} (${task.title}) was created at ${formatInTimeZone(taskCreatedLocal, timeZone, 'HH:mm')} after follow-up time (${formatInTimeZone(followUpTimeLocal, timeZone, 'HH:mm')}). Skipping.`);
+                      continue;
+                   }
+               }
 
-             // Check 3: Has a follow-up (pending or sent) already been issued for *this task* today?
-             const existingFollowUp = await db.select({ id: messageSchedules.id }).from(messageSchedules).where(
-               and(
-                 eq(messageSchedules.userId, user.id),
-                 eq(messageSchedules.type, 'follow_up'),
-                 eq(sql<number>`(${messageSchedules.metadata}->>'taskId')::integer`, task.id), // Correct: Cast JSON text value to integer for comparison
-                 gte(messageSchedules.scheduledFor, todayStartInUserTz),
-                 lt(messageSchedules.scheduledFor, tomorrowStartInUserTz),
-                 or( 
-                     eq(messageSchedules.status, 'pending'),
-                     eq(messageSchedules.status, 'sent')
-                 )
-               )
-             ).limit(1);
-
-             if (existingFollowUp.length > 0) {
-               continue; // Follow-up already handled
-             }
-             
-             // Check 4: Has the task been completed today? (Check task_events)
-             const completionEvent = await db.select({id: taskEvents.id}).from(taskEvents).where(
+               // Check 3: Has a follow-up (pending or sent) already been issued for *this task* today?
+               const existingFollowUp = await db.select({ id: messageSchedules.id }).from(messageSchedules).where(
                  and(
-                    eq(taskEvents.taskId, task.id),
-                    eq(taskEvents.eventType, 'completed'),
-                    gte(taskEvents.eventDate, todayStartInUserTz),
-                    lt(taskEvents.eventDate, tomorrowStartInUserTz)
+                   eq(messageSchedules.userId, user.id),
+                   eq(messageSchedules.type, 'follow_up'),
+                   eq(sql<number>`(${messageSchedules.metadata}->>'taskId')::integer`, task.id), // Correct: Cast JSON text value to integer for comparison
+                   gte(messageSchedules.scheduledFor, todayStartInUserTz),
+                   lt(messageSchedules.scheduledFor, tomorrowStartInUserTz),
+                   or( 
+                       eq(messageSchedules.status, 'pending'),
+                       eq(messageSchedules.status, 'sent')
+                   )
                  )
-             ).limit(1);
+               ).limit(1);
 
-             if (completionEvent.length > 0) {
-                 console.log(`[FollowUp] Task ${task.id} was completed today. Skipping follow-up.`);
-                 continue; // Task was completed
-             }
+               if (existingFollowUp.length > 0) {
+                 continue; // Follow-up already handled
+               }
+               
+               // Check 4: Has the task been completed today? (Check task_events)
+               const completionEvent = await db.select({id: taskEvents.id}).from(taskEvents).where(
+                   and(
+                      eq(taskEvents.taskId, task.id),
+                      eq(taskEvents.eventType, 'completed'),
+                      gte(taskEvents.eventDate, todayStartInUserTz), 
+                      lt(taskEvents.eventDate, tomorrowStartInUserTz)
+                   )
+               ).limit(1);
 
-             // ---> NEW Check 5: Has the task been skipped today? (Check task_events)
-             const skipEvent = await db.select({id: taskEvents.id}).from(taskEvents).where(
-                 and(
-                    eq(taskEvents.taskId, task.id),
-                    eq(taskEvents.eventType, 'skipped_today'), // Check for skip event
-                    gte(taskEvents.eventDate, todayStartInUserTz),
-                    lt(taskEvents.eventDate, tomorrowStartInUserTz)
-                 )
-             ).limit(1);
+               if (completionEvent.length > 0) {
+                   console.log(`[FollowUp] Task ${task.id} was completed today. Skipping follow-up.`);
+                   continue; // Task was completed
+               }
 
-             if (skipEvent.length > 0) {
-                 console.log(`[FollowUp] Task ${task.id} was skipped today. Skipping follow-up.`);
-                 continue; // Task was skipped
-             }
-             // <--- END NEW Check 5
+               // ---> NEW Check 5: Has the task been skipped today? (Check task_events)
+               const skipEvent = await db.select({id: taskEvents.id}).from(taskEvents).where(
+                   and(
+                      eq(taskEvents.taskId, task.id),
+                      eq(taskEvents.eventType, 'skipped_today'), // Check for skip event
+                      gte(taskEvents.eventDate, todayStartInUserTz),
+                      lt(taskEvents.eventDate, tomorrowStartInUserTz)
+                   )
+               ).limit(1);
 
-             // All checks passed - schedule the follow-up for *now*
-             console.log(`[FollowUp] Scheduling immediate follow-up for overdue task ${task.id} (${task.title}) for user ${user.id}.`);
-             const followUpContent = `Just checking in on the task "${task.title}" that was scheduled for ${task.scheduledTime}. How did it go?`;
+               if (skipEvent.length > 0) {
+                   console.log(`[FollowUp] Task ${task.id} was skipped today. Skipping follow-up.`);
+                   continue; // Task was skipped
+               }
+               // <--- END NEW Check 5
+
+               // All checks passed - schedule the follow-up for *now*
+               console.log(`[FollowUp] Scheduling immediate follow-up for overdue task ${task.id} (${task.title}) for user ${user.id}.`);
+               const followUpContent = `Just checking in on the task "${task.title}" that was scheduled for ${task.scheduledTime}. How did it go?`;
     await db.insert(messageSchedules).values({
                userId: user.id,
                type: 'follow_up',
@@ -1399,13 +1401,12 @@ Your response MUST be JSON.`;
            }
         } // End loop through potentially overdue tasks
 
+        logger.info({ userId: user.id, followUpsScheduled: userFollowUpsScheduled }, `[scheduleFollowUpsForUncompletedOptimized] Scheduled follow-ups for user.`); // Use logger
+        totalFollowUpsScheduled += userFollowUpsScheduled;
       } catch (userError) {
         console.error(`[FollowUp] Error processing follow-ups for user ${user.id}:`, userError);
       }
-      if (userFollowUpsScheduled > 0) {
-        console.log(`[FollowUp] Scheduled ${userFollowUpsScheduled} follow-ups for user ${user.id}.`);
-        totalFollowUpsScheduled += userFollowUpsScheduled;
-      }
+      logger.info({ totalFollowUpsScheduled }, "[Scheduler] Finished scheduleFollowUpsForUncompletedOptimized check.");
     } // End loop through users
 
     if (totalFollowUpsScheduled > 0) {
@@ -1416,124 +1417,107 @@ Your response MUST be JSON.`;
   // processPendingSchedules (Modified to call new functions)
   async processPendingSchedules(): Promise<void> {
     const now = new Date();
-    console.log(`[Scheduler - ${now.toISOString()}] Running schedule processing...`);
+    logger.info(`[Scheduler - ${now.toISOString()}] Running processPendingSchedules...`); // Use logger
 
-    // ---> NEW: Call reminder and follow-up scheduling logic first
     try {
       await this.scheduleDailyReminders();
     } catch (error) {
-      console.error("[Scheduler] Error during scheduleDailyReminders:", error);
+      logger.error({ error }, "[Scheduler] Error during scheduleDailyReminders call within processPendingSchedules:"); // Use logger
     }
     
-    // <--- END NEW
-
-    // Existing logic to process messages scheduled for now
     const pendingSchedules = await db.select().from(messageSchedules).where(and(eq(messageSchedules.status, "pending"), lte(messageSchedules.scheduledFor, now)));
-    console.log(`[Scheduler] Found ${pendingSchedules.length} pending messages to process.`);
+    logger.info({ count: pendingSchedules.length }, `[processPendingSchedules] Found pending messages to process.`); // Use logger
 
     for (const schedule of pendingSchedules) {
+      logger.debug({ scheduleId: schedule.id, type: schedule.type, userId: schedule.userId }, `[processPendingSchedules] Processing schedule.`);
       try {
-        console.log(`Processing schedule ${schedule.id} type ${schedule.type} for user ${schedule.userId}`);
-        const [user] = await db.select().from(users).where(eq(users.id, schedule.userId)).limit(1);
+        const [user] = await db.select().from(users).where(eq(users.id, schedule.userId)).limit(1); // Fetch user correctly
         if (!user || !user.phoneNumber) {
-            console.log(`Skipping schedule ${schedule.id}: User ${schedule.userId} not found or has no phone number.`);
-            // Optionally update status to failed/cancelled if user is gone
-            await db.update(messageSchedules).set({ status: "cancelled", updatedAt: now }).where(eq(messageSchedules.id, schedule.id));
-          continue;
+            logger.warn({ scheduleId: schedule.id, userId: schedule.userId }, `[processPendingSchedules] Skipping schedule: User not found or no phone number.`);
+            await db.update(messageSchedules).set({ status: "cancelled", updatedAt: new Date() }).where(eq(messageSchedules.id, schedule.id));
+            continue;
         }
 
          // Map schedule type to system request type
          let systemRequestType: string = 'follow_up'; // Default
          if (schedule.type === 'morning_message') systemRequestType = 'morning_summary';
-         else if (schedule.type === 'reminder') systemRequestType = 'task_reminder'; // Example mapping
-         else if (schedule.type === 'follow_up') systemRequestType = 'task_follow_up'; // Example mapping
-         // ---> NEW Mappings
+         else if (schedule.type === 'reminder') systemRequestType = 'task_reminder'; 
+         else if (schedule.type === 'follow_up') systemRequestType = 'task_follow_up'; 
          else if (schedule.type === 'pre_reminder') systemRequestType = 'task_pre_reminder';
          else if (schedule.type === 'post_reminder_follow_up') systemRequestType = 'task_post_reminder_follow_up';
-         // <--- END NEW
          // Add other mappings if needed
 
-         // Use handleSystemMessage to generate and send the message
          const messageContent = await this.handleSystemMessage(
              schedule.userId,
              systemRequestType,
              { 
                  messageScheduleId: schedule.id, 
-                 // Pass task details if available in metadata (e.g., for reminders/follow-ups)
-                 taskDetails: (schedule.metadata as { taskDetails?: any } | null)?.taskDetails 
+                 taskDetails: (schedule.metadata as any)?.taskDetails ?? (schedule.metadata as any) // Pass metadata
              } 
          );
 
-         // Check if message generation/sending was successful (handleSystemMessage sends it)
-         // We might need better error propagation from handleSystemMessage if needed here
          if (messageContent && !messageContent.startsWith("Sorry")) {
-             // Update schedule status if sent successfully
              await db.update(messageSchedules).set({ status: "sent", sentAt: now }).where(eq(messageSchedules.id, schedule.id));
-             console.log(`[Scheduler] Successfully processed and sent schedule ID ${schedule.id}.`);
-
-             // Reschedule recurring tasks like morning message?
-             // if (schedule.type === 'morning_message') { /* Reschedule logic */ }
-
-        } else {
-            console.error(`Failed to generate/send message for schedule ${schedule.id}. Content: ${messageContent}`);
-            // Optionally update status to 'failed'
+             logger.info({ scheduleId: schedule.id }, `[processPendingSchedules] Successfully processed and sent schedule.`); // Use logger
+         } else {
+             logger.error({ scheduleId: schedule.id, messageContent }, `[processPendingSchedules] Failed to generate/send message for schedule.`); // Use logger
              await db
                .update(messageSchedules)
                .set({ status: "failed", updatedAt: new Date() })
                .where(eq(messageSchedules.id, schedule.id));
-        }
+         }
       } catch (error) {
-        console.error(`[Scheduler] Error processing schedule ID ${schedule.id}:`, error);
-        // Update status to 'failed' to prevent reprocessing loops
-        await db
-          .update(messageSchedules)
-          .set({ status: "failed", updatedAt: new Date() })
-          .where(eq(messageSchedules.id, schedule.id));
+         logger.error({ scheduleId: schedule.id, error }, `[processPendingSchedules] Error processing schedule.`); // Use logger
+         await db
+           .update(messageSchedules)
+           .set({ status: "failed", updatedAt: new Date() })
+           .where(eq(messageSchedules.id, schedule.id));
       }
     }
 
-    console.log("[Scheduler] Finished processing pending schedules.");
+    logger.info("[Scheduler] Finished processPendingSchedules."); // Use logger
   }
 
   // New function for scheduling recurring tasks' next instances (runs daily)
   async scheduleRecurringTasks() {
-      console.log("[Scheduler] Running daily check for scheduling recurring tasks...");
-      const systemStartOfToday = startOfToday(); // UTC start of today
+      logger.info("[Scheduler] Starting scheduleRecurringTasks check...");
+      const systemStartOfToday = startOfToday(); 
       const activeUsers = await db.select().from(users).where(and(eq(users.isActive, true), not(isNull(users.timeZone))));
 
-      console.log(`[Scheduler] Found ${activeUsers.length} active users with timezones for recurrence check.`);
+      logger.debug(`[scheduleRecurringTasks] Found ${activeUsers.length} active users with timezones.`);
 
       for (const user of activeUsers) {
-          const timeZone = user.timeZone!; // We filtered for non-null timezones
+          const timeZone = user.timeZone!; 
           let userScheduledCount = 0;
+          logger.debug({ userId: user.id, timeZone }, `[scheduleRecurringTasks] Processing user.`);
           try {
-              const todayStartLocal = toZonedTime(systemStartOfToday, timeZone); // 00:00 in user's timezone
+              const todayStartLocal = toZonedTime(systemStartOfToday, timeZone); 
               const tomorrowStartLocal = addDays(todayStartLocal, 1);
+              logger.debug({ userId: user.id, todayStartLocal: formatISO(todayStartLocal) }, `[scheduleRecurringTasks] Calculated local day range.`);
 
-              // Find active tasks for this user with recurrence patterns and scheduled times
+              // Correct query using ne()
               const recurringTasks = await db.select().from(tasks).where(
                   and(
                       eq(tasks.userId, user.id),
-                      eq(tasks.status, 'active'),
                       not(isNull(tasks.recurrencePattern)),
-                      not(isNull(tasks.scheduledTime)) // Must have a time to schedule reminders
+                      ne(tasks.recurrencePattern, 'none'), // Correct usage of ne
+                      not(isNull(tasks.scheduledTime)) 
                   )
               );
-
-              if (recurringTasks.length === 0) continue; // No recurring tasks for this user
-
-              console.log(`[Scheduler] Checking ${recurringTasks.length} recurring tasks for user ${user.id}`);
+              logger.debug({ userId: user.id, taskCount: recurringTasks.length }, `[scheduleRecurringTasks] Found potentially recurring tasks with time.`);
+              if (recurringTasks.length === 0) continue; 
 
               for (const task of recurringTasks) {
-                   // Check if this task recurs today based on its pattern
-                  if (this.doesTaskRecurOnDate(task.recurrencePattern, todayStartLocal)) {
-                       console.log(`[Scheduler] Task ${task.id} (${task.title}) recurs today for user ${user.id}. Checking if reminders already scheduled...`);
-                       // Check if reminders for *this specific task* are already scheduled for *today*
+                   logger.debug({ userId: user.id, taskId: task.id, pattern: task.recurrencePattern }, `[scheduleRecurringTasks] Checking task recurrence.`);
+                   // Pass recurrencePattern which can be null
+                   if (this.doesTaskRecurOnDate(task.recurrencePattern, todayStartLocal)) { 
+                       logger.debug({ userId: user.id, taskId: task.id }, `[scheduleRecurringTasks] Task recurs today. Checking existing reminders.`);
                        const existingReminders = await db.select({ id: messageSchedules.id }).from(messageSchedules).where(
                            and(
                                eq(messageSchedules.userId, user.id),
-                               sql`${messageSchedules.metadata}->>'taskId' = ${task.id}`, // Check metadata for taskId
-                               or( // Check any of the three reminder types
+                               // Ensure metadata query is safe
+                               sql`${messageSchedules.metadata}->>'taskId' = ${task.id}`,
+                               or( 
                                    eq(messageSchedules.type, 'pre_reminder'),
                                    eq(messageSchedules.type, 'reminder'),
                                    eq(messageSchedules.type, 'post_reminder_follow_up')
@@ -1543,65 +1527,68 @@ Your response MUST be JSON.`;
                            )
                        ).limit(1);
 
+                       logger.debug({ userId: user.id, taskId: task.id, existingCount: existingReminders.length }, `[scheduleRecurringTasks] Existing reminders check result.`);
                        if (existingReminders.length === 0) {
-                           console.log(`[Scheduler] No reminders found for task ${task.id} today. Scheduling now...`);
-                           // ---> FIX: Call the new helper method
+                           logger.info({ userId: user.id, taskId: task.id }, `[scheduleRecurringTasks] No reminders found for task today. Scheduling now...`);
                            const count = await this._scheduleRemindersForTask(task as Task, user as StorageUser, timeZone, todayStartLocal, tomorrowStartLocal, systemStartOfToday);
                            userScheduledCount += count;
-                           // <--- END FIX
                        } else {
-                            console.log(`[Scheduler] Reminders already exist for task ${task.id} today. Skipping.`);
+                            logger.debug({ userId: user.id, taskId: task.id }, `[scheduleRecurringTasks] Reminders already exist for task today. Skipping.`);
                        }
-                  } // end if task recurs today
+                   } // end if task recurs today
               } // end for task in recurringTasks
 
               if (userScheduledCount > 0) {
-                console.log(`[Scheduler] Scheduled reminders for ${userScheduledCount} recurring tasks for user ${user.id}`);
+                logger.info({ userId: user.id, count: userScheduledCount }, `[scheduleRecurringTasks] Scheduled reminders for recurring tasks.`);
               }
 
             } catch (error) {
-              console.error(`[Scheduler] Error processing recurring tasks for user ${user.id}:`, error);
+              logger.error({ userId: user.id, error }, `[scheduleRecurringTasks] Error processing user.`); 
           }
       } // end for user
-      console.log("[Scheduler] Finished daily check for scheduling recurring tasks.");
+      logger.info("[Scheduler] Finished scheduleRecurringTasks check.");
   }
 
-  // ---> ADD helper function INSIDE the class
+  // Restore the correct logic for doesTaskRecurOnDate
   private doesTaskRecurOnDate(recurrencePattern: string | null | undefined, targetDateLocal: Date): boolean {
-      if (!recurrencePattern) return false;
+      logger.debug({ pattern: recurrencePattern, targetDate: formatISO(targetDateLocal) }, `[doesTaskRecurOnDate] Checking recurrence.`);
+      if (!recurrencePattern || recurrencePattern === 'none') {
+          logger.debug({ result: false }, `[doesTaskRecurOnDate] Pattern is null or none.`);
+          return false;
+      }
 
       const pattern = recurrencePattern.toLowerCase().trim();
-      const dayOfWeek = getDay(targetDateLocal); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+      const dayOfWeek = getDay(targetDateLocal); // 0 = Sunday, 6 = Saturday
       const dateOfMonth = targetDateLocal.getDate(); // 1-31
+      let result = false;
 
       if (pattern === 'daily') {
-          return true;
-      }
-
-      if (pattern.startsWith('weekly:')) {
-          const days = pattern.split(':')[1]?.split(',').map(d => parseInt(d.trim(), 10));
-          if (!days || days.some(isNaN)) {
-              console.warn(`[RecurrenceCheck] Invalid weekly pattern: ${recurrencePattern}`);
-              return false;
+          result = true;
+      } else if (pattern.startsWith('weekly:')) {
+          const daysStr = pattern.split(':')[1];
+          const targetDays = daysStr?.split(',').map(d => parseInt(d.trim(), 10)).filter(d => !isNaN(d) && d >= 0 && d <= 6);
+          if (!targetDays || targetDays.length === 0) {
+              logger.warn({ pattern }, `[doesTaskRecurOnDate] Invalid weekly pattern format.`);
+              result = false;
+          } else {
+            // Assuming pattern uses 0=Sun, 6=Sat (matching JS getDay)
+            result = targetDays.includes(dayOfWeek);
           }
-          // Assuming pattern uses 1=Monday, 7=Sunday. Adjust JS dayOfWeek (0=Sun) to match.
-          const isoDayOfWeek = dayOfWeek === 0 ? 7 : dayOfWeek;
-          return days.includes(isoDayOfWeek);
+      } else if (pattern.startsWith('monthly:')) {
+           const dayOfMonthStr = pattern.split(':')[1];
+           const targetDayOfMonth = parseInt(dayOfMonthStr?.trim(), 10);
+           if (isNaN(targetDayOfMonth) || targetDayOfMonth < 1 || targetDayOfMonth > 31) {
+                logger.warn({ pattern }, `[doesTaskRecurOnDate] Invalid monthly pattern format.`);
+               result = false;
+           } else {
+               result = dateOfMonth === targetDayOfMonth;
+           }
+      } else {
+        logger.warn({ pattern }, `[doesTaskRecurOnDate] Unknown recurrence pattern.`);
+        result = false;
       }
-
-      if (pattern.startsWith('monthly:')) {
-          const dayOfMonth = parseInt(pattern.split(':')[1]?.trim(), 10);
-          if (isNaN(dayOfMonth)) {
-               console.warn(`[RecurrenceCheck] Invalid monthly pattern: ${recurrencePattern}`);
-              return false;
-          }
-          return dateOfMonth === dayOfMonth;
-      }
-      
-      // Add more patterns here if needed (e.g., yearly, bi-weekly)
-
-      console.warn(`[RecurrenceCheck] Unknown recurrence pattern: ${recurrencePattern}`);
-      return false;
+      logger.debug({ pattern, targetDate: formatISO(targetDateLocal), result }, `[doesTaskRecurOnDate] Check complete.`);
+      return result;
   }
 
   // --- ADD New Cleanup Function ---
@@ -1632,6 +1619,98 @@ Your response MUST be JSON.`;
     }
   }
   // --- END New Cleanup Function ---
+
+  // ---> NEW: Function to schedule reminders for a specific future date <---
+  async scheduleRemindersForSpecificDate(task: Task, user: StorageUser, specificDate: Date, timeZone: string): Promise<number> {
+      logger.info({ userId: user.id, taskId: task.id, specificDate: formatISO(specificDate), timeZone }, `Scheduling reminders for specific date`);
+      let schedulesCreated = 0;
+      const now = new Date(); // Current time in UTC
+
+      if (!task.scheduledTime) {
+          console.warn(`[scheduleRemindersForSpecificDate] Task ${task.id} has no scheduledTime. Cannot schedule.`);
+          return schedulesCreated;
+      }
+
+      const timeParts = parseHHMM(task.scheduledTime);
+      if (!timeParts) {
+          console.error(`[scheduleRemindersForSpecificDate] Invalid time format \"${task.scheduledTime}\" for task ${task.id}`);
+          return schedulesCreated;
+      }
+
+      const { hours, minutes } = timeParts;
+      // Use the provided specificDate (which should already be in the correct timezone context from calculateNextOccurrence)
+      // Set the time on the specificDate
+      const taskTimeLocal = set(specificDate, { hours, minutes, seconds: 0, milliseconds: 0 });
+      // Convert this specific local date/time to UTC for storage/scheduling
+      const taskTimeUTC = toDate(taskTimeLocal, { timeZone }); 
+
+      console.log(`[scheduleRemindersForSpecificDate] Task ${task.id} calculated time: Local=${formatISO(taskTimeLocal)}, UTC=${formatISO(taskTimeUTC)}`);
+
+      // Ensure the calculated task time is in the future
+      if (!isBefore(now, taskTimeUTC)) {
+           console.warn(`[scheduleRemindersForSpecificDate] Calculated task time ${formatISO(taskTimeUTC)} UTC for task ${task.id} is in the past. Skipping scheduling.`);
+           return schedulesCreated;
+      }
+
+      // --- Schedule Pre-Reminder ---
+      const preReminderTimeUTC = subMinutes(taskTimeUTC, REMINDER_BUFFER_MINUTES);
+      if (isBefore(now, preReminderTimeUTC)) { // Check if pre-reminder time is also in the future
+          try {
+              logger.debug({ userId: user.id, taskId: task.id, type: 'task_pre_reminder', scheduledFor: preReminderTimeUTC }, `Attempting specific date pre-reminder schedule`);
+              await db.insert(messageSchedules).values({
+                  userId: user.id,
+                  scheduledFor: preReminderTimeUTC,
+                  type: 'task_pre_reminder',
+                  status: 'pending',
+                  metadata: { taskId: task.id, taskTitle: task.title, taskScheduledTime: task.scheduledTime },
+                  createdAt: now,
+                  updatedAt: now,
+              });
+              schedulesCreated++;
+              logger.info({ userId: user.id, taskId: task.id, type: 'task_pre_reminder', scheduledFor: preReminderTimeUTC }, `Scheduled specific date pre-reminder`);
+          } catch (e) { logger.error({ userId: user.id, taskId: task.id, type: 'task_pre_reminder', error: e }, "Error scheduling specific date pre-reminder"); }
+      }
+      
+      // --- Schedule Reminder ---
+      const reminderTimeUTC = taskTimeUTC;
+      // No need to check if reminderTimeUTC is before now, as we already checked taskTimeUTC
+      try {
+          logger.debug({ userId: user.id, taskId: task.id, type: 'task_reminder', scheduledFor: reminderTimeUTC }, `Attempting specific date reminder schedule`);
+          await db.insert(messageSchedules).values({
+              userId: user.id,
+              scheduledFor: reminderTimeUTC,
+              type: 'task_reminder',
+              status: 'pending',
+              metadata: { taskId: task.id, taskTitle: task.title, taskScheduledTime: task.scheduledTime },
+              createdAt: now,
+              updatedAt: now,
+          });
+          schedulesCreated++;
+          logger.info({ userId: user.id, taskId: task.id, type: 'task_reminder', scheduledFor: reminderTimeUTC }, `Scheduled specific date reminder`);
+      } catch (e) { logger.error({ userId: user.id, taskId: task.id, type: 'task_reminder', error: e }, "Error scheduling specific date reminder"); }
+
+      // --- Schedule Post-Reminder Follow-up ---
+      const followUpTimeUTC = addMinutes(taskTimeUTC, POST_REMINDER_BUFFER_MINUTES);
+      if (isBefore(now, followUpTimeUTC)) { // Check if follow-up time is also in the future
+          try {
+              logger.debug({ userId: user.id, taskId: task.id, type: 'task_post_reminder_follow_up', scheduledFor: followUpTimeUTC }, `Attempting specific date post-reminder schedule`);
+              await db.insert(messageSchedules).values({
+                  userId: user.id,
+                  scheduledFor: followUpTimeUTC,
+                  type: 'task_post_reminder_follow_up',
+                  status: 'pending',
+                  metadata: { taskId: task.id, taskTitle: task.title, taskScheduledTime: task.scheduledTime },
+                  createdAt: now,
+                  updatedAt: now,
+              });
+              schedulesCreated++;
+              logger.info({ userId: user.id, taskId: task.id, type: 'task_post_reminder_follow_up', scheduledFor: followUpTimeUTC }, `Scheduled specific date post-reminder`);
+          } catch (e) { logger.error({ userId: user.id, taskId: task.id, type: 'task_post_reminder_follow_up', error: e }, "Error scheduling specific date post-reminder follow-up"); }
+      }
+
+      return schedulesCreated;
+  }
+  // <--- End NEW function
 }
 
 export const messagingService = new MessagingService();

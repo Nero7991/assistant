@@ -55,6 +55,8 @@ export default function AccountPage() {
   const [routineStartTime, setRoutineStartTime] = useState<string>("09:30");
   const [sleepTime, setSleepTime] = useState<string>("23:00");
   const [preferredModel, setPreferredModel] = useState<string>("o1-mini");
+  const [allowEmail, setAllowEmail] = useState(false);
+  const [allowPhone, setAllowPhone] = useState(false);
   
   // Get browser timezone on component mount
   useEffect(() => {
@@ -77,6 +79,8 @@ export default function AccountPage() {
       setRoutineStartTime(user.routineStartTime || "09:30"); 
       setSleepTime(user.sleepTime || "23:00");
       setPreferredModel(user.preferredModel || "o1-mini");
+      setAllowEmail(user.allowEmailNotifications || false);
+      setAllowPhone(user.allowPhoneNotifications || false);
     }
   }, [user]);
 
@@ -115,7 +119,9 @@ export default function AccountPage() {
         wakeTime,
         routineStartTime,
         sleepTime,
-        preferredModel
+        preferredModel,
+        allowEmailNotifications: allowEmail,
+        allowPhoneNotifications: allowPhone
       });
       
       if (response.ok) {
@@ -444,37 +450,45 @@ export default function AccountPage() {
         <Card>
           <CardHeader>
             <CardTitle>Notification Settings</CardTitle>
-            <CardDescription>Manage how you receive notifications</CardDescription>
+            <CardDescription>Choose how you receive reminders and updates</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
+              <div>
                 <Label htmlFor="email-notifications">Email Notifications</Label>
                 <p className="text-sm text-muted-foreground">
-                  Receive coaching tips and reminders via email
+                  Receive reminders and summaries via email.
                 </p>
               </div>
-              <Switch
-                id="email-notifications"
-                checked={user.allowEmailNotifications}
-                disabled={!user.isEmailVerified}
+              <Switch 
+                id="email-notifications" 
+                checked={allowEmail}
+                onCheckedChange={setAllowEmail}
+                aria-label="Toggle email notifications" 
               />
             </div>
-            
             <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
+              <div>
                 <Label htmlFor="phone-notifications">WhatsApp/SMS Notifications</Label>
                 <p className="text-sm text-muted-foreground">
-                  Receive coaching messages and reminders via WhatsApp or SMS
+                  Receive reminders and interact via WhatsApp/SMS (if phone provided & verified).
                 </p>
               </div>
-              <Switch
-                id="phone-notifications"
-                checked={user.allowPhoneNotifications}
-                disabled={!user.isPhoneVerified}
+              <Switch 
+                id="phone-notifications" 
+                checked={allowPhone}
+                onCheckedChange={setAllowPhone}
+                aria-label="Toggle phone notifications" 
+                disabled={!user.phoneNumber || !user.isPhoneVerified}
               />
             </div>
           </CardContent>
+          <CardFooter className="border-t pt-6">
+            <Button onClick={handleSaveSettings} disabled={isSaving}>
+              {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Save Notification & Time Preferences
+            </Button>
+          </CardFooter>
         </Card>
         
         {/* Danger Zone */}
