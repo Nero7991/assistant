@@ -2,7 +2,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
-import { insertUserSchema } from "@shared/schema";
+import { insertUserSchema, insertWaitlistEntrySchema } from "@shared/schema";
 import {
   Card,
   CardContent,
@@ -29,14 +29,18 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Brain, Loader2 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { VerificationDialog } from "@/components/verification-dialog";
 import { apiRequest, useQueryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { z } from "zod";
 
 export default function AuthPage() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [isRegistrationEnabled, setIsRegistrationEnabled] = useState<boolean | null>(null);
+  const [isLoadingStatus, setIsLoadingStatus] = useState(true);
 
   useEffect(() => {
     console.log('AuthPage mounted with user:', user);
@@ -59,7 +63,32 @@ export default function AuthPage() {
     }
   }, [user, setLocation]);
 
-  // If user exists but verification is incomplete, show verification dialogs
+  useEffect(() => {
+    const fetchStatus = async () => {
+      setIsLoadingStatus(true);
+      try {
+        const res = await apiRequest("GET", "/api/registration-status");
+        if (!res.ok) {
+          throw new Error("Failed to fetch registration status");
+        }
+        const data = await res.json();
+        console.log('Fetched registration status:', data);
+        setIsRegistrationEnabled(data.enabled);
+      } catch (error) {
+        console.error("Error fetching registration status:", error);
+        setIsRegistrationEnabled(null);
+      }
+      finally {
+        setIsLoadingStatus(false);
+      }
+    };
+    fetchStatus();
+  }, []);
+
+  const toggleMode = useCallback(() => {
+    setMode((prevMode) => (prevMode === "login" ? "register" : "login"));
+  }, []);
+
   if (user && (!user.isEmailVerified || (user.contactPreference === "whatsapp" && !user.isPhoneVerified))) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -95,7 +124,6 @@ export default function AuthPage() {
     );
   }
 
-  // If no user, show login/register form
   if (!user) {
     return (
       <div className="min-h-screen flex flex-col">
@@ -108,30 +136,41 @@ export default function AuthPage() {
                   <CardTitle className="text-2xl">Kona</CardTitle>
                 </div>
                 <CardDescription>
-                  Your kind & encouraging AI personal assistant
+                  {mode === 'login' 
+                    ? "Login to your account"
+                    : isLoadingStatus 
+                      ? "Checking registration status..."
+                      : isRegistrationEnabled === false
+                        ? "Join the waitlist"
+                        : "Create a new account"}
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Tabs
-                  defaultValue="login"
-                  className="space-y-4"
-                  onValueChange={(value) => console.log('Tab changed to:', value)}
-                >
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="login">Login</TabsTrigger>
-                    <TabsTrigger value="register">Register</TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="login">
-                    <div data-testid="login-tab-content">
-                      <LoginForm />
-                    </div>
-                  </TabsContent>
-                  <TabsContent value="register">
-                    <div data-testid="register-tab-content">
-                      <RegisterForm />
-                    </div>
-                  </TabsContent>
-                </Tabs>
+                {isLoadingStatus ? (
+                  <div className="flex justify-center items-center p-10">
+                    <Loader2 className="h-8 w-8 animate-spin text-gray-500" />
+                  </div>
+                ) : mode === "login" ? (
+                  <LoginForm onSwitchMode={toggleMode} />
+                ) : isRegistrationEnabled === true ? (
+                  <RegisterForm onSwitchMode={toggleMode} /> 
+                ) : isRegistrationEnabled === false ? (
+                  <WaitlistForm /> 
+                ) : (
+                  <div className="text-center text-red-500 p-4">Error checking registration status. Please try again later.</div>
+                )}
+                
+                {!isLoadingStatus && (
+                  <p className="mt-4 text-center text-sm text-gray-600">
+                    {mode === 'login' ? "Don't have an account?" : "Already have an account?"}{' '}
+                    <button
+                      onClick={toggleMode}
+                      className="font-medium text-indigo-600 hover:text-indigo-500"
+                    >
+                      {mode === 'login' ? (isRegistrationEnabled === false ? "Join Waitlist" : "Register here") : "Login here"}
+                    </button>
+                  </p>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -162,7 +201,7 @@ export default function AuthPage() {
   return null;
 }
 
-const LoginForm = () => {
+const LoginForm = ({ onSwitchMode }: { onSwitchMode: () => void }) => {
   const { loginMutation } = useAuth();
   const form = useForm({
     resolver: zodResolver(insertUserSchema.pick({ username: true, password: true })),
@@ -216,7 +255,7 @@ const LoginForm = () => {
   );
 };
 
-const RegisterForm = () => {
+const RegisterForm = ({ onSwitchMode }: { onSwitchMode: () => void }) => {
     const { registerMutation } = useAuth();
     const { toast } = useToast();
     const [showEmailVerification, setShowEmailVerification] = useState(false);
@@ -557,4 +596,90 @@ const RegisterForm = () => {
             />
         </>
     );
+};
+
+const WaitlistForm = () => {
+  const { toast } = useToast();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const form = useForm<z.infer<typeof insertWaitlistEntrySchema>>({
+    resolver: zodResolver(insertWaitlistEntrySchema),
+    defaultValues: {
+      firstName: "",
+      email: "",
+    },
+  });
+
+  const onSubmit = async (data: z.infer<typeof insertWaitlistEntrySchema>) => {
+    setIsSubmitting(true);
+    try {
+      const res = await apiRequest("POST", "/api/waitlist", data);
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.message || "Failed to join waitlist");
+      }
+      const result = await res.json();
+      toast({
+        title: "Success!",
+        description: result.message || "You've been added to the waitlist.",
+      });
+      form.reset();
+    } catch (error) {
+      console.error("Waitlist submission error:", error);
+      toast({
+        title: "Submission Failed",
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <CardHeader className="text-center">
+          <CardTitle>Join the Waitlist</CardTitle>
+          <CardDescription>Registration is currently closed. Enter your details below to be notified when it opens.</CardDescription>
+        </CardHeader>
+        <FormField
+          control={form.control}
+          name="firstName"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel htmlFor="waitlist-firstName">First Name</FormLabel>
+              <FormControl>
+                <Input id="waitlist-firstName" {...field} placeholder="Your first name" />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
+          name="email"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel htmlFor="waitlist-email">Email</FormLabel>
+              <FormControl>
+                <Input id="waitlist-email" {...field} type="email" placeholder="your.email@example.com" />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <Button type="submit" className="w-full" disabled={isSubmitting}>
+          {isSubmitting ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Submitting...
+            </>
+          ) : (
+            "Join Waitlist"
+          )}
+        </Button>
+      </form>
+    </Form>
+  );
 };

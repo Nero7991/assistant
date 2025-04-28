@@ -28,6 +28,10 @@ dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
 const app = express();
 
+// ---> NEW: Trust proxy for rate limiting behind load balancers/reverse proxies
+app.set('trust proxy', 1);
+// <--- END NEW
+
 // Configure CORS before other middleware
 const allowedOrigins = [
   'http://localhost:5173', // Vite dev server
@@ -95,9 +99,6 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  // Set trust proxy to handle cookies properly behind reverse proxy
-  app.set('trust proxy', 1);
-  
   // Initialize database tables if they don't exist
   console.log("Starting database initialization...");
   const dbInitSuccess = await initDatabase();

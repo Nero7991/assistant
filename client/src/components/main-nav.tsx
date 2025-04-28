@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Brain, Menu, LogOut, Settings, MessageCircle, Home, CheckSquare, BookOpen, Calendar } from "lucide-react";
+import { Brain, Menu, LogOut, Settings, MessageCircle, Home, CheckSquare, BookOpen, Calendar, Terminal } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,6 +17,7 @@ const navItems = [
   { label: "Schedule", href: "/schedule", icon: <Calendar className="h-4 w-4 mr-2" /> },
   { label: "Tasks & Goals", href: "/tasks", icon: <CheckSquare className="h-4 w-4 mr-2" /> },
   { label: "Facts", href: "/facts", icon: <BookOpen className="h-4 w-4 mr-2" /> },
+  { label: "DevLM Runner", href: "/view", icon: <Terminal className="h-4 w-4 mr-2" /> },
 ];
 
 export function MainNav() {

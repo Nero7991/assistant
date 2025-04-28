@@ -36,6 +36,20 @@
       "when": 1744751072056,
       "tag": "0004_naive_shotgun",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1745869569988,
+      "tag": "0005_steady_phil_sheldon",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1745870679403,
+      "tag": "0006_workable_shaman",
+      "breakpoints": true
     }
   ]
 }

@@ -14,6 +14,7 @@ import AccountPage from "@/pages/account-page";
 import ChatPage from "@/pages/chat-page";
 import SchedulePage from "@/pages/schedule-page";
 import TestMessagesPage from "@/pages/test-messages-page";
+import View from "@/pages/View";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -70,6 +71,14 @@ function Router() {
             <TestMessagesPage />
           </AppLayout>
         )} 
+      />
+      <ProtectedRoute
+        path="/view"
+        component={() => (
+          <AppLayout>
+            <View />
+          </AppLayout>
+        )}
       />
       <Route component={NotFound} />
     </Switch>

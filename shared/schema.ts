@@ -522,3 +522,99 @@ export const factExamples = {
     "Value system based on compassion"
   ]
 } as const;
+
+// ---> NEW: DevLM Sessions Table
+export const devlmSessions = pgTable("devlm_sessions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  sessionName: text("session_name").notNull(),
+  mode: text("mode").notNull().default('generate'), // 'test' or 'generate'
+  model: text("model").default('claude'),
+  source: text("source").default('anthropic'), // 'gcloud', 'anthropic', 'openai'
+  publisher: text("publisher"), // NEW: 'google' or 'anthropic' (for gcloud source)
+  anthropicApiKey: text("anthropic_api_key"), 
+  openaiApiKey: text("openai_api_key"), 
+  projectId: text("project_id"), // For gcloud source
+  region: text("region"), // For gcloud source
+  serverUrl: text("server_url"), // For openai source
+  projectPath: text("project_path").default('.'),
+  writeMode: text("write_mode").default('diff'), // 'direct' or 'diff'
+  debugPrompt: boolean("debug_prompt").default(false),
+  noApproval: boolean("no_approval").default(false),
+  frontend: boolean("frontend").default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+// <--- END NEW
+
+// ---> NEW: Relation for DevLM Sessions to User
+export const devlmSessionsRelations = relations(devlmSessions, ({ one }) => ({
+  user: one(users, {
+    fields: [devlmSessions.userId],
+    references: [users.id],
+  }),
+}));
+
+// ---> NEW: Zod schema and types for DevLM Sessions
+export const insertDevlmSessionSchema = createInsertSchema(devlmSessions)
+  .pick({
+    sessionName: true,
+    mode: true,
+    model: true,
+    source: true,
+    publisher: true, // NEW
+    anthropicApiKey: true, 
+    openaiApiKey: true, 
+    projectId: true,
+    region: true,
+    serverUrl: true,
+    projectPath: true,
+    writeMode: true,
+    debugPrompt: true,
+    noApproval: true,
+    frontend: true,
+  })
+  .extend({
+    sessionName: z.string().min(1, "Session name is required"),
+    mode: z.enum(['generate', 'test']).default('generate'),
+    source: z.enum(['gcloud', 'anthropic', 'openai']).default('anthropic'),
+    publisher: z.string().optional(), // NEW: Optional publisher
+    anthropicApiKey: z.string().optional(), 
+    openaiApiKey: z.string().optional(), 
+    // Add specific validations if needed
+  });
+
+export type DevlmSession = typeof devlmSessions.$inferSelect;
+export type InsertDevlmSession = z.infer<typeof insertDevlmSessionSchema>;
+// <--- END NEW
+
+// ---> NEW: Waitlist Table
+export const waitlistEntries = pgTable("waitlist_entries", {
+  id: serial("id").primaryKey(),
+  firstName: text("first_name").notNull(),
+  email: text("email").notNull().unique(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertWaitlistEntrySchema = createInsertSchema(waitlistEntries)
+  .pick({
+    firstName: true,
+    email: true,
+  })
+  .extend({
+    firstName: z.string().min(1, "First name is required"),
+    email: z.string().email("Please enter a valid email address"),
+  });
+
+export type WaitlistEntry = typeof waitlistEntries.$inferSelect;
+export type InsertWaitlistEntry = z.infer<typeof insertWaitlistEntrySchema>;
+// <--- END NEW
+
+// ---> NEW: App Settings Table
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(), // Setting name (e.g., 'registration_slots_available')
+  value: text("value").notNull(),  // Setting value (stored as text)
+});
+
+export type AppSetting = typeof appSettings.$inferSelect;
+// <--- END NEW

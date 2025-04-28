@@ -1242,11 +1242,11 @@ Your response MUST be JSON.`;
 
           for (const task of regularTasks) { 
             const count = await this._scheduleRemindersForTask(
-                task,
+                task, 
                 user as StorageUser, 
-                timeZone,
-                todayStartLocal,
-                tomorrowStartLocal,
+                timeZone, 
+                todayStartLocal, 
+                tomorrowStartLocal, 
                 now
             );
             userScheduledCount += count;
@@ -1270,101 +1270,101 @@ Your response MUST be JSON.`;
   // NEW: Schedule follow-ups for overdue daily tasks
   private async scheduleFollowUpsForUncompletedOptimized() {
       logger.info("[Scheduler] Starting scheduleFollowUpsForUncompletedOptimized check...");
-      const FOLLOW_UP_BUFFER_MINUTES = 60; // How long after scheduled time to wait before following up
-      const now = new Date(); // Current UTC time
-      let totalFollowUpsScheduled = 0;
+    const FOLLOW_UP_BUFFER_MINUTES = 60; // How long after scheduled time to wait before following up
+    const now = new Date(); // Current UTC time
+    let totalFollowUpsScheduled = 0;
 
-      const activeUsers = await db.select().from(users).where(and(eq(users.isActive, true), not(isNull(users.timeZone))));
+    const activeUsers = await db.select().from(users).where(and(eq(users.isActive, true), not(isNull(users.timeZone))));
 
-      for (const user of activeUsers) {
-        const timeZone = user.timeZone!;
-        let userFollowUpsScheduled = 0;
+    for (const user of activeUsers) {
+      const timeZone = user.timeZone!;
+      let userFollowUpsScheduled = 0;
         logger.debug({ userId: user.id, timeZone }, `[scheduleFollowUpsForUncompletedOptimized] Processing user.`); // Use logger
-        try {
-          const nowLocal = toZonedTime(now, timeZone);
-          const todayStartLocal = startOfToday(); // Get UTC start of today
-          const todayStartInUserTz = toZonedTime(todayStartLocal, timeZone); // Convert UTC start to user's start of day
-          const tomorrowStartInUserTz = addDays(todayStartInUserTz, 1);
-          const todayDateStr = format(todayStartInUserTz, 'yyyy-MM-dd');
+      try {
+        const nowLocal = toZonedTime(now, timeZone);
+        const todayStartLocal = startOfToday(); // Get UTC start of today
+        const todayStartInUserTz = toZonedTime(todayStartLocal, timeZone); // Convert UTC start to user's start of day
+        const tomorrowStartInUserTz = addDays(todayStartInUserTz, 1);
+        const todayDateStr = format(todayStartInUserTz, 'yyyy-MM-dd');
 
-          // Fetch active daily tasks for the user.
-          // Skipped and time-based filtering will happen in application code.
-          const potentiallyOverdueTasks = await db.select().from(tasks).where(
-            and(
-              eq(tasks.userId, user.id),
-              eq(tasks.status, 'active'), 
-              not(isNull(tasks.scheduledTime)),
-              eq(tasks.taskType, 'daily') // Correct: Use taskType field
-            )
-          ).orderBy(tasks.scheduledTime);
+        // Fetch active daily tasks for the user.
+        // Skipped and time-based filtering will happen in application code.
+        const potentiallyOverdueTasks = await db.select().from(tasks).where(
+          and(
+            eq(tasks.userId, user.id),
+            eq(tasks.status, 'active'), 
+            not(isNull(tasks.scheduledTime)),
+            eq(tasks.taskType, 'daily') // Correct: Use taskType field
+          )
+        ).orderBy(tasks.scheduledTime);
 
-          if (potentiallyOverdueTasks.length === 0) continue;
+        if (potentiallyOverdueTasks.length === 0) continue;
 
-          console.log(`[FollowUp] User ${user.id}: Found ${potentiallyOverdueTasks.length} active daily tasks for ${todayDateStr}. Filtering further...`);
+        console.log(`[FollowUp] User ${user.id}: Found ${potentiallyOverdueTasks.length} active daily tasks for ${todayDateStr}. Filtering further...`);
 
-          // --- Check each potentially overdue task --- 
-          for (const task of potentiallyOverdueTasks) {
-             try {
-               // Parse task scheduled time (HH:MM) and check if overdue
-               const timeMatch = task.scheduledTime!.match(/^(\d{2}):(\d{2})$/);
-               if (!timeMatch) continue; // Skip invalid time format
-               const hours = parseInt(timeMatch[1], 10);
-               const minutes = parseInt(timeMatch[2], 10);
-               if (isNaN(hours) || isNaN(minutes)) continue;
+        // --- Check each potentially overdue task --- 
+        for (const task of potentiallyOverdueTasks) {
+           try {
+             // Parse task scheduled time (HH:MM) and check if overdue
+             const timeMatch = task.scheduledTime!.match(/^(\d{2}):(\d{2})$/);
+             if (!timeMatch) continue; // Skip invalid time format
+             const hours = parseInt(timeMatch[1], 10);
+             const minutes = parseInt(timeMatch[2], 10);
+             if (isNaN(hours) || isNaN(minutes)) continue;
 
-               const taskScheduledLocal = new Date(todayStartInUserTz); // Start with 00:00 local
-               taskScheduledLocal.setHours(hours, minutes, 0, 0);
+             const taskScheduledLocal = new Date(todayStartInUserTz); // Start with 00:00 local
+             taskScheduledLocal.setHours(hours, minutes, 0, 0);
 
-               const followUpTimeLocal = addMinutes(taskScheduledLocal, FOLLOW_UP_BUFFER_MINUTES);
+             const followUpTimeLocal = addMinutes(taskScheduledLocal, FOLLOW_UP_BUFFER_MINUTES);
 
-               // Check 1: Is the task actually overdue (past scheduled time + buffer)?
-               if (nowLocal < followUpTimeLocal) {
-                   // This task isn't late enough yet, skip it
-                   continue; 
-               }
-               
-               // Check 2: Was task created *after* its scheduled time passed today?
-               const taskCreatedLocal = toZonedTime(task.createdAt, timeZone);
-               if (taskCreatedLocal >= taskScheduledLocal) {
-                   if (taskCreatedLocal >= followUpTimeLocal) {
-                      console.log(`[FollowUp] Task ${task.id} (${task.title}) was created at ${formatInTimeZone(taskCreatedLocal, timeZone, 'HH:mm')} after follow-up time (${formatInTimeZone(followUpTimeLocal, timeZone, 'HH:mm')}). Skipping.`);
-                      continue;
-                   }
-               }
+             // Check 1: Is the task actually overdue (past scheduled time + buffer)?
+             if (nowLocal < followUpTimeLocal) {
+                 // This task isn't late enough yet, skip it
+                 continue; 
+             }
+             
+             // Check 2: Was task created *after* its scheduled time passed today?
+             const taskCreatedLocal = toZonedTime(task.createdAt, timeZone);
+             if (taskCreatedLocal >= taskScheduledLocal) {
+                 if (taskCreatedLocal >= followUpTimeLocal) {
+                    console.log(`[FollowUp] Task ${task.id} (${task.title}) was created at ${formatInTimeZone(taskCreatedLocal, timeZone, 'HH:mm')} after follow-up time (${formatInTimeZone(followUpTimeLocal, timeZone, 'HH:mm')}). Skipping.`);
+                    continue;
+                 }
+             }
 
-               // Check 3: Has a follow-up (pending or sent) already been issued for *this task* today?
-               const existingFollowUp = await db.select({ id: messageSchedules.id }).from(messageSchedules).where(
-                 and(
-                   eq(messageSchedules.userId, user.id),
-                   eq(messageSchedules.type, 'follow_up'),
-                   eq(sql<number>`(${messageSchedules.metadata}->>'taskId')::integer`, task.id), // Correct: Cast JSON text value to integer for comparison
-                   gte(messageSchedules.scheduledFor, todayStartInUserTz),
-                   lt(messageSchedules.scheduledFor, tomorrowStartInUserTz),
-                   or( 
-                       eq(messageSchedules.status, 'pending'),
-                       eq(messageSchedules.status, 'sent')
-                   )
+             // Check 3: Has a follow-up (pending or sent) already been issued for *this task* today?
+             const existingFollowUp = await db.select({ id: messageSchedules.id }).from(messageSchedules).where(
+               and(
+                 eq(messageSchedules.userId, user.id),
+                 eq(messageSchedules.type, 'follow_up'),
+                 eq(sql<number>`(${messageSchedules.metadata}->>'taskId')::integer`, task.id), // Correct: Cast JSON text value to integer for comparison
+                 gte(messageSchedules.scheduledFor, todayStartInUserTz),
+                 lt(messageSchedules.scheduledFor, tomorrowStartInUserTz),
+                 or( 
+                     eq(messageSchedules.status, 'pending'),
+                     eq(messageSchedules.status, 'sent')
                  )
-               ).limit(1);
+               )
+             ).limit(1);
 
-               if (existingFollowUp.length > 0) {
-                 continue; // Follow-up already handled
-               }
-               
-               // Check 4: Has the task been completed today? (Check task_events)
-               const completionEvent = await db.select({id: taskEvents.id}).from(taskEvents).where(
-                   and(
-                      eq(taskEvents.taskId, task.id),
-                      eq(taskEvents.eventType, 'completed'),
-                      gte(taskEvents.eventDate, todayStartInUserTz), 
-                      lt(taskEvents.eventDate, tomorrowStartInUserTz)
-                   )
-               ).limit(1);
+             if (existingFollowUp.length > 0) {
+               continue; // Follow-up already handled
+             }
+             
+             // Check 4: Has the task been completed today? (Check task_events)
+             const completionEvent = await db.select({id: taskEvents.id}).from(taskEvents).where(
+                 and(
+                    eq(taskEvents.taskId, task.id),
+                    eq(taskEvents.eventType, 'completed'),
+                    gte(taskEvents.eventDate, todayStartInUserTz), 
+                    lt(taskEvents.eventDate, tomorrowStartInUserTz)
+                 )
+             ).limit(1);
 
-               if (completionEvent.length > 0) {
-                   console.log(`[FollowUp] Task ${task.id} was completed today. Skipping follow-up.`);
-                   continue; // Task was completed
-               }
+             if (completionEvent.length > 0) {
+                 console.log(`[FollowUp] Task ${task.id} was completed today. Skipping follow-up.`);
+                 continue; // Task was completed
+             }
 
                // ---> NEW Check 5: Has the task been skipped today? (Check task_events)
                const skipEvent = await db.select({id: taskEvents.id}).from(taskEvents).where(
@@ -1382,9 +1382,9 @@ Your response MUST be JSON.`;
                }
                // <--- END NEW Check 5
 
-               // All checks passed - schedule the follow-up for *now*
-               console.log(`[FollowUp] Scheduling immediate follow-up for overdue task ${task.id} (${task.title}) for user ${user.id}.`);
-               const followUpContent = `Just checking in on the task "${task.title}" that was scheduled for ${task.scheduledTime}. How did it go?`;
+             // All checks passed - schedule the follow-up for *now*
+             console.log(`[FollowUp] Scheduling immediate follow-up for overdue task ${task.id} (${task.title}) for user ${user.id}.`);
+             const followUpContent = `Just checking in on the task "${task.title}" that was scheduled for ${task.scheduledTime}. How did it go?`;
     await db.insert(messageSchedules).values({
                userId: user.id,
                type: 'follow_up',
@@ -1435,7 +1435,7 @@ Your response MUST be JSON.`;
         if (!user || !user.phoneNumber) {
             logger.warn({ scheduleId: schedule.id, userId: schedule.userId }, `[processPendingSchedules] Skipping schedule: User not found or no phone number.`);
             await db.update(messageSchedules).set({ status: "cancelled", updatedAt: new Date() }).where(eq(messageSchedules.id, schedule.id));
-            continue;
+          continue;
         }
 
          // Map schedule type to system request type
@@ -1459,19 +1459,19 @@ Your response MUST be JSON.`;
          if (messageContent && !messageContent.startsWith("Sorry")) {
              await db.update(messageSchedules).set({ status: "sent", sentAt: now }).where(eq(messageSchedules.id, schedule.id));
              logger.info({ scheduleId: schedule.id }, `[processPendingSchedules] Successfully processed and sent schedule.`); // Use logger
-         } else {
+        } else {
              logger.error({ scheduleId: schedule.id, messageContent }, `[processPendingSchedules] Failed to generate/send message for schedule.`); // Use logger
              await db
                .update(messageSchedules)
                .set({ status: "failed", updatedAt: new Date() })
                .where(eq(messageSchedules.id, schedule.id));
-         }
+        }
       } catch (error) {
          logger.error({ scheduleId: schedule.id, error }, `[processPendingSchedules] Error processing schedule.`); // Use logger
-         await db
-           .update(messageSchedules)
-           .set({ status: "failed", updatedAt: new Date() })
-           .where(eq(messageSchedules.id, schedule.id));
+        await db
+          .update(messageSchedules)
+          .set({ status: "failed", updatedAt: new Date() })
+          .where(eq(messageSchedules.id, schedule.id));
       }
     }
 
@@ -1510,7 +1510,7 @@ Your response MUST be JSON.`;
               for (const task of recurringTasks) {
                    logger.debug({ userId: user.id, taskId: task.id, pattern: task.recurrencePattern }, `[scheduleRecurringTasks] Checking task recurrence.`);
                    // Pass recurrencePattern which can be null
-                   if (this.doesTaskRecurOnDate(task.recurrencePattern, todayStartLocal)) { 
+                  if (this.doesTaskRecurOnDate(task.recurrencePattern, todayStartLocal)) {
                        logger.debug({ userId: user.id, taskId: task.id }, `[scheduleRecurringTasks] Task recurs today. Checking existing reminders.`);
                        const existingReminders = await db.select({ id: messageSchedules.id }).from(messageSchedules).where(
                            and(
@@ -1535,7 +1535,7 @@ Your response MUST be JSON.`;
                        } else {
                             logger.debug({ userId: user.id, taskId: task.id }, `[scheduleRecurringTasks] Reminders already exist for task today. Skipping.`);
                        }
-                   } // end if task recurs today
+                  } // end if task recurs today
               } // end for task in recurringTasks
 
               if (userScheduledCount > 0) {

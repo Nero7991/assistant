@@ -1,9 +1,25 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { WebSocketServer, WebSocket } from 'ws'; // Import WebSocketServer and WebSocket
 import { setupAuth } from "./auth";
 import { storage } from "./storage";
 import { generateCoachingResponse } from "./coach";
-import { insertGoalSchema, insertCheckInSchema, insertKnownUserFactSchema, insertTaskSchema, insertSubtaskSchema, messageHistory, messageSchedules, TaskType, dailySchedules, scheduleItems, tasks as tasksSchema } from "@shared/schema";
+import { 
+  insertGoalSchema, 
+  insertCheckInSchema, 
+  insertKnownUserFactSchema, 
+  insertTaskSchema, 
+  insertSubtaskSchema, 
+  messageHistory, 
+  messageSchedules, 
+  TaskType, 
+  dailySchedules, 
+  scheduleItems, 
+  tasks as tasksSchema, 
+  insertDevlmSessionSchema, // Import new schema
+  devlmSessions, // Import table definition
+  appSettings // Import appSettings schema
+} from "@shared/schema";
 import { handleWhatsAppWebhook } from "./webhook";
 import { messageScheduler } from "./scheduler";
 import { messagingService } from "./services/messaging";
@@ -12,19 +28,413 @@ import { db } from "./db";
 import { eq, desc, and, gte, lt } from "drizzle-orm";
 import { registerScheduleManagementAPI } from "./api/schedule-management";
 import OpenAI from "openai";
+import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
+import path, { dirname } from 'path'; 
+import { fileURLToPath } from 'url'; 
+import { randomBytes } from 'crypto'; // Import crypto for token generation
+import { isAdmin } from './auth'; // Import isAdmin middleware
+
+// --- ES Module __dirname equivalent ---
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+// -------------------------------------
 
 // Import interface and type definitions needed for chat functionality
 import type { MessageContext, ScheduleUpdate } from "./services/messaging";
 
+// --- In-memory store for running DevLM processes & WS Auth Tokens ---
+interface RunningProcessInfo {
+  process: ChildProcessWithoutNullStreams;
+  ws: WebSocket;
+}
+const runningDevlmProcesses: Map<number, RunningProcessInfo> = new Map(); 
+
+// Store tokens temporarily { token: { userId: number, expires: Date } }
+// WARNING: Simple in-memory store, not suitable for production (use Redis/DB)
+const wsAuthTokens: Map<string, { userId: number, expires: Date }> = new Map();
+const TOKEN_EXPIRY_MS = 60 * 1000; // Token valid for 60 seconds
+
+// Function to clean up expired tokens periodically (optional but recommended)
+setInterval(() => {
+  const now = Date.now();
+  wsAuthTokens.forEach((value, key) => {
+    if (value.expires.getTime() < now) {
+      wsAuthTokens.delete(key);
+      console.log(`[WebSocket Auth] Expired token cleaned: ${key.substring(0, 8)}...`);
+    }
+  });
+}, TOKEN_EXPIRY_MS); // Check every minute
+
+// --- Heartbeat Interval --- 
+// Store the interval ID so we can clear it on shutdown
+let heartbeatInterval: NodeJS.Timeout | null = null;
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  setupAuth(app);
+  const sessionParser = setupAuth(app); // Get session parser middleware
 
   // WhatsApp Webhook endpoint
   app.post("/api/webhook/whatsapp", handleWhatsAppWebhook);
   
   // Register schedule management API endpoints
   registerScheduleManagementAPI(app);
+
+  // DevLM Session CRUD Endpoints
+  app.post('/api/devlm/sessions', async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const validationResult = insertDevlmSessionSchema.safeParse(req.body);
+    if (!validationResult.success) {
+      return res.status(400).json({ error: "Invalid session data", details: validationResult.error.flatten() });
+    }
+    try {
+      const [newSession] = await db.insert(devlmSessions).values({
+        ...validationResult.data,
+        userId: req.user.id,
+        publisher: validationResult.data.publisher || (validationResult.data.source === 'gcloud' ? 'anthropic' : null), // NEW: Default publisher if gcloud
+        anthropicApiKey: validationResult.data.anthropicApiKey || null,
+        openaiApiKey: validationResult.data.openaiApiKey || null,
+        projectId: validationResult.data.projectId || null,
+        region: validationResult.data.region || null,
+        serverUrl: validationResult.data.serverUrl || null,
+        updatedAt: new Date(), 
+      }).returning({ 
+        // Include publisher in returned fields
+        id: devlmSessions.id,
+        userId: devlmSessions.userId,
+        sessionName: devlmSessions.sessionName,
+        mode: devlmSessions.mode,
+        model: devlmSessions.model,
+        source: devlmSessions.source,
+        publisher: devlmSessions.publisher, // NEW
+        projectId: devlmSessions.projectId,
+        region: devlmSessions.region,
+        serverUrl: devlmSessions.serverUrl,
+        projectPath: devlmSessions.projectPath,
+        writeMode: devlmSessions.writeMode,
+        debugPrompt: devlmSessions.debugPrompt,
+        noApproval: devlmSessions.noApproval,
+        frontend: devlmSessions.frontend,
+        createdAt: devlmSessions.createdAt,
+        updatedAt: devlmSessions.updatedAt,
+      });
+      res.status(201).json(newSession);
+    } catch (error) {
+      console.error("Error creating DevLM session:", error);
+      res.status(500).json({ error: "Failed to save session" });
+    }
+  });
+
+  app.get('/api/devlm/sessions', async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    try {
+      // Select publisher along with other fields (excluding API keys)
+      const sessions = await db.select({
+        id: devlmSessions.id,
+        userId: devlmSessions.userId,
+        sessionName: devlmSessions.sessionName,
+        mode: devlmSessions.mode,
+        model: devlmSessions.model,
+        source: devlmSessions.source,
+        publisher: devlmSessions.publisher, // NEW
+        projectId: devlmSessions.projectId,
+        region: devlmSessions.region,
+        serverUrl: devlmSessions.serverUrl,
+        projectPath: devlmSessions.projectPath,
+        writeMode: devlmSessions.writeMode,
+        debugPrompt: devlmSessions.debugPrompt,
+        noApproval: devlmSessions.noApproval,
+        frontend: devlmSessions.frontend,
+        createdAt: devlmSessions.createdAt,
+        updatedAt: devlmSessions.updatedAt,
+      }).from(devlmSessions)
+        .where(eq(devlmSessions.userId, req.user.id))
+        .orderBy(desc(devlmSessions.updatedAt)); 
+      res.json(sessions);
+    } catch (error) {
+      console.error("Error fetching DevLM sessions:", error);
+      res.status(500).json({ error: "Failed to load sessions" });
+    }
+  });
+
+  // DevLM Script Runner Endpoint (SSE)
+  app.get('/api/devlm/run', async (req, res) => {
+    if (!req.isAuthenticated() || !req.user) { // Ensure req.user exists
+      return res.status(401).json({ error: 'Unauthorized - Please log in' });
+    }
+    const userId = req.user.id;
+
+    // Check if a process is already running for this user
+    if (runningDevlmProcesses.has(userId)) {
+       return res.status(409).json({ error: 'A DevLM script is already running for this user.' });
+    }
+
+    // --- SSE Setup ---
+    // ... (SSE headers remain the same) ...
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const sendEvent = (data: any) => {
+       // Check if the response is still writable before sending
+       if (!res.writableEnded) {
+         res.write(`data: ${JSON.stringify(data)}\n\n`);
+       } else {
+         console.warn("Attempted to write to SSE stream after it ended.");
+       }
+    };
+
+    sendEvent({ type: 'status', message: 'Runner initiated...' });
+
+    // --- Input Validation & Processing ---
+    // ... (validation remains the same) ...
+    const {
+      task, mode, model, source, projectPath, writeMode,
+      projectId, region, serverUrl, debugPrompt, noApproval, frontend,
+      sessionId 
+    } = req.query;
+    
+    // Basic validation example (add more as needed)
+    if (!task || typeof task !== 'string') {
+      sendEvent({ type: 'error', message: 'Missing or invalid task description.' });
+      if (!res.writableEnded) res.end(); 
+      return;
+    }
+    // ... add other param validations ...
+
+    let child: any = null; // Declare child process variable
+
+    try {
+       sendEvent({ type: 'status', message: 'Setting up environment...' });
+
+       // --- API Key Retrieval (NEW) ---
+       // ... (API Key logic remains the same) ...
+      let apiKey: string | null = null;
+      const sId = sessionId && typeof sessionId === 'string' ? parseInt(sessionId, 10) : null;
+
+      if (sId && !isNaN(sId) && (source === 'anthropic' || source === 'openai')) {
+          sendEvent({ type: 'status', message: `Fetching API key from session ${sId}...` });
+          const session = await db.select({
+              anthropicApiKey: devlmSessions.anthropicApiKey,
+              openaiApiKey: devlmSessions.openaiApiKey,
+              source: devlmSessions.source,
+          })
+          .from(devlmSessions)
+          .where(and(eq(devlmSessions.id, sId), eq(devlmSessions.userId, req.user.id)))
+          .limit(1);
+
+          if (session.length > 0) {
+             if (source === 'anthropic') {
+                 apiKey = session[0].anthropicApiKey;
+             } else if (source === 'openai') {
+                 apiKey = session[0].openaiApiKey;
+             }
+             if (!apiKey) {
+                 sendEvent({ type: 'warning', message: `API key not found in session ${sId} for source ${source}. Using environment variables if available.` });
+             } else {
+                 sendEvent({ type: 'status', message: `API key retrieved successfully for source ${source}.` });
+             }
+          } else {
+              sendEvent({ type: 'warning', message: `Session ${sId} not found or not owned by user. Cannot retrieve API key.` });
+          }
+      } else if (source === 'anthropic' || source === 'openai') {
+          sendEvent({ type: 'status', message: `No session ID provided. Using API key from environment variables if available for source ${source}.` });
+      }
+
+      // --- Construct Command ---
+      // Resolve path relative to the project root where the server is likely started
+      const scriptPath = path.resolve('./devlm/bootstrap.py'); 
+      const args: string[] = ['--task', task];
+      
+      // ... (argument construction remains the same, using --server for openai) ...
+      args.push('--mode', mode as string);
+      if (model && typeof model === 'string') args.push('--model', model);
+      args.push('--source', source as string);
+      if (projectPath && typeof projectPath === 'string') args.push('--project-path', projectPath);
+      if (writeMode && typeof writeMode === 'string') args.push('--write-mode', writeMode);
+
+      if (source === 'gcloud') {
+        if (projectId && typeof projectId === 'string') args.push('--project-id', projectId);
+        if (region && typeof region === 'string') args.push('--region', region);
+      } else if (source === 'openai') {
+        if (serverUrl && typeof serverUrl === 'string') args.push('--server', serverUrl); 
+      } 
+
+      if (debugPrompt === 'true') args.push('--debug-prompt');
+      if (noApproval === 'true') args.push('--no-approval');
+      if (frontend === 'true') args.push('--frontend');
+
+      sendEvent({ type: 'status', message: `Executing: python3 -u ${scriptPath} ${args.join(' ')}` });
+      
+       // --- Environment Variables for API Keys (NEW) ---
+       // ... (env var logic remains the same) ...
+      const env = { ...process.env }; 
+      if (apiKey) {
+          if (source === 'anthropic') {
+              env['ANTHROPIC_API_KEY'] = apiKey;
+               sendEvent({ type: 'status', message: 'Setting ANTHROPIC_API_KEY environment variable.' });
+          } else if (source === 'openai') {
+              env['OPENAI_API_KEY'] = apiKey;
+               sendEvent({ type: 'status', message: 'Setting OPENAI_API_KEY environment variable.' });
+          }
+      } else {
+           sendEvent({ type: 'status', message: 'No session API key found/used, relying on existing environment keys.' });
+      }
+
+      // --- Execute Script ---
+      // Ensure we explicitly call python3 and use unbuffered output (-u)
+      child = spawn('python3', ['-u', scriptPath, ...args], { 
+         cwd: path.resolve(__dirname, '.'), 
+         env: env 
+      });
+
+      // Store the process handle
+      runningDevlmProcesses.set(userId, { process: child, ws: null });
+      console.log(`[DevLM Runner] Started process PID ${child.pid} for user ${userId}`);
+
+      // --- Stream Output ---
+      child.stdout.on('data', (data: Buffer) => {
+        const output = data.toString();
+        console.log(`[DevLM stdout PID ${child.pid}]: Chunk received (length ${output.length})`); // LOGGING
+        sendEvent({ type: 'stdout', data: output });
+      });
+
+      child.stderr.on('data', (data: Buffer) => {
+         const errorOutput = data.toString();
+         console.error(`[DevLM stderr PID ${child.pid}]: ${errorOutput}`); 
+         // Send stderr immediately as an error event
+         sendEvent({ type: 'error', message: `Script Error: ${errorOutput}` }); 
+      });
+
+      child.on('error', (error: Error) => {
+        console.error(`[DevLM Runner] Error event for PID ${child?.pid} for user ${userId}: ${error.message}`); // Enhanced LOGGING
+        sendEvent({ type: 'error', message: `Failed to start script: ${error.message}` });
+        runningDevlmProcesses.delete(userId);
+        if (!res.writableEnded) res.end();
+      });
+
+      child.on('close', (code: number | null) => {
+        console.log(`[DevLM Runner] Close event for PID ${child?.pid} for user ${userId}. Code: ${code}`); // Enhanced LOGGING
+        sendEvent({ type: 'end', exitCode: code });
+        runningDevlmProcesses.delete(userId);
+        if (!res.writableEnded) res.end(); 
+      });
+
+      // Handle client closing connection
+      req.on('close', () => {
+        console.log(`[DevLM Runner] Client disconnected for user ${userId}. Killing script PID ${child?.pid}.`);
+        if (child && !child.killed) {
+            child.kill(); // Send SIGTERM
+        }
+        // Clean up process map
+        runningDevlmProcesses.delete(userId);
+         if (!res.writableEnded) res.end();
+      });
+
+    } catch (error: any) {
+      console.error(`[DevLM Runner] Error in /api/devlm/run for user ${userId}:`, error);
+      sendEvent({ type: 'error', message: `Server error: ${error.message || 'Unknown error'}` });
+      // Clean up process map if an error occurred before spawn or during setup
+      if (runningDevlmProcesses.has(userId)) {
+          runningDevlmProcesses.delete(userId);
+      }
+      if (!res.writableEnded) res.end(); // Ensure connection is closed on server error
+    }
+  });
+
+  // --- NEW: Stop DevLM Script Endpoint ---
+  app.post('/api/devlm/stop', (req, res) => {
+    if (!req.isAuthenticated() || !req.user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const userId = req.user.id;
+
+    const child = runningDevlmProcesses.get(userId);
+
+    if (child && !child.process.killed) {
+      try {
+        child.process.kill('SIGTERM'); // Send SIGTERM signal
+        console.log(`[DevLM Runner] Stop request: Killed process PID ${child.process.pid} for user ${userId}`);
+        runningDevlmProcesses.delete(userId); // Remove immediately after kill signal
+        res.status(200).json({ message: 'DevLM script stop requested.' });
+      } catch (err: any) {
+        console.error(`[DevLM Runner] Error trying to kill process PID ${child?.process?.pid} for user ${userId}:`, err);
+        res.status(500).json({ error: 'Failed to stop script.', details: err.message });
+      }
+    } else {
+      console.log(`[DevLM Runner] Stop request: No running script found for user ${userId}`);
+      res.status(404).json({ message: 'No running DevLM script found for this user.' });
+    }
+  });
+
+  // DevLM Session CRUD Endpoints
+  app.post('/api/devlm/sessions', async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const validationResult = insertDevlmSessionSchema.safeParse(req.body);
+    if (!validationResult.success) {
+      return res.status(400).json({ error: "Invalid session data", details: validationResult.error.flatten() });
+    }
+    try {
+      const [newSession] = await db.insert(devlmSessions).values({
+        ...validationResult.data,
+        userId: req.user.id,
+        // Ensure nullable fields are handled
+        projectId: validationResult.data.projectId || null,
+        region: validationResult.data.region || null,
+        serverUrl: validationResult.data.serverUrl || null,
+        // Use current time for updatedAt on creation
+        updatedAt: new Date(), 
+      }).returning();
+      res.status(201).json(newSession);
+    } catch (error) {
+      console.error("Error creating DevLM session:", error);
+      res.status(500).json({ error: "Failed to save session" });
+    }
+  });
+
+  app.get('/api/devlm/sessions', async (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    try {
+      const sessions = await db.select().from(devlmSessions)
+        .where(eq(devlmSessions.userId, req.user.id))
+        .orderBy(desc(devlmSessions.updatedAt)); // Show most recent first
+      res.json(sessions);
+    } catch (error) {
+      console.error("Error fetching DevLM sessions:", error);
+      res.status(500).json({ error: "Failed to load sessions" });
+    }
+  });
+
+  // Optional: Add GET by ID, PUT/PATCH for update, DELETE later if needed
+  app.delete('/api/devlm/sessions/:id', async (req, res) => {
+     if (!req.isAuthenticated()) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const sessionId = parseInt(req.params.id);
+    if (isNaN(sessionId)) {
+      return res.status(400).json({ error: 'Invalid session ID' });
+    }
+    try {
+      const [deletedSession] = await db.delete(devlmSessions)
+        .where(and(eq(devlmSessions.id, sessionId), eq(devlmSessions.userId, req.user.id)))
+        .returning();
+
+      if (!deletedSession) {
+        return res.status(404).json({ error: 'Session not found or not owned by user' });
+      }
+      res.status(204).send(); // No content
+    } catch (error) {
+      console.error(`Error deleting DevLM session ${sessionId}:`, error);
+      res.status(500).json({ error: "Failed to delete session" });
+    }
+  });
 
   // Test endpoints for scheduling messages and testing webhooks (only in development)
   if (process.env.NODE_ENV === 'development' || true) { // Force enable for testing
@@ -434,10 +844,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to delete task" });
     }
   });
-  
+
    // Add PATCH endpoint for updating subtasks
   app.patch("/api/subtasks/:subtaskId", async (req, res) => {
-      if (!req.isAuthenticated()) return res.sendStatus(401);
+    if (!req.isAuthenticated()) return res.sendStatus(401);
       try {
         const subtaskId = parseInt(req.params.subtaskId, 10);
         if (isNaN(subtaskId)) {
@@ -446,7 +856,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Assuming storage.updateSubtask handles user auth internally
         const updatedSubtask = await storage.updateSubtask(subtaskId, req.user.id, req.body);
         res.json(updatedSubtask);
-      } catch (error) {
+    } catch (error) {
         console.error(`Error updating subtask ${req.params.subtaskId}:`, error);
         res.status(500).json({ error: "Failed to update subtask" });
       }
@@ -454,7 +864,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Add DELETE endpoint for subtasks
   app.delete("/api/subtasks/:subtaskId", async (req, res) => {
-      if (!req.isAuthenticated()) return res.sendStatus(401);
+    if (!req.isAuthenticated()) return res.sendStatus(401);
       try {
         const subtaskId = parseInt(req.params.subtaskId, 10);
         if (isNaN(subtaskId)) {
@@ -463,10 +873,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Assuming storage.deleteSubtask handles user auth internally
         await storage.deleteSubtask(subtaskId, req.user.id);
         res.sendStatus(204);
-      } catch (error) {
+    } catch (error) {
         console.error(`Error deleting subtask ${req.params.subtaskId}:`, error);
         res.status(500).json({ error: "Failed to delete subtask" });
-      }
+    }
   });
 
   // Goals
@@ -1082,7 +1492,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         user: user!,
         tasks,
         facts,
-        previousMessages: messages,
+        previousMessages,
         currentDateTime: currentTime.toLocaleString(),
         messageType
       };
@@ -1168,7 +1578,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(transformedHistory.reverse());  // Reverse to get chronological order
     } catch (error) {
       console.error("Error fetching message history:", error);
-      res.status(500).json({ error: "Failed to fetch message history" });
+      res.status(500).json({ message: "Failed to fetch message history" });
     }
   });
 
@@ -1455,10 +1865,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(201).json({
         userMessage: {
           id: String(userMessage.id),
-          content: userMessage.content,
-          sender: 'user',
-          timestamp: userMessage.createdAt.toISOString(),
-          metadata: userMessage.metadata || {}
+          type: 'response',
+          direction: 'outgoing',
+          content: message,
+          createdAt: new Date().toISOString()
         },
         assistantMessage: {
           id: String(assistantMessage.id),
@@ -1660,12 +2070,429 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // --- NEW: WebSocket Auth Token Endpoint ---
+  app.post('/api/devlm/ws-token', (req, res) => {
+    if (!req.isAuthenticated() || !req.user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const userId = req.user.id;
+    const token = randomBytes(32).toString('hex');
+    const expires = new Date(Date.now() + TOKEN_EXPIRY_MS);
+    
+    // Store the token with user ID and expiry
+    wsAuthTokens.set(token, { userId, expires });
+    console.log(`[WebSocket Auth] Generated token for user ${userId}: ${token.substring(0, 8)}...`);
+    
+    // Clean up old tokens for this user (prevent buildup if client retries)
+    wsAuthTokens.forEach((value, key) => {
+        if (value.userId === userId && key !== token) {
+            wsAuthTokens.delete(key);
+        }
+    });
+
+    res.status(200).json({ token });
+  });
+  // ----------------------------------------
+
   const httpServer = createServer(app);
 
-  // Graceful shutdown
-  httpServer.on('close', () => {
-    messageScheduler.stop();
+  // --- WebSocket Server Setup for DevLM ---
+  const wss = new WebSocketServer({ noServer: true }); // We'll handle upgrade manually
+
+  httpServer.on('upgrade', (request, socket, head) => {
+    const pathname = request.url ? new URL(request.url, `http://${request.headers.host}`).pathname : undefined;
+    
+    // Only handle upgrades targeting our specific WebSocket path
+    if (pathname === '/api/devlm/ws') {
+      console.log(`[WebSocket] Handling upgrade request for path: ${pathname}`);
+      // No session parsing needed here anymore for auth
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request);
+      });
+    } else {
+      // IMPORTANT: Ignore other upgrade requests (like Vite HMR)
+      console.log(`[WebSocket] Ignoring upgrade request for path: ${pathname}`);
+      // Do not destroy the socket, let Vite handle its own upgrades
+      // socket.destroy(); 
+    }
   });
+
+wss.on('connection', (ws: WebSocket, req) => { 
+    console.log('[WebSocket] Client connected, waiting for auth token...');
+    
+    // Add state for heartbeat and authentication
+    (ws as any).isAlive = true; // Assume alive initially, pong will confirm
+    (ws as any).isAuthenticated = false;
+    (ws as any).userId = null; 
+
+    const sendMessage = (type: string, payload: any) => {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type, payload }));
+        }
+    };
+
+    // --- Pong Handler --- 
+    ws.on('pong', () => {
+        console.log(`[WebSocket] Pong received from user ${(ws as any).userId ?? '-'}`);
+        (ws as any).isAlive = true; // Mark as alive upon receiving pong
+    });
+
+    // --- Authentication Logic --- 
+    const authTimeout = setTimeout(() => {
+        if (!(ws as any).isAuthenticated) {
+           console.log('[WebSocket] Auth timeout, closing connection.');
+           ws.close(1008, 'Authentication timeout');
+        }
+    }, 10000); // 10 second timeout
+
+    ws.on('message', async (message) => {
+        let parsedMessage: any;
+        try {
+            parsedMessage = JSON.parse(message.toString());
+        } catch (error) {
+            sendMessage('error', { message: "Invalid message format." });
+            ws.close(1008, 'Invalid message format');
+            return;
+        }
+
+        // --- Handle Authentication FIRST ---
+        if (!(ws as any).isAuthenticated) {
+            if (parsedMessage.type === 'auth' && parsedMessage.token) {
+                const tokenData = wsAuthTokens.get(parsedMessage.token);
+                const now = new Date();
+                
+                if (tokenData && tokenData.expires > now) {
+                    // Auth successful
+                    clearTimeout(authTimeout); // Clear the auth timeout
+                    (ws as any).isAuthenticated = true;
+                    (ws as any).userId = tokenData.userId;
+                    wsAuthTokens.delete(parsedMessage.token); // Consume the token
+                    console.log(`[WebSocket] User ${tokenData.userId} authenticated successfully.`);
+                    sendMessage('auth_success', { message: 'Authentication successful.' });
+                } else {
+                    // Auth failed (invalid or expired token)
+                    console.log(`[WebSocket] Auth failed: Invalid/expired token: ${parsedMessage.token?.substring(0,8)}...`);
+                    sendMessage('error', { message: 'Authentication failed: Invalid or expired token.' });
+                    ws.close(1008, 'Authentication failed');
+                }
+            } else {
+                // First message wasn't auth
+                console.log('[WebSocket] Auth failed: First message was not auth type.');
+                sendMessage('error', { message: 'Authentication required as first message.' });
+                ws.close(1008, 'Authentication required');
+            }
+            return; // Wait for next message after successful auth or close
+        }
+
+        // --- If authenticated, handle other message types ---
+        const currentUserId = (ws as any).userId;
+        if (!currentUserId) {
+           // This should ideally not be reached if auth logic is correct
+           console.error("[WebSocket] Error: Message received from unauthenticated connection after auth phase.");
+           ws.close(1008, "Protocol error: Not authenticated");
+           return; 
+        }
+        
+        console.log(`[WebSocket] Received message from authenticated user ${currentUserId}:`, parsedMessage.type);
+
+        if (parsedMessage.type === 'run') {
+            if (!currentUserId) { /* This shouldn't happen if authenticated */ return; }
+            if (runningDevlmProcesses.has(currentUserId)) {
+                sendMessage('error', { message: 'A DevLM script is already running for this user.' });
+                return;
+            }
+            
+            const { 
+              task, mode, model, source, projectPath, writeMode,
+              projectId, region, serverUrl, debugPrompt, noApproval, frontend,
+              publisher, // NEW: Get publisher from payload
+              sessionId 
+            } = parsedMessage.payload;
+
+            // ** TODO: Add robust validation for all parameters here! **
+            if (!task || typeof task !== 'string') {
+                sendMessage('error', { message: 'Missing or invalid task description.' });
+                return;
+            }
+             // ... add more validation ...
+
+            let child: ChildProcessWithoutNullStreams | null = null;
+            
+            try {
+                sendMessage('status', { message: 'Runner initiated...' });
+                sendMessage('status', { message: 'Setting up environment...' });
+
+                // --- API Key Retrieval --- 
+                let apiKey: string | null = null;
+                const sId = sessionId ? parseInt(sessionId, 10) : null;
+                if (sId && !isNaN(sId) && (source === 'anthropic' || source === 'openai')) {
+                    // ... (Fetch API key logic - same as before) ...
+                    sendMessage('status', { message: `Fetching API key from session ${sId}...` });
+                    const session = await db.select(/* ... */).from(devlmSessions).where(/* ... */).limit(1);
+                    if (session.length > 0) { /* ... set apiKey ... */ 
+                       if (!apiKey) sendMessage('warning', { message: `API key not found in session ${sId} for source ${source}.` });
+                       else sendMessage('status', { message: `API key retrieved successfully for source ${source}.` });
+                    } else {
+                       sendMessage('warning', { message: `Session ${sId} not found or not owned by user.` });
+                    }
+                } else if (source === 'anthropic' || source === 'openai') {
+                   sendMessage('status', { message: `No session ID provided. Using API key from environment variables if available.` });
+                }
+
+                // --- Construct Command --- 
+                const scriptPath = path.resolve('./devlm/bootstrap.py'); 
+                const args: string[] = ['--task', task];
+                 
+                 args.push('--mode', mode as string);
+                 if (model && typeof model === 'string') args.push('--model', model);
+                 args.push('--source', source as string);
+                 if (projectPath && typeof projectPath === 'string') args.push('--project-path', projectPath);
+                 if (writeMode && typeof writeMode === 'string') args.push('--write-mode', writeMode);
+                 
+                 // Add source-specific arguments
+                 if (source === 'gcloud') {
+                     if (projectId && typeof projectId === 'string') args.push('--project-id', projectId);
+                     if (region && typeof region === 'string') args.push('--region', region);
+                     // NEW: Add publisher argument if source is gcloud
+                     if (publisher && typeof publisher === 'string') args.push('--publisher', publisher);
+                 } else if (source === 'openai') {
+                     if (serverUrl && typeof serverUrl === 'string') args.push('--server', serverUrl); 
+                 } 
+
+                 if (debugPrompt) args.push('--debug-prompt');
+                 if (noApproval) args.push('--no-approval');
+                 if (frontend) args.push('--frontend');
+
+                sendMessage('status', { message: `Executing: python3 -u ${scriptPath} ${args.join(' ')}` });
+
+                // --- Environment Variables --- 
+                const env = { ...process.env };
+                if (apiKey) { /* ... set env[API_KEY_NAME] ... */ 
+                    if (source === 'anthropic') env['ANTHROPIC_API_KEY'] = apiKey;
+                    else if (source === 'openai') env['OPENAI_API_KEY'] = apiKey;
+                    sendMessage('status', { message: 'Setting API_KEY environment variable.' });
+                } else {
+                     sendMessage('status', { message: 'No session API key found/used, relying on existing environment keys.' });
+                }
+
+                // --- Execute Script --- 
+                child = spawn('python3', ['-u', scriptPath, ...args], { 
+                    cwd: path.resolve('.'), // Run from project root 
+                    env: env 
+                });
+                console.log(`[WebSocket] Spawned PID ${child.pid} for user ${currentUserId}`);
+
+                // Store process info, including the WebSocket client
+                runningDevlmProcesses.set(currentUserId, { process: child, ws: ws });
+
+                // --- Stream Output --- 
+                child.stdout.on('data', (data: Buffer) => {
+                    const output = data.toString();
+                    console.log(`[WebSocket] stdout PID ${child?.pid} (user ${currentUserId}): Chunk received (length ${output.length})`);
+                    sendMessage('stdout', { data: output });
+                });
+
+                child.stderr.on('data', (data: Buffer) => {
+                    const errorOutput = data.toString();
+                    console.error(`[WebSocket] stderr PID ${child?.pid} (user ${currentUserId}): ${errorOutput}`);
+                    sendMessage('error', { message: `Script Error: ${errorOutput}` });
+                });
+
+                child.on('error', (error: Error) => {
+                    console.error(`[WebSocket] Spawn Error PID ${child?.pid} (user ${currentUserId}): ${error.message}`);
+                    sendMessage('error', { message: `Failed to start script: ${error.message}` });
+                    runningDevlmProcesses.delete(currentUserId);
+                });
+
+                child.on('close', (code: number | null) => {
+                    console.log(`[WebSocket] Close event PID ${child?.pid} (user ${currentUserId}). Code: ${code}`);
+                    sendMessage('end', { exitCode: code });
+                    runningDevlmProcesses.delete(currentUserId);
+                     // Optionally close WebSocket from server side after process ends
+                     // if (ws.readyState === WebSocket.OPEN) ws.close();
+                });
+
+            } catch (error: any) {
+                console.error(`[WebSocket] Error running script for user ${currentUserId}:`, error);
+                sendMessage('error', { message: `Server error: ${error.message || 'Unknown error'}` });
+                if (runningDevlmProcesses.has(currentUserId)) {
+                    runningDevlmProcesses.delete(currentUserId);
+                }
+            }
+        }
+        // --- Handle 'stop' command ---
+        else if (parsedMessage.type === 'stop') {
+            if (!currentUserId) { /* This shouldn't happen */ return; }
+            const processInfo = runningDevlmProcesses.get(currentUserId);
+            if (processInfo && !processInfo.process.killed) {
+                try {
+                    processInfo.process.kill('SIGTERM'); // Send SIGTERM signal
+                    console.log(`[WebSocket] Stop request: Killed PID ${processInfo.process.pid} for user ${currentUserId}`);
+                    // Don't delete from map here, let the 'close' event handle it
+                    sendMessage('status', { message: 'Stop signal sent.' });
+                } catch (err: any) {
+                    console.error(`[WebSocket] Error killing process PID ${processInfo.process?.pid} (user ${currentUserId}):`, err);
+                    sendMessage('error', { message: `Failed to stop script: ${err.message}` });
+                }
+            } else {
+                console.log(`[WebSocket] Stop request: No running script found for user ${currentUserId}`);
+                sendMessage('status', { message: 'No running script to stop.' });
+            }
+        }
+        // --- NEW: Handle 'stdin' message --- 
+        else if (parsedMessage.type === 'stdin') {
+            const processInfo = runningDevlmProcesses.get(currentUserId);
+            const inputData = parsedMessage.payload?.data;
+
+            if (processInfo && inputData && typeof inputData === 'string') {
+                 const child = processInfo.process;
+                 if (child.stdin && !child.stdin.destroyed && child.stdin.writable) {
+                    try {
+                        console.log(`[WebSocket] Writing to stdin for PID ${child.pid} (user ${currentUserId}): ${inputData.trim()}`);
+                        child.stdin.write(inputData, (err) => {
+                            if (err) {
+                                console.error(`[WebSocket] Error writing to stdin for PID ${child.pid}:`, err);
+                                sendMessage('error', { message: `Failed to send input to script: ${err.message}` });
+                            } else {
+                                // Optionally send confirmation back to client
+                                // sendMessage('status', { message: 'Input sent to script.' }); 
+                            }
+                        });
+                    } catch (err: any) {
+                         console.error(`[WebSocket] Exception writing to stdin for PID ${child.pid}:`, err);
+                         sendMessage('error', { message: `Failed to send input to script: ${err.message}` });
+                    }
+                 } else {
+                    console.warn(`[WebSocket] Cannot write to stdin for PID ${child.pid}: Not writable or destroyed.`);
+                    sendMessage('error', { message: 'Cannot send input: Script process is not accepting input.' });
+                 }
+            } else if (!processInfo) {
+                 sendMessage('error', { message: 'Cannot send input: No script running for this user.' });
+            } else if (!inputData) {
+                 sendMessage('error', { message: 'Cannot send input: No data provided.' });
+            }
+        }
+        // --- END NEW --- 
+        else {
+             sendMessage('error', { message: `Unknown command type: ${parsedMessage.type}` });
+        }
+    });
+
+    ws.on('close', () => {
+        clearTimeout(authTimeout); // Clear auth timeout on close
+        const currentUserId = (ws as any).userId;
+        console.log(`[WebSocket] Client disconnected for user ${currentUserId ?? 'UNAUTHENTICATED'}`);
+        if (currentUserId) { 
+           const processInfo = runningDevlmProcesses.get(currentUserId);
+           if (processInfo && !processInfo.process.killed) {
+              console.log(`[WebSocket] Killing process PID ${processInfo.process.pid} due to WebSocket close for user ${currentUserId}`);
+              processInfo.process.kill('SIGTERM');
+           }
+           runningDevlmProcesses.delete(currentUserId);
+        }
+    });
+
+    ws.on('error', (error) => {
+        clearTimeout(authTimeout); // Clear auth timeout on error
+        const currentUserId = (ws as any).userId;
+        console.error(`[WebSocket] Error for user ${currentUserId ?? 'UNAUTHENTICATED'}:`, error);
+         if (currentUserId) { 
+            const processInfo = runningDevlmProcesses.get(currentUserId);
+             if (processInfo && !processInfo.process.killed) {
+                console.log(`[WebSocket] Killing process PID ${processInfo.process.pid} due to WebSocket error for user ${currentUserId}`);
+                processInfo.process.kill('SIGTERM');
+            }
+            runningDevlmProcesses.delete(currentUserId);
+         }
+    });
+});
+
+  // --- Start Heartbeat Interval --- 
+  // Clear previous interval if server restarts (e.g., during development)
+  if (heartbeatInterval) clearInterval(heartbeatInterval);
+  
+  heartbeatInterval = setInterval(() => {
+    wss.clients.forEach((wsClient) => {
+      const ws = wsClient as any; // Cast to access our custom properties
+      if (ws.isAlive === false) {
+        console.warn(`[WebSocket Heartbeat] Terminating connection for user ${ws.userId ?? '-'} due to missed pong.`);
+        // Kill associated process if any
+        if (ws.userId) {
+             const processInfo = runningDevlmProcesses.get(ws.userId);
+             if (processInfo && !processInfo.process.killed) {
+                console.log(`[WebSocket Heartbeat] Killing process PID ${processInfo.process.pid} for user ${ws.userId}`);
+                processInfo.process.kill('SIGTERM');
+             }
+             runningDevlmProcesses.delete(ws.userId);
+        }
+        return ws.terminate(); // Force close the connection
+      }
+
+      // Assume connection is dead until pong is received
+      ws.isAlive = false;
+      // Send ping
+      console.log(`[WebSocket Heartbeat] Sending ping to user ${ws.userId ?? '-'}`);
+      ws.ping(); 
+    });
+  }, 30000); // Ping every 30 seconds
+
+  // --- Graceful Shutdown --- 
+  httpServer.on('close', () => {
+    console.log("[Server] Closing connections.");
+    if (heartbeatInterval) {
+        clearInterval(heartbeatInterval); // Clear the heartbeat interval
+        heartbeatInterval = null;
+    }
+    wss.close(); 
+    // messageScheduler.stop(); // Stop scheduler if you have one
+    // Kill any remaining DevLM processes
+    runningDevlmProcesses.forEach((info, userId) => {
+        if (!info.process.killed) {
+           console.log(`[Server Shutdown] Killing lingering process PID ${info.process.pid} for user ${userId}`);
+           info.process.kill('SIGTERM');
+        }
+    });
+    runningDevlmProcesses.clear();
+  });
+
+  // ---> NEW: Admin Settings Endpoints
+  app.get("/api/admin/settings", isAdmin, async (req, res) => {
+    try {
+      const slotsValue = await storage.getSetting('registration_slots_available');
+      const slots = slotsValue ? parseInt(slotsValue, 10) : 0;
+      const globallyEnabled = process.env.REGISTRATION_ENABLED === "true"; // Get global status
+      
+      // Return relevant settings (add more as needed)
+      res.json({ 
+        registration_slots_available: isNaN(slots) ? 0 : slots, 
+        registration_globally_enabled: globallyEnabled // Add global status to response
+      });
+    } catch (error) {
+      console.error("Error fetching admin settings:", error);
+      res.status(500).json({ error: "Failed to fetch settings" });
+    }
+  });
+
+  app.patch("/api/admin/settings", isAdmin, async (req, res) => {
+    try {
+      const { registration_slots_available } = req.body;
+
+      if (typeof registration_slots_available === 'number' && registration_slots_available >= 0) {
+        await storage.setSetting('registration_slots_available', registration_slots_available.toString());
+        res.json({ message: "Settings updated successfully." });
+      } else {
+        res.status(400).json({ error: "Invalid value for registration_slots_available. Must be a non-negative number." });
+      }
+    } catch (error) {
+      console.error("Error updating admin settings:", error);
+      // Handle specific error from storage.setSetting (e.g., table missing)
+      if (error instanceof Error && error.message.includes('app_settings table missing')){
+         return res.status(500).json({ error: "Database configuration error: app_settings table missing." });
+      }
+      res.status(500).json({ error: "Failed to update settings" });
+    }
+  });
+  // <--- END NEW
 
   return httpServer;
 }

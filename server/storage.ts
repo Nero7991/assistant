@@ -4,7 +4,7 @@ import {
   User, Goal, CheckIn, Task, KnownUserFact, InsertKnownUserFact, InsertTask, Subtask, InsertSubtask,
   DailySchedule, ScheduleItem, ScheduleRevision, MessageSchedule,
   InsertDailySchedule, InsertScheduleItem, InsertScheduleRevision,
-  taskEvents
+  taskEvents, waitlistEntries, appSettings
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, gte, lte, inArray, isNull, not, lt } from "drizzle-orm";
@@ -110,6 +110,14 @@ export interface IStorage {
   scheduleTaskNotification(taskId: number, scheduledTime: Date, context?: Record<string, any>): Promise<MessageSchedule>;
   scheduleItemNotification(itemId: number, scheduledTime: Date): Promise<MessageSchedule>;
   getUpcomingNotifications(userId: number): Promise<MessageSchedule[]>;
+
+  // Waitlist method
+  addWaitlistEntry(entry: { firstName: string; email: string }): Promise<void>;
+  
+  // ---> NEW: App Settings Methods
+  getSetting(key: string): Promise<string | null>;
+  setSetting(key: string, value: string): Promise<void>;
+  // <--- END NEW
 }
 
 // ---> Implement calculateNextOccurrence
@@ -1287,6 +1295,64 @@ export class DatabaseStorage implements IStorage {
       return false;
     }
   }
+
+  // ---> NEW: Waitlist method implementation
+  async addWaitlistEntry(entry: { firstName: string; email: string }): Promise<void> {
+    try {
+      await db.insert(waitlistEntries).values({
+        firstName: entry.firstName,
+        email: entry.email,
+      });
+      console.log(`[Storage addWaitlistEntry] Added ${entry.email} to waitlist.`);
+    } catch (error: any) {
+      // Check for unique constraint violation (email already exists)
+      if (error.code === '23505') { // PostgreSQL unique violation error code
+        console.log(`[Storage addWaitlistEntry] Email ${entry.email} already exists on the waitlist.`);
+        // Optionally, you could re-throw a specific error or handle it differently
+        // For now, we just log it and don't throw, acting like an idempotent operation
+      } else {
+        console.error(`[Storage addWaitlistEntry] Error adding ${entry.email} to waitlist:`, error);
+        throw error; // Re-throw other errors
+      }
+    }
+  }
+  // <--- END NEW
+
+  // ---> NEW: App Settings Method Implementations
+  async getSetting(key: string): Promise<string | null> {
+    try {
+      const [setting] = await db.select({ value: appSettings.value })
+        .from(appSettings)
+        .where(eq(appSettings.key, key));
+      return setting?.value ?? null;
+    } catch (error: any) {
+       // If table doesn't exist, return null gracefully
+      if (error.code === '42P01') { // PostgreSQL relation does not exist error code
+        console.warn(`[Storage getSetting] Table 'app_settings' does not exist. Cannot get setting '${key}'.`);
+        return null;
+      } 
+      console.error(`[Storage getSetting] Error fetching setting '${key}':`, error);
+      throw error;
+    }
+  }
+
+  async setSetting(key: string, value: string): Promise<void> {
+    try {
+      await db.insert(appSettings)
+        .values({ key, value })
+        .onConflictDoUpdate({ target: appSettings.key, set: { value } });
+      console.log(`[Storage setSetting] Setting '${key}' updated to '${value}'.`);
+    } catch (error: any) {
+        // If table doesn't exist, log error and rethrow
+      if (error.code === '42P01') { // PostgreSQL relation does not exist error code
+        console.error(`[Storage setSetting] Table 'app_settings' does not exist. Cannot set setting '${key}'.`);
+        throw new Error(`Cannot set setting: app_settings table missing.`);
+      } 
+      console.error(`[Storage setSetting] Error setting '${key}':`, error);
+      throw error;
+    }
+  }
+  // <--- END NEW
 }
 
 export const storage = new DatabaseStorage();

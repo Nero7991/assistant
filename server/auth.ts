@@ -7,6 +7,11 @@ import { promisify } from "util";
 import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
 import { sendVerificationMessage, generateVerificationCode } from "./messaging";
+import connectPgSimple from 'connect-pg-simple';
+import { pool } from './db';
+import { insertWaitlistEntrySchema } from "@shared/schema";
+import rateLimit from 'express-rate-limit';
+import { Request, Response, NextFunction } from "express";
 
 // Add tempUserId to session type
 declare module 'express-session' {
@@ -115,22 +120,63 @@ async function verifyContactAndUpdateUser(userId: number, type: string, code: st
   }
 }
 
-export function setupAuth(app: Express) {
-  const sessionSettings: session.SessionOptions = {
-    secret: process.env.SESSION_SECRET!,
-    resave: true,
-    saveUninitialized: true,
-    store: storage.sessionStore,
-    cookie: {
-      secure: false,
-      httpOnly: true,
-      sameSite: 'lax',
-      maxAge: 24 * 60 * 60 * 1000
-    },
-    name: 'connect.sid'
-  };
+// ---> NEW: Define Rate Limiters
+const authLimiter = rateLimit({
+	windowMs: 5 * 60 * 1000, // 5 minutes
+	max: 15, // Limit each IP to 15 requests per windowMs
+	message: 'Too many authentication attempts from this IP, please try again after 5 minutes',
+	standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+	legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+});
 
-  app.use(session(sessionSettings));
+const checkLimiter = rateLimit({
+	windowMs: 5 * 60 * 1000, // 5 minutes
+	max: 100, // Limit each IP to 100 requests per windowMs
+	message: 'Too many check requests from this IP, please try again after 5 minutes',
+	standardHeaders: true,
+	legacyHeaders: false,
+});
+// <--- END NEW
+
+// ---> NEW: Admin Check Middleware
+export const isAdmin = (req: Request, res: Response, next: NextFunction) => {
+  const adminEmail = process.env.ADMIN_EMAIL;
+  
+  if (!adminEmail) {
+    console.error("ADMIN_EMAIL environment variable is not set.");
+    return res.status(500).json({ message: "Admin configuration error." });
+  }
+  
+  if (!req.isAuthenticated() || req.user?.email !== adminEmail) {
+    return res.status(403).json({ message: "Forbidden: Administrator access required." });
+  }
+  
+  next(); // User is admin, proceed
+};
+// <--- END NEW
+
+export function setupAuth(app: Express): session.SessionRequestHandler {
+  const PgStore = connectPgSimple(session);
+
+  const sessionMiddleware = session({
+    store: new PgStore({
+      pool: pool, 
+      tableName: 'session', 
+      createTableIfMissing: true,
+    }),
+    secret: process.env.SESSION_SECRET || 'devlm-secret-key',
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      secure: process.env.NODE_ENV === 'production', 
+      httpOnly: true,
+      sameSite: 'lax'
+    },
+    name: 'devlm.connect.sid'
+  });
+
+  app.use(sessionMiddleware);
   app.use(passport.initialize());
   app.use(passport.session());
 
@@ -179,9 +225,32 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/register", async (req, res, next) => {
+  app.post("/api/register", authLimiter, async (req, res, next) => {
+    // ---> NEW: Global override check first
+    if (process.env.REGISTRATION_ENABLED !== "true") {
+      console.log("Registration attempt denied: Registration is globally disabled via REGISTRATION_ENABLED.");
+      return res.status(403).json({ message: "Registration is currently disabled." });
+    }
+    // <--- END NEW
+
+    // ---> MODIFIED: Check registration slots
     try {
-      console.log("Registration request received:", {
+      const slotsValue = await storage.getSetting('registration_slots_available');
+      const slots = slotsValue ? parseInt(slotsValue, 10) : 0;
+
+      if (isNaN(slots) || slots <= 0) {
+        console.log(`Registration attempt denied: No registration slots available (Value: ${slotsValue}).`);
+        return res.status(403).json({ message: "Registration is currently closed." });
+      }
+      
+      // Attempt to decrement the slot count *before* creating the user
+      // This is a simple decrement, could be improved with transactions for higher concurrency
+      const newSlotsValue = Math.max(0, slots - 1).toString();
+      await storage.setSetting('registration_slots_available', newSlotsValue);
+      console.log(`Registration slot consumed. Slots remaining: ${newSlotsValue}`);
+      
+      // Proceed with registration logic only if slots were available and decremented
+      console.log("Registration request received (Slot consumed):", {
         ...req.body,
         password: '[REDACTED]'
       });
@@ -273,7 +342,7 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/verify-contact", async (req, res) => {
+  app.post("/api/verify-contact", authLimiter, async (req, res) => {
     try {
       const { code, type } = req.body;
       let userId: number;
@@ -332,7 +401,7 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/initiate-verification", async (req, res) => {
+  app.post("/api/initiate-verification", authLimiter, async (req, res) => {
     try {
       const { email, phone, type } = req.body;
       const contact = type === 'email' ? email : phone;
@@ -400,7 +469,7 @@ export function setupAuth(app: Express) {
     }
   });
 
-  app.post("/api/resend-verification", async (req, res) => {
+  app.post("/api/resend-verification", authLimiter, async (req, res) => {
     if (!req.isAuthenticated()) {
       return res.status(401).json({ message: "Not authenticated" });
     }
@@ -448,7 +517,7 @@ export function setupAuth(app: Express) {
     res.json({ message: "Verification code resent" });
   });
 
-  app.post("/api/login", (req, res, next) => {
+  app.post("/api/login", authLimiter, (req, res, next) => {
     passport.authenticate("local", (err, user, info) => {
       if (err) return next(err);
       if (!user) return res.status(401).json({ message: "Invalid credentials" });
@@ -483,8 +552,8 @@ export function setupAuth(app: Express) {
     res.json(req.user);
   });
 
-  // Add the username check endpoint
-  app.get("/api/check-username/:username", async (req, res) => {
+  // Apply checkLimiter
+  app.get("/api/check-username/:username", checkLimiter, async (req, res) => {
     try {
       const existingUser = await storage.getUserByUsername(req.params.username);
       if (existingUser) {
@@ -496,4 +565,43 @@ export function setupAuth(app: Express) {
       res.status(500).json({ message: "Failed to check username availability" });
     }
   });
+
+  // ---> RE-ADD: Registration Status Endpoint
+  app.get("/api/registration-status", checkLimiter, (req, res) => { 
+    // This endpoint ONLY checks the global environment variable override
+    const isEnabled = process.env.REGISTRATION_ENABLED === "true";
+    console.log(`[Status Check] REGISTRATION_ENABLED is ${process.env.REGISTRATION_ENABLED}, returning: ${isEnabled}`);
+    res.json({ enabled: isEnabled });
+  });
+  // <--- END RE-ADD
+
+  // Apply authLimiter
+  app.post("/api/waitlist", authLimiter, async (req, res) => {
+    // Optionally: Add a check here to only allow waitlist submissions if registration is disabled
+    // if (process.env.REGISTRATION_ENABLED === "true") { 
+    //   return res.status(400).json({ message: "Registration is currently enabled." });
+    // }
+
+    const validationResult = insertWaitlistEntrySchema.safeParse(req.body);
+    if (!validationResult.success) {
+      return res.status(400).json({ 
+        message: "Invalid data", 
+        errors: validationResult.error.flatten().fieldErrors 
+      });
+    }
+
+    try {
+      await storage.addWaitlistEntry(validationResult.data);
+      res.status(201).json({ message: "Successfully added to waitlist." });
+    } catch (error) {
+      console.error("Waitlist submission error:", error);
+      // Don't expose detailed errors, but handle unique constraint potentially
+      if (error instanceof Error && error.message.includes('duplicate key value violates unique constraint')) {
+        return res.status(200).json({ message: "You are already on the waitlist." }); // Or 409 Conflict
+      }
+      res.status(500).json({ message: "Failed to add to waitlist." });
+    }
+  });
+
+  return sessionMiddleware;
 }
