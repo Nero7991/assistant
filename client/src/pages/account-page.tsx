@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Loader2, Info } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Badge } from "@/components/ui/badge";
 
 // Available AI models
 const AVAILABLE_MODELS = [
@@ -19,9 +20,14 @@ const AVAILABLE_MODELS = [
   { value: "gpt-4o-mini", label: "GPT-4o-mini (OpenAI Reasoning)" },
   { value: "gemini-1.5-pro-latest", label: "Gemini 1.5 Pro (Google Latest)" },
   { value: "gemini-1.5-flash-latest", label: "Gemini 1.5 Flash (Google Faster)" },
+  { value: "gemini-2.5-flash-preview-04-17", label: "Gemini 2.5 Flash Preview (Audio/Video/Text)" },
+  { value: "gemini-2.5-pro-preview-03-25", label: "Gemini 2.5 Pro Preview (Enhanced Reasoning)" },
+  { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash (Next Gen Speed)" },
+  { value: "gemini-2.0-flash-lite", label: "Gemini 2.0 Flash-Lite (Cost Efficient)" },
   { value: "gpt-4-turbo", label: "GPT-4 Turbo (OpenAI Previous)" },
   { value: "gpt-4", label: "GPT-4 (OpenAI Previous)" },
-  { value: "gpt-3.5-turbo", label: "GPT-3.5 Turbo (OpenAI Faster)" }
+  { value: "gpt-3.5-turbo", label: "GPT-3.5 Turbo (OpenAI Faster)" },
+  { value: "custom", label: "Custom (Specify Below)" },
 ];
 
 // List of common timezones
@@ -57,7 +63,12 @@ export default function AccountPage() {
   const [preferredModel, setPreferredModel] = useState<string>("o1-mini");
   const [allowEmail, setAllowEmail] = useState(false);
   const [allowPhone, setAllowPhone] = useState(false);
+  const [customUrl, setCustomUrl] = useState<string>("");
+  const [customModel, setCustomModel] = useState<string>("");
   
+  // Derived state to check if custom URL is active
+  const isCustomUrlActive = customUrl && customUrl.trim() !== '';
+
   // Get browser timezone on component mount
   useEffect(() => {
     if (user) {
@@ -81,6 +92,8 @@ export default function AccountPage() {
       setPreferredModel(user.preferredModel || "o1-mini");
       setAllowEmail(user.allowEmailNotifications || false);
       setAllowPhone(user.allowPhoneNotifications || false);
+      setCustomUrl(user.customOpenaiServerUrl || "");
+      setCustomModel(user.customOpenaiModelName || "");
     }
   }, [user]);
 
@@ -112,6 +125,27 @@ export default function AccountPage() {
         }
       }
       
+      // ---> Logic for handling custom model settings
+      let finalPreferredModel = preferredModel;
+      let finalCustomUrl = customUrl.trim() || null; // Trim and set null if empty
+      let finalCustomModel = customModel.trim() || null; // Trim and set null if empty
+
+      if (finalPreferredModel === "custom") {
+          if (!finalCustomUrl) {
+              throw new Error("Custom URL cannot be empty when 'Custom Model' is selected.");
+          }
+          // Default custom model name if empty
+          if (!finalCustomModel) {
+              finalCustomModel = "model"; 
+          }
+          // Keep preferredModel as "custom" to indicate custom is active
+      } else {
+          // If a standard model is selected, ensure custom fields are cleared
+          finalCustomUrl = null;
+          finalCustomModel = null;
+      }
+      // <--- End Logic
+
       // Call the API to update the user settings
       const response = await apiRequest("PATCH", "/api/user", {
         timeZone,
@@ -119,9 +153,9 @@ export default function AccountPage() {
         wakeTime,
         routineStartTime,
         sleepTime,
-        preferredModel,
-        allowEmailNotifications: allowEmail,
-        allowPhoneNotifications: allowPhone
+        preferredModel: finalPreferredModel,
+        customOpenaiServerUrl: finalCustomUrl,
+        customOpenaiModelName: finalCustomModel
       });
       
       if (response.ok) {
@@ -132,6 +166,13 @@ export default function AccountPage() {
         
         // Refresh user data
         queryClient.invalidateQueries({ queryKey: ["/api/user"] });
+        
+        // ---> Update local state after successful save
+        // This ensures UI reflects the cleared/defaulted values if needed
+        setPreferredModel(finalPreferredModel);
+        setCustomUrl(finalCustomUrl || ""); 
+        setCustomModel(finalCustomModel || "");
+        // <--- End Update
       } else {
         const error = await response.json();
         throw new Error(error.message || "Failed to update settings");
@@ -390,12 +431,12 @@ export default function AccountPage() {
         <Card>
           <CardHeader>
             <CardTitle>AI Model Settings</CardTitle>
-            <CardDescription>Configure the AI model used for coaching and scheduling</CardDescription>
+            <CardDescription>Configure the AI model used, or specify a custom OpenAI-compatible server.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-2">
               <div className="flex items-center justify-between">
-                <Label htmlFor="ai-model" className="flex items-center gap-2">
+                <Label htmlFor="ai-model" className={`flex items-center gap-2 ${isCustomUrlActive ? 'text-muted-foreground' : ''}`}>
                   Preferred AI Model
                   <TooltipProvider>
                     <Tooltip>
@@ -413,6 +454,9 @@ export default function AccountPage() {
                     </Tooltip>
                   </TooltipProvider>
                 </Label>
+                {isCustomUrlActive && (
+                  <Badge variant="outline" className="ml-auto">Using Custom Server</Badge>
+                )}
               </div>
               <Select
                 value={preferredModel}
@@ -428,6 +472,38 @@ export default function AccountPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* ---> Conditionally Render Custom Inputs */}
+            {preferredModel === 'custom' && (
+              <>
+                <div className="grid gap-2 pt-4 border-t">
+                  <Label htmlFor="custom-url">Custom OpenAI-Compatible URL *</Label>
+                  <Input 
+                    id="custom-url"
+                    value={customUrl}
+                    onChange={(e) => setCustomUrl(e.target.value)}
+                    placeholder="e.g., http://localhost:1234/v1" // Example URL
+                    required // Indicate required when custom is selected
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Required when "Custom Model" is selected. Requests for this setting will be sent here.
+                  </p>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="custom-model">Custom Model Name (Defaults to "model")</Label>
+                  <Input 
+                    id="custom-model"
+                    value={customModel}
+                    onChange={(e) => setCustomModel(e.target.value)}
+                    placeholder="model" // Show default value
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Specify the exact model name available on your custom server (if needed). If left blank, defaults to "model".
+                  </p>
+                </div>
+              </>
+            )}
+            {/* <--- End Conditional Render */} 
           </CardContent>
           <CardFooter>
             <Button 
@@ -440,7 +516,7 @@ export default function AccountPage() {
                   Saving...
                 </>
               ) : (
-                "Save Model Setting"
+                "Save AI Settings"
               )}
             </Button>
           </CardFooter>

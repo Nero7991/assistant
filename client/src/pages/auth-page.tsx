@@ -38,7 +38,7 @@ import { z } from "zod";
 export default function AuthPage() {
   const { user } = useAuth();
   const [, setLocation] = useLocation();
-  const [mode, setMode] = useState<"login" | "register">("login");
+  const [mode, setMode] = useState<"login" | "register" | "forgot-password">("login");
   const [isRegistrationEnabled, setIsRegistrationEnabled] = useState<boolean | null>(null);
   const [isLoadingStatus, setIsLoadingStatus] = useState(true);
 
@@ -138,6 +138,8 @@ export default function AuthPage() {
                 <CardDescription>
                   {mode === 'login' 
                     ? "Login to your account"
+                    : mode === 'forgot-password'
+                      ? "Reset your password"
                     : isLoadingStatus 
                       ? "Checking registration status..."
                       : isRegistrationEnabled === false
@@ -149,28 +151,39 @@ export default function AuthPage() {
                 {isLoadingStatus ? (
                   <div className="flex justify-center items-center p-10">
                     <Loader2 className="h-8 w-8 animate-spin text-gray-500" />
-                  </div>
+                    </div>
                 ) : mode === "login" ? (
-                  <LoginForm onSwitchMode={toggleMode} />
-                ) : isRegistrationEnabled === true ? (
-                  <RegisterForm onSwitchMode={toggleMode} /> 
-                ) : isRegistrationEnabled === false ? (
-                  <WaitlistForm /> 
-                ) : (
-                  <div className="text-center text-red-500 p-4">Error checking registration status. Please try again later.</div>
-                )}
+                  <LoginForm onSwitchMode={toggleMode} setMode={setMode} />
+                ) : mode === "register" ? (
+                  isRegistrationEnabled === true ? (
+                    <RegisterForm onSwitchMode={toggleMode} /> 
+                  ) : isRegistrationEnabled === false ? (
+                    <WaitlistForm /> 
+                  ) : (
+                    <div className="text-center text-red-500 p-4">Error checking registration status. Please try again later.</div>
+                  )
+                ) : mode === "forgot-password" ? (
+                    <ForgotPasswordForm onSwitchMode={toggleMode} />
+                ) : null /* Should not happen */}
                 
                 {!isLoadingStatus && (
-                  <p className="mt-4 text-center text-sm text-gray-600">
-                    {mode === 'login' ? "Don't have an account?" : "Already have an account?"}{' '}
-                    <button
-                      onClick={toggleMode}
-                      className="font-medium text-indigo-600 hover:text-indigo-500"
-                    >
-                      {mode === 'login' ? (isRegistrationEnabled === false ? "Join Waitlist" : "Register here") : "Login here"}
-                    </button>
+                 <p className="mt-4 text-center text-sm text-gray-600">
+                   {mode === 'login' && (
+                     <>{"Don't have an account?"}{' '}
+                       <button onClick={toggleMode} className="font-medium text-indigo-600 hover:text-indigo-500">
+                         {isRegistrationEnabled === false ? "Join Waitlist" : "Register here"}
+                       </button>
+                     </>
+                   )}
+                   {(mode === 'register' || mode === 'forgot-password') && (
+                     <>{"Already have an account?"}{' '}
+                       <button onClick={() => setMode('login')} className="font-medium text-indigo-600 hover:text-indigo-500">
+                         Login here
+                       </button>
+                     </>
+                   )}
                   </p>
-                )}
+               )}
               </CardContent>
             </Card>
           </div>
@@ -201,12 +214,15 @@ export default function AuthPage() {
   return null;
 }
 
-const LoginForm = ({ onSwitchMode }: { onSwitchMode: () => void }) => {
+const LoginForm = ({ onSwitchMode, setMode }: { onSwitchMode: () => void, setMode: (mode: "login" | "register" | "forgot-password") => void }) => {
   const { loginMutation } = useAuth();
   const form = useForm({
-    resolver: zodResolver(insertUserSchema.pick({ username: true, password: true })),
+    resolver: zodResolver(z.object({
+      email: z.string().email("Please enter a valid email"),
+      password: z.string().min(1, "Password is required"),
+    })),
     defaultValues: {
-      username: "",
+      email: "",
       password: "",
     },
   });
@@ -216,12 +232,12 @@ const LoginForm = ({ onSwitchMode }: { onSwitchMode: () => void }) => {
       <form onSubmit={form.handleSubmit((data) => loginMutation.mutate(data))} className="space-y-4" role="form" data-testid="login-form">
         <FormField
           control={form.control}
-          name="username"
+          name="email"
           render={({ field }) => (
             <FormItem>
-              <FormLabel htmlFor="username">Username</FormLabel>
+              <FormLabel htmlFor="email">Email</FormLabel>
               <FormControl>
-                <Input {...field} id="username"/>
+                <Input {...field} id="email" type="email" autoComplete="email"/>
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -250,6 +266,15 @@ const LoginForm = ({ onSwitchMode }: { onSwitchMode: () => void }) => {
             "Login"
           )}
         </Button>
+        <div className="text-sm text-right">
+          <button 
+            type="button" 
+            onClick={() => setMode('forgot-password')}
+            className="font-medium text-indigo-600 hover:text-indigo-500"
+          >
+            Forgot password?
+          </button>
+        </div>
       </form>
     </Form>
   );
@@ -261,7 +286,6 @@ const RegisterForm = ({ onSwitchMode }: { onSwitchMode: () => void }) => {
     const [showEmailVerification, setShowEmailVerification] = useState(false);
     const [showPhoneVerification, setShowPhoneVerification] = useState(false);
     const [pendingRegistrationData, setPendingRegistrationData] = useState<any>(null);
-    const [isCheckingUsername, setIsCheckingUsername] = useState(false);
     const queryClient = useQueryClient();
     const form = useForm({
         resolver: zodResolver(insertUserSchema),
@@ -277,45 +301,9 @@ const RegisterForm = ({ onSwitchMode }: { onSwitchMode: () => void }) => {
         mode: "onChange",
     });
 
-    useEffect(() => {
-        const username = form.watch("username");
-        const checkUsername = async () => {
-            if (username.length < 3) return;
-
-            try {
-                setIsCheckingUsername(true);
-                const res = await apiRequest("GET", `/api/check-username/${username}`);
-                if (!res.ok) {
-                    form.setError("username", {
-                        type: "manual",
-                        message: "Username already exists"
-                    });
-                } else {
-                    form.clearErrors("username");
-                }
-            } catch (error) {
-                console.error("Username check error:", error);
-            } finally {
-                setIsCheckingUsername(false);
-            }
-        };
-
-        const timeoutId = setTimeout(checkUsername, 500);
-        return () => clearTimeout(timeoutId);
-    }, [form.watch("username")]);
-
     const onSubmit = async (data: any) => {
         try {
             console.log("Form submitted, initiating verification process");
-
-            if (form.formState.errors.username) {
-                toast({
-                    title: "Registration error",
-                    description: "Please choose a different username",
-                    variant: "destructive",
-                });
-                return;
-            }
 
             setPendingRegistrationData(data);
 
@@ -451,17 +439,12 @@ const RegisterForm = ({ onSwitchMode }: { onSwitchMode: () => void }) => {
                             <FormItem>
                                 <FormLabel htmlFor="username">Username</FormLabel>
                                 <FormControl>
-                                    <div className="relative">
                                         <Input
                                             id="username"
                                             {...field}
                                             autoComplete="username"
                                             aria-label="Username"
                                         />
-                                        {isCheckingUsername && (
-                                            <Loader2 className="absolute right-3 top-2.5 h-4 w-4 animate-spin text-muted-foreground" />
-                                        )}
-                                    </div>
                                 </FormControl>
                                 <FormMessage />
                             </FormItem>
@@ -561,7 +544,7 @@ const RegisterForm = ({ onSwitchMode }: { onSwitchMode: () => void }) => {
                     <Button
                         type="submit"
                         className="w-full"
-                        disabled={registerMutation.isPending || isCheckingUsername}
+                        disabled={registerMutation.isPending}
                     >
                         {registerMutation.isPending ? (
                             <>
@@ -681,5 +664,80 @@ const WaitlistForm = () => {
         </Button>
       </form>
     </Form>
+    );
+};
+
+// ---> NEW: Forgot Password Form Component
+const ForgotPasswordForm = ({ onSwitchMode }: { onSwitchMode: () => void }) => {
+  const { toast } = useToast();
+  const [isLoading, setIsLoading] = useState(false);
+  const form = useForm<{ email: string }>({
+    resolver: zodResolver(z.object({ email: z.string().email("Please enter a valid email address") })),
+    defaultValues: {
+      email: "",
+    },
+  });
+
+  const onSubmit = async (data: { email: string }) => {
+    setIsLoading(true);
+    try {
+      const res = await apiRequest("POST", "/api/forgot-password", data);
+      const result = await res.json(); // Read response body regardless of status for message
+
+      if (!res.ok) {
+        throw new Error(result.message || "Failed to send reset link");
+      }
+      
+      toast({
+        title: "Check your email",
+        description: result.message || "Password reset link sent.", // Use message from backend
+      });
+      // Optionally switch back to login mode automatically
+      // onSwitchMode(); 
+    } catch (error) {
+      console.error("Forgot password error:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "An unexpected error occurred.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <CardHeader className="text-center">
+          <CardTitle>Forgot Password</CardTitle>
+          <CardDescription>Enter your email address and we'll send you a link to reset your password.</CardDescription>
+        </CardHeader>
+        <FormField
+          control={form.control}
+          name="email"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel htmlFor="forgot-email">Email Address</FormLabel>
+              <FormControl>
+                <Input id="forgot-email" {...field} type="email" placeholder="your.email@example.com" />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <Button type="submit" className="w-full" disabled={isLoading}>
+          {isLoading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Sending...
+            </>
+          ) : (
+            "Send Reset Link"
+          )}
+        </Button>
+      </form>
+    </Form>
   );
 };
+// <--- END NEW

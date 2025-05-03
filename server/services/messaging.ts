@@ -130,8 +130,16 @@ export class MessagingService {
     const { user, tasks, facts, previousMessages, currentDateTime, messageType, systemRequestType, userResponse, functionResults, taskDetails } = context;
     const userId = user.id;
 
+    // ---> Log previousMessages received by the prompt generator
+    console.log(`[DEBUG createUnifiedPrompt User ${userId}] Received ${previousMessages?.length ?? 0} previousMessages.`);
+    // Example: Log the content of the most recent message passed in
+    if (previousMessages && previousMessages.length > 0) {
+        console.log(`[DEBUG createUnifiedPrompt User ${userId}] Most recent previousMessage content: "${previousMessages[0]?.content?.substring(0, 100)}..."`); // Index 0 is most recent due to query order
+    }
+    // <--- End log
+
     // Construct the system prompt portion
-    const prompt = `You are an expert AI Assistant Coach specialized in helping users with ADHD manage their tasks, schedule, and well-being.\nCurrent User ID: ${userId}\nCurrent Time (${user.timeZone || 'UTC'}): ${currentDateTime}\n\nUSER PROFILE:\n- Username: ${user.username}\n- Email: ${user.email} ${user.isEmailVerified ? '(Verified)' : '(Not Verified)'}\n- Phone: ${user.phoneNumber || 'Not provided'} ${user.isPhoneVerified ? '(Verified)' : '(Not Verified)'}\n- Contact Preference: ${user.contactPreference}\n- Schedule: Wake ${user.wakeTime}, Start Routine ${user.routineStartTime}, Sleep ${user.sleepTime}\n- Preferred LLM: ${user.preferredModel}\n\nUSER FACTS:\n${facts.length > 0 ? facts.map((fact) => `- ${fact.category}: ${fact.content}`).join("\n") : "No specific facts known."}\n\nActive Tasks (for context, use functions to get latest status/details):\n${tasks.length > 0 ? tasks.filter(t => t.status === 'active').map((task) => `- ID:${task.id} | ${task.title} | Type: ${task.taskType}${task.scheduledTime ? ` | Scheduled: ${task.scheduledTime}` : ""}`).join("\n") : "No active tasks."}\n\nAVAILABLE FUNCTIONS:\n- \`get_task_list({ status: 'active'|'completed'|'all' = 'active' })\`: Retrieves the user's tasks. Default status is 'active'.\n- \`create_task({ title: string, description?: string, taskType: 'regular'|'personal_project'|'long_term_project'|'life_goal', priority?: number (1-5), estimatedDuration?: string ('30m', '2h', '1d', '1w', '1M', '1y'), deadline?: string (ISO8601), scheduledTime?: string ('HH:MM'), recurrencePattern?: string ('daily', 'weekly:1,3,5', 'monthly:15', 'none') })\`: Creates a new task.\n    - **IMPORTANT (Scheduling & Recurrence)**: If a task is time-sensitive (e.g., 'Take medication') or the user wants it to repeat, ask for clarification:\n        - For timing: \"What time should this be scheduled for (e.g., 9am, 14:30)?\" (Provide \`scheduledTime\` argument)\n        - For recurrence: \"Should this task repeat? If so, how often (e.g., daily, specific weekdays, monthly)?\" (Provide \`recurrencePattern\` argument: 'daily', 'weekly:1,3,5', 'monthly:15').\n        - **If the user doesn't specify recurrence, assume it's a one-off task and use \`recurrencePattern: 'none'\`.**\n        - A recurring task usually needs a \`scheduledTime\`. If recurrence is given but time is missing, ask for the time.\n    - **IMPORTANT (Projects/Goals)**: If \`taskType\` is 'personal_project', 'long_term_project', or 'life_goal', follow this sequence:\n        1. Ask for \`description\` AND overall \`estimatedDuration\` (e.g., '2w', '3M', '1y').\n        2. WAIT for the user's response.\n        3. THEN, **suggest** 3-5 relevant initial subtasks with estimated durations/deadlines based on the description and overall duration. Ask the user to confirm or modify these suggestions.\n        4. WAIT for the user's response confirming or modifying the subtasks.\n        5. FINALLY, call \`create_task\` with the title, description, and duration, then call \`create_subtask\` for each confirmed/modified subtask.\n- \`update_task({ taskId: number, updates: { title?: string, description?: string, status?: 'active'|'completed'|'archived', priority?: number, estimatedDuration?: string, deadline?: string, scheduledTime?: string, recurrencePattern?: string } })\`: Updates an existing task. **Requires** \`taskId\` and an \`updates\` object containing the fields to change. Example: \`{ "taskId": 123, "updates": { "status": "completed" } }\`.\n- \`delete_task({ taskId: number })\`: Deletes a task. Requires \`taskId\`.\n- \`create_subtask({ parentTaskId: number, title: string, description?: string, estimatedDuration?: string })\`: Adds a subtask to a parent task. Requires \`parentTaskId\` and \`title\`.
+    const systemPromptPart = `You are an expert assistant coach called Kona specialized in helping users their tasks, schedule, and well-being.\nCurrent User ID: ${userId}\nCurrent Time (${user.timeZone || 'UTC'}): ${currentDateTime}\n\nUSER PROFILE:\n- First Name: ${user.firstName}\n- Username: ${user.username}\n- Email: ${user.email} ${user.isEmailVerified ? '(Verified)' : '(Not Verified)'}\n- Phone: ${user.phoneNumber || 'Not provided'} ${user.isPhoneVerified ? '(Verified)' : '(Not Verified)'}\n- Contact Preference: ${user.contactPreference}\n- Schedule: Wake ${user.wakeTime}, Start Routine ${user.routineStartTime}, Sleep ${user.sleepTime}\n- Preferred LLM: ${user.preferredModel}\n\nUSER FACTS:\n${facts.length > 0 ? facts.map((fact) => `- ${fact.category}: ${fact.content}`).join("\n") : "No specific facts known."}\n\nActive Tasks (for context, use functions to get latest status/details):\n${tasks.length > 0 ? tasks.filter(t => t.status === 'active').map((task) => `- ID:${task.id} | ${task.title} | Type: ${task.taskType}${task.scheduledTime ? ` | Scheduled: ${task.scheduledTime}` : ""}`).join("\n") : "No active tasks."}\n\nAVAILABLE FUNCTIONS:\n- \`get_task_list({ status: 'active'|'completed'|'all' = 'active' })\`: Retrieves the user's tasks. Default status is 'active'.\n- \`create_task({ title: string, description?: string, taskType: 'regular'|'personal_project'|'long_term_project'|'life_goal', priority?: number (1-5), estimatedDuration?: string ('30m', '2h', '1d', '1w', '1M', '1y'), deadline?: string (ISO8601), scheduledTime?: string ('HH:MM'), recurrencePattern?: string ('daily', 'weekly:1,3,5', 'monthly:15', 'none') })\`: Creates a new task.\n    - **IMPORTANT (Scheduling & Recurrence)**: If a task is time-sensitive (e.g., 'Take medication') or the user wants it to repeat, ask for clarification:\n        - For timing: \"What time should this be scheduled for (e.g., 9am, 14:30)?\" (Provide \`scheduledTime\` argument)\n        - For recurrence: \"Should this task repeat? If so, how often (e.g., daily, specific weekdays, monthly)?\" (Provide \`recurrencePattern\` argument: 'daily', 'weekly:1,3,5', 'monthly:15').\n        - **If the user doesn't specify recurrence, assume it's a one-off task and use \`recurrencePattern: 'none'\`.**\n        - A recurring task usually needs a \`scheduledTime\`. If recurrence is given but time is missing, ask for the time.\n    - **IMPORTANT (Projects/Goals)**: If \`taskType\` is 'personal_project', 'long_term_project', or 'life_goal', follow this sequence:\n        1. Ask for \`description\` AND overall \`estimatedDuration\` (e.g., '2w', '3M', '1y').\n        2. WAIT for the user's response.\n        3. THEN, **suggest** 3-5 relevant initial subtasks with estimated durations/deadlines based on the description and overall duration. Ask the user to confirm or modify these suggestions.\n        4. WAIT for the user's response confirming or modifying the subtasks.\n        5. FINALLY, call \`create_task\` with the title, description, and duration, then call \`create_subtask\` for each confirmed/modified subtask.\n- \`update_task({ taskId: number, updates: { title?: string, description?: string, status?: 'active'|'completed'|'archived', priority?: number, estimatedDuration?: string, deadline?: string, scheduledTime?: string, recurrencePattern?: string } })\`: Updates an existing task. **Requires** \`taskId\` and an \`updates\` object containing the fields to change. Example: \`{ "taskId": 123, "updates": { "status": "completed" } }\`.\n- \`delete_task({ taskId: number })\`: Deletes a task. Requires \`taskId\`.\n- \`create_subtask({ parentTaskId: number, title: string, description?: string, estimatedDuration?: string })\`: Adds a subtask to a parent task. Requires \`parentTaskId\` and \`title\`.
 - \`update_subtask({ subtaskId: number, updates: { title?: string, description?: string, status?: 'active'|'completed'|'archived', estimatedDuration?: string, ... } })\`: Updates an existing subtask. **Requires** \`subtaskId\` and an \`updates\` object containing the fields to change.
 - \`delete_subtask({ subtaskId: number, parentTaskId: number })\`: Deletes a subtask. **Requires** both \`subtaskId\` and \`parentTaskId\`.
 - \`get_user_facts({ category?: 'life_event'|'core_memory'|...|'custom' })\`: Retrieves known facts about the user, optionally filtered by category.
@@ -141,22 +149,22 @@ export class MessagingService {
 \nIMPORTANT NOTES & WORKFLOW:\n1.  **PRIORITY OF INFORMATION**: Function results provided in the conversation history (FUNCTION EXECUTION RESULTS section below) are the MOST current state. Always use the data from the latest function result for tasks, facts, etc., over older messages or your internal knowledge.\n2.  **Task Management**:\n    *   Before creating ANY task, ALWAYS call \`get_task_list({ status: \'active\' })\` to check if a similar task already exists. Ask the user if they want to proceed if duplicates are found.\n    *   Ensure \`taskType\` is one of the valid values: \'regular\', \'personal_project\', \'long_term_project\', \'life_goal\'. If the user is vague, ask them to clarify the type.\n    *   **Follow the specific instructions within the \`create_task\` description regarding asking for \`scheduledTime\` and \`recurrencePattern\` for regular tasks, and the multi-step process for projects/goals.**\n3.  **Function Result Handling (VERY IMPORTANT!)**: \n    *   After a function is executed, its results appear in the FUNCTION EXECUTION RESULTS section.\n    *   If a function like \`create_task\` or \`update_task\` was successful (e.g., result contains \`{\"success\": true, ...\`}), your response to the user MUST simply confirm the action based on the result (e.g., \"Okay, I\'ve created the task '[Task Title]'.\"). \n    *   **DO NOT** re-check for duplicates or ask to perform the same action again immediately after seeing a success result for that action.\n    *   If the function result indicates an error (e.g., \`{\"error\": ...\`}), inform the user about the error.\n    *   If the function returned data (like \`get_task_list\`), use that data to inform your *next* step (e.g., check the list for duplicates before deciding whether to ask the user or call \`create_task\`).\n4.  **Fact Management**: Use \`get_user_facts\` to recall information. Use \`add_user_fact\` to store new persistent information learned about the user during conversation.\n5.  **Scheduling**: Use \`propose_daily_schedule\` to generate structured plans. Your schedule proposal *must* be included in the \`message\` field of your JSON response and clearly marked.\n\nRESPONSE FORMAT (CRITICAL):\nYour output MUST be a single JSON object with the following potential keys:\n- "message": (string, Required) The conversational text response to the user.\n- "function_call": (object, Optional) If a function needs to be called. Structure: { "name": "function_name", "arguments": { "arg1": "value1", ... } }\n- "scheduleUpdates": (array, Optional) List of schedule items to create/update. Use this ONLY if the user explicitly confirms a proposed schedule or asks for direct item modifications. Structure: [{ id?: number, date: string (YYYY-MM-DD), taskId?: number | string, subtaskId?: number, title: string, startTime: string (HH:MM), endTime?: string (HH:MM), status?: string, action?: 'create'|'update'|'delete'|'skip' }]\n- "scheduledMessages": (array, Optional) List of messages to schedule. Structure: [{ type: 'follow_up'|'reminder', title: string, content?: string, scheduledFor: string (ISO8601 or "HH:MM" for today), metadata?: object }]\n\nGoal/Instruction:\n`;
 
     // Determine the goal instruction based on message type
-    let goalInstruction = "";
+    let goalInstructionPart = "";
     const specificTaskInfo = taskDetails ? ` for the task: \"${taskDetails.taskTitle}\" (ID: ${taskDetails.taskId}) scheduled at ${taskDetails.taskScheduledTime}` : "";
 
     switch (messageType) {
       case "morning":
         // Corrected multi-line template literal
-        goalInstruction = `Generate the morning summary and plan for ${currentDateTime.split(",")[0]}. 
+        goalInstructionPart = `Generate the morning summary and plan for ${currentDateTime.split(",")[0]}. 
 Review the user's active non-daily tasks (personal projects, long-term projects, life goals) listed in the context. 
 Ask the user if they want to dedicate time today to work on any specific project or goal, perhaps suggesting one or two based on recent activity or priority. 
 Then, propose a daily schedule using 'propose_daily_schedule', incorporating any daily tasks and any project work the user wants to schedule. Your response MUST be JSON.`;
         break;
       case "reschedule":
-        goalInstruction = `User wants help rescheduling tasks or their day. Analyze their request and the current tasks/schedule. If appropriate, propose a new schedule using 'propose_daily_schedule'. Your response MUST be JSON.`;
+        goalInstructionPart = `User wants help rescheduling tasks or their day. Analyze their request and the current tasks/schedule. If appropriate, propose a new schedule using 'propose_daily_schedule'. Your response MUST be JSON.`;
         break;
       case "system_request":
-        // --- Updated instructions for system requests (reminders, follow-ups) ---
+        // Determine base intent
         let intentDescription = "";
         let taskFocus = taskDetails ? ` for task "${taskDetails.taskTitle}" (ID: ${taskDetails.taskId})` : "";
         
@@ -177,7 +185,8 @@ Then, propose a daily schedule using 'propose_daily_schedule', incorporating any
                  intentDescription = `This is a system-initiated request for: ${systemRequestType}.`;
         }
         
-        goalInstruction = `${intentDescription}
+        // ---> Restore Original instructions for system requests
+        goalInstructionPart = `${intentDescription}
 
 IMPORTANT EVALUATION:
 1. Review the recent conversation history provided below.
@@ -188,12 +197,12 @@ YOUR ACTION:
 - If NO (Message is NO LONGER relevant due to recent conversation): Respond with ONLY the following exact JSON object: { "message": null }
 
 Your response MUST be JSON.`;
-        // --- End updated instructions ---
+        // ---> End Restore
         break;
       case "response":
       default:
         // Updated instruction for handling user responses, including schedule adjustments
-        goalInstruction = `Respond to the user's latest message: "${userResponse}". Address their request, manage tasks/schedule, or ask clarifying questions as needed based on the workflow. 
+        goalInstructionPart = `Respond to the user's latest message: "${userResponse}". Address their request, manage tasks/schedule, or ask clarifying questions as needed based on the workflow. 
 
 IMPORTANT: Schedule Adjustment Logic:
 1. Analyze if the user response indicates a change of plan for a specific task **for today only**. Examples: "I'll do the 10am task later at 3pm", "I actually finished Task X already", "Can't do Task Y today".
@@ -211,102 +220,112 @@ IMPORTANT: Schedule Adjustment Logic:
 Your response MUST be JSON.`;
     }
 
-    // Include function results if available from a previous loop iteration
-    const functionResultText = functionResults
+    // ---> Add instruction to focus on recent history <--- 
+    goalInstructionPart += `\n\nPay close attention to the last few messages in the Conversation History provided below, especially the ${user.firstName || 'user'}'s most recent message, when formulating your response. You are Kona in this conversation, not the user.`;
+    // <--- End Add instruction --->
+
+    // Include function results if available
+    const functionResultPart = functionResults
       ? `\n\nFUNCTION EXECUTION RESULTS:\nYou previously called functions and received these results:\n${JSON.stringify(functionResults, null, 2)}\nCRITICAL: Use these results to formulate your response. If the result shows a successful task creation/update (e.g., \`success: true\`), STOP, DO NOT perform further checks (like \`get_task_list\` for duplicates), and simply confirm the success to the user based on this result.`
       : "";
 
+    // ---> NEW: Format and include conversation history for ALL models <---
+    // Use the standardized history passed in context (already filtered/ordered)
+    // Let's limit it reasonably, e.g., last 12 turns like before
+    const historyForPrompt = previousMessages.slice(0, 12).reverse(); // Get last 12 from DB format, reverse to chronological
+    const historyString = historyForPrompt.map(m => {
+        const roleName = (m.type === "user_message" || m.type === "system_request") ? (user.firstName || 'User') : 'Kona';
+        const timestamp = `(${(formatInTimeZone(m.createdAt, user.timeZone || 'UTC', 'MMM d, h:mm a'))})`;
+        return `${roleName} ${timestamp}: ${m.content || ''}`;
+    }).join('\n\n'); 
+    const historyPart = `\n\nRecent Conversation History (Last ${historyForPrompt.length} turns):\n${historyString}`;
+    // <--- END NEW --->
+
     // Combine prompt, goal, and function results
-    return `${prompt}${goalInstruction}${functionResultText}`;
+    const finalPrompt = `${systemPromptPart}${goalInstructionPart}${functionResultPart}${historyPart}`;
+    return finalPrompt; // Return the combined string
   }
 
   // --- New Core LLM Interaction Function ---
   private async generateUnifiedResponse(
     userId: number,
     prompt: string,
-    conversationHistory: StandardizedChatCompletionMessage[]
+    conversationHistory: StandardizedChatCompletionMessage[],
+    user: StorageUser 
   ): Promise<StandardizedChatCompletionMessage> {
-    const preferredModel = await this.getUserPreferredModel(userId);
+    const preferredModel = user.preferredModel || "gpt-4o";
     console.log(`Using user's preferred model: ${preferredModel} for unified response`);
 
-    // --- Provider Selection Logic ---
+    // --- Determine Provider and Effective Model Name ---
     let provider: LLMProvider;
     let effectiveModel = preferredModel;
+    let effectiveBaseUrl = user.customOpenaiServerUrl || null;
+    const customModelName = user.customOpenaiModelName || null;
+    const customApiKey = null; // No per-user API key support yet
 
-    if (preferredModel.startsWith("gemini-")) {
-      console.log("Selecting GCloudProvider for Gemini model.");
-      provider = gcloudProvider; // Use the imported gcloudProvider
-      effectiveModel = preferredModel; // Pass the specific gemini model name
-    } else if (preferredModel.startsWith("gpt-") || preferredModel.startsWith("o1-") || preferredModel.startsWith("o3-")) { // Added o3-mini check
-      console.log("Selecting OpenAIProvider for OpenAI model.");
-      provider = openAIProvider;
-      effectiveModel = preferredModel;
+    if (preferredModel === "custom" && effectiveBaseUrl) {
+        provider = openAIProvider; // Assume custom URL uses OpenAI provider
+        effectiveModel = customModelName || "model"; // Use custom name or default
+        console.log(`[generateUnifiedResponse] Using Custom OpenAI config: URL=${effectiveBaseUrl}, Model=${effectiveModel}`);
+    } else if (preferredModel.startsWith("gemini-")) {
+        provider = gcloudProvider;
+        effectiveModel = preferredModel; 
+        console.log("[generateUnifiedResponse] Using GCloudProvider.");
+    } else if (preferredModel.startsWith("gpt-") || preferredModel.startsWith("o1-") || preferredModel.startsWith("o3-")) {
+        provider = openAIProvider;
+        effectiveModel = preferredModel;
+        console.log("[generateUnifiedResponse] Using OpenAIProvider.");
     } else {
-      console.error(`Unsupported model prefix: ${preferredModel}. Falling back to OpenAI default.`);
-      provider = openAIProvider; // Default fallback
-      effectiveModel = "gpt-4o"; // Default fallback model
+        console.error(`Unsupported model: ${preferredModel}. Falling back to OpenAI GPT-4o.`);
+        provider = openAIProvider; 
+        effectiveModel = "gpt-4o"; 
     }
+    // ---> END Provider/Model Logic
 
-    // --- Prepare Messages (Adjust for Provider Needs if Necessary) ---
+    // --- Prepare SINGLE User Message for ALL models ---
     const messages: StandardizedChatCompletionMessage[] = [];
-    let requiresJson = false;
-    let systemPrompt = prompt; // Base system prompt
+    // ---> REVISED: Use the prompt string directly (history is now included by createUnifiedPrompt)
+    const combinedMessage = `${prompt}\n\nKona's Response:`;
+    // <--- END REVISED
+    
+    // Log the full combined message being sent
+    console.log(`[DEBUG generateUnifiedResponse User ${userId}] FULL combined message content for model ${effectiveModel}:\n====== START COMBINED PROMPT ======\n${combinedMessage}\n====== END COMBINED PROMPT ======\n`);
+    
+    // Add the single message to the array
+    messages.push({ role: "user", content: combinedMessage });
 
-    // Adjust message preparation based on the *selected* provider
-    if (provider === openAIProvider && !effectiveModel.startsWith("o1-") && !effectiveModel.startsWith("o3-")) {
-      // Use system role for capable OpenAI models
-      messages.push({ role: "system", content: systemPrompt });
-      messages.push(...conversationHistory);
-      requiresJson = true; // Assume capable OpenAI models should use JSON mode
-      console.log("[generateUnifiedResponse] Using system role for OpenAI model.");
-    } else if (provider === gcloudProvider) {
-      // Gemini handles system instructions differently. Often combined or passed separately.
-      // For now, let's combine it into the first message content if history exists,
-      // or send it as the first user message if history is empty.
-      // We also filter out the 'system' role message from history for Gemini.
-      const geminiHistory = conversationHistory.filter(m => m.role !== 'system');
-      if (geminiHistory.length > 0 && geminiHistory[0].role === 'user') {
-          // Prepend system prompt to the first user message
-          geminiHistory[0].content = `${systemPrompt}\n\n${geminiHistory[0].content}`;
-          messages.push(...geminiHistory);
-        } else {
-          // If history starts with assistant or is empty, send system prompt as first user message
-          messages.push({ role: 'user', content: systemPrompt });
-          messages.push(...geminiHistory);
-      }
-      requiresJson = true; // Gemini supports JSON mode via mimeType
-      console.log("[generateUnifiedResponse] Preparing messages for GCloud/Gemini model.");
-
-    } else {
-      // Fallback for o1-mini / o3-mini (OpenAI) - Combine system prompt
-      const historyString = conversationHistory.map(m => `${m.role}: ${m.content}`).join('\n---\n');
-      const combinedFirstMessage = `${systemPrompt}\n\nConversation History:\n${historyString}\n\nRespond to the last user message:`;
-      messages.push({ role: "user", content: combinedFirstMessage });
-      requiresJson = false; // o1/o3 mini don't reliably support JSON mode
-      console.log("[generateUnifiedResponse] Combining system prompt for OpenAI Mini model.");
-    }
+    // ---> Set requiresJson based on model capability (heuristic)
+    // Assume most models *except* known limited ones might follow JSON instruction in prompt
+    const requiresJson = !effectiveModel.startsWith("o1-") && !effectiveModel.startsWith("o3-");
+    console.log(`[generateUnifiedResponse] Setting requiresJson=${requiresJson} for model ${effectiveModel}`);
+    // <--- End JSON mode logic
+    
+    // ---> REMOVE the old conditional message prep logic <---
+    // if (provider === openAIProvider && !effectiveModel.startsWith("o1-") && !effectiveModel.startsWith("o3-")) { ... }
+    // else if (provider === gcloudProvider) { ... }
+    // else { ... } 
+    // ---> END REMOVE <---
 
     // --- Set Temperature ---
     const temperature = (effectiveModel.startsWith("o1-") || effectiveModel.startsWith("o3-")) ? undefined : 0.7;
 
     // DEBUG: Log parameters before calling provider
     console.log("\n===== MESSAGING DEBUG: PROVIDER CALL PARAMS =====");
-    console.log(`Provider: ${provider.constructor.name}`);
-    console.log(`Model: ${effectiveModel}`);
-    console.log(`Temperature: ${temperature ?? 'Provider Default'}`);
-    console.log(`Request JSON: ${requiresJson}`);
-    console.log(`Message Count: ${messages.length}`);
-    // console.log("Messages:", JSON.stringify(messages, null, 2)); // Uncomment for deep debugging
+    // ... logging ...
+    console.log(`Message Count: ${messages.length}`); // Should always be 1 now
+    // ... logging messages array ...
     console.log("============================================\n");
 
     // --- Call the Provider ---
     try {
       const responseMessage = await provider.generateCompletion(
-        effectiveModel,
-        messages,
+        effectiveModel, 
+        messages, // Always pass the single-message array
         temperature,
         requiresJson,
-        llmFunctionDefinitions // Pass function definitions
+        llmFunctionDefinitions, 
+        effectiveBaseUrl, // Use determined base URL
+        customApiKey // Pass custom API key (currently null)
       );
 
       // DEBUG: Log provider response
@@ -355,7 +374,9 @@ Your response MUST be JSON.`;
           // <--- End format change
           return {
             role: (msg.type === "user_message" || msg.type === "system_request") ? "user" as const : "assistant" as const,
-            content: `${timestamp}${msg.content || ""}`, // Prepend timestamp
+            // ---> Prepend timestamp directly to content here
+            content: `(${(formatInTimeZone(msg.createdAt, user.timeZone || 'UTC', 'MMM d, h:mm a'))}) ${msg.content || ""}`,
+            // <--- End prepend
             name: undefined,
             tool_calls: undefined
         };
@@ -395,8 +416,16 @@ Your response MUST be JSON.`;
         // B. Build the prompt
         const currentPrompt = this.createUnifiedPrompt(messageContext);
 
+        // ---> Add Explicit Log
+        console.log("[DEBUG handleUserResponse] User object before calling generateUnifiedResponse:", user);
+        // <--- End Log
         // C. Call the LLM using the new abstracted function
-        const assistantResponseObject = await this.generateUnifiedResponse(userId, currentPrompt, conversationHistory);
+        const assistantResponseObject = await this.generateUnifiedResponse(
+            userId, 
+            currentPrompt, 
+            conversationHistory,
+            user // Pass the full user object
+        );
         // Raw content is now directly from the standardized response
         const assistantRawContent = assistantResponseObject.content || `{ "message": "Error: Received empty response from LLM." }`;
 
@@ -471,20 +500,19 @@ Your response MUST be JSON.`;
             console.log("LLM provided final response (no function_call in content). Processing final actions.");
             finalAssistantMessage = processedResult.message;
             
-            // ---> NEW: Post-process message for WhatsApp formatting
-            if (finalAssistantMessage) {
-                // Replace Markdown bold (**) with WhatsApp bold (*)
-                // Using regex to capture content between double asterisks
+            // ---> FIX: Ensure finalAssistantMessage is not null before using .includes()
+            const finalMessageContent = finalAssistantMessage ?? ""; // Use empty string if null
+            const isConfirmation = finalMessageContent.includes(FINAL_SCHEDULE_MARKER);
+            const isProposal = finalMessageContent.includes("PROPOSED_SCHEDULE_AWAITING_CONFIRMATION");
+            // <--- END FIX
+            
+            // ---> NEW: Post-process message for WhatsApp formatting (Ensure not null)
+            if (finalAssistantMessage !== null) {
                 finalAssistantMessage = finalAssistantMessage.replace(/\*\*(.*?)\*\*/g, '*$1*');
                 console.log("[Formatting] Applied WhatsApp bold conversion.");
             }
             // <--- END NEW
 
-            // --- Keep existing K, L, M, N steps for final processing ---
-            // K. Perform Actions based on Final Processed Result
-            // ... (rest of the code) ...
-            const isConfirmation = processedResult.message.includes(FINAL_SCHEDULE_MARKER); // Check usage
-            const isProposal = processedResult.message.includes("PROPOSED_SCHEDULE_AWAITING_CONFIRMATION");
             let finalMetadata: any = {};
             // ...(rest of schedule/message/sentiment handling)... 
             if (processedResult.scheduleUpdates && processedResult.scheduleUpdates.length > 0) {
@@ -510,29 +538,35 @@ Your response MUST be JSON.`;
             }
 
             // L. Save Final Assistant Message to History
-            // ... (existing logic using finalAssistantMessage and finalMetadata) ...
             console.log(`[DEBUG] Saving final assistant message to DB. Content: "${finalAssistantMessage}"`);
             let metadataToSave = finalMetadata; 
             try {
+                // ---> FIX: Ensure content is not null for DB insert
+                const contentToSave = finalAssistantMessage ?? "[LLM generated null message]";
                 const insertResult = await db.insert(messageHistory).values({
                    userId: userId,
-                   content: finalAssistantMessage,
+                   content: contentToSave, // Use non-null value
                    type: "coach_response",
                    status: "sent",
                    metadata: Object.keys(metadataToSave).length > 0 ? metadataToSave : undefined,
                    createdAt: new Date(),
                 }).returning({ insertedId: messageHistory.id });
+                // <--- END FIX
                 console.log(`[DEBUG] Successfully inserted coach_response message with ID: ${insertResult[0]?.insertedId}`);
             } catch (dbError) {
                 console.error(`[CRITICAL] Failed to save final assistant message to DB for user ${userId}: `, dbError);
             }
 
             // M. Send Final Message to User
-            // If user has a verified phone number, send the response via WhatsApp
-            // regardless of original contact preference, to keep chats synced.
-             if (user.phoneNumber) { // Maybe add && user.isPhoneVerified later if needed
+             if (user.phoneNumber) { 
                  console.log(`[Sync] Attempting to send final response to WhatsApp for user ${userId}`);
-                 await this.sendWhatsAppMessage(user.phoneNumber, finalAssistantMessage);
+                 // ---> FIX: Ensure message is not null before sending
+                 if (finalAssistantMessage !== null) { 
+                    await this.sendWhatsAppMessage(user.phoneNumber, finalAssistantMessage);
+                 } else {
+                    console.warn(`[handleUserResponse] Skipping WhatsApp send for user ${userId} because final message was null.`);
+                 }
+                 // <--- END FIX
              }
 
             // N. Exit Loop
@@ -598,17 +632,56 @@ Your response MUST be JSON.`;
 
       // Generate LLM response
       const prompt = this.createUnifiedPrompt(messageContext);
-      const assistantMessage = await this.generateUnifiedResponse(userId, prompt, conversationHistory);
+      // ---> Log Full System Prompt
+      console.log(`\n====== START SYSTEM PROMPT (User: ${userId}, Type: ${systemRequestType}) ======\n${prompt}\n====== END SYSTEM PROMPT ======\n`);
+      // <--- End Log
+      const assistantMessage = await this.generateUnifiedResponse(userId, prompt, conversationHistory, user);
       const finalContent = assistantMessage.content || `{ "message": "System message generation failed." }`;
       const processedResult = this.processLLMResponse(finalContent);
-
+ 
+      let messageToUser: string | null = null;
+ 
+      // --- Fallback Logic ---
       if (processedResult.message === null) {
-          // Log skip with logger
+          // Case 1: LLM explicitly said not to send (message is null)
           logger.info({ userId, systemRequestType, scheduleId: contextData.messageScheduleId }, `LLM determined message no longer relevant. Skipping send.`);
-          return ""; 
+          messageToUser = null; // Keep it null
+      } else if (typeof processedResult.message === 'string' && processedResult.message.trim().length > 0) {
+          // Case 2: LLM provided a valid, non-empty message string
+          messageToUser = processedResult.message;
+      } else {
+          // Case 3: LLM response was invalid (not string, empty, etc.) - Use fallback
+          logger.warn({ userId, systemRequestType, scheduleId: contextData.messageScheduleId, rawContent: finalContent }, `LLM response for system message was invalid or empty. Using hardcoded fallback.`);
+          const taskTitle = contextData.taskDetails?.taskTitle || "your task";
+          const taskTime = contextData.taskDetails?.taskScheduledTime || "the scheduled time";
+          const userName = user.firstName || 'there';
+ 
+          switch (systemRequestType) {
+              case 'task_pre_reminder':
+                  messageToUser = `Hi ${userName}, friendly reminder about your task "${taskTitle}" coming up soon at ${taskTime}.`;
+                  break;
+              case 'task_reminder':
+                  messageToUser = `Hi ${userName}, it's time for your task "${taskTitle}" (scheduled for ${taskTime}).`;
+                  break;
+              case 'task_post_reminder_follow_up':
+              case 'task_follow_up': // Use same fallback for general follow-up
+                  messageToUser = `Hi ${userName}, just checking in on the task "${taskTitle}" scheduled for ${taskTime}. How did it go?`;
+                  break;
+              case 'morning_summary':
+                  messageToUser = `Good morning ${userName}! Hope you have a great day. Ready to plan your tasks?`; // Simple fallback
+                  break;
+              default:
+                  messageToUser = `Hi ${userName}, just checking in!`; // Generic fallback
+          }
+          console.log(`Generated fallback message: "${messageToUser}"`);
       }
-
-      let messageToUser: string = processedResult.message; // Message is guaranteed non-null here
+      // --- End Fallback Logic ---
+ 
+      // If messageToUser is null at this point, we skip saving and sending
+      if (messageToUser === null) {
+          return ""; // Explicitly return empty string to signify skip
+      }
+ 
       messageToUser = messageToUser.replace(/\*\*(.*?)\*\*/g, '*$1*');
       logger.debug({ userId, systemRequestType }, `Generated system message content (pre-send): ${messageToUser.substring(0,100)}...`); // Debug log
 
@@ -1495,23 +1568,42 @@ Your response MUST be JSON.`;
               const tomorrowStartLocal = addDays(todayStartLocal, 1);
               logger.debug({ userId: user.id, todayStartLocal: formatISO(todayStartLocal) }, `[scheduleRecurringTasks] Calculated local day range.`);
 
-              // Correct query using ne()
+              // Correct query using ne() - Find tasks that *might* recur today
               const recurringTasks = await db.select().from(tasks).where(
                   and(
                       eq(tasks.userId, user.id),
                       not(isNull(tasks.recurrencePattern)),
                       ne(tasks.recurrencePattern, 'none'), // Correct usage of ne
-                      not(isNull(tasks.scheduledTime)) 
+                      // Include pending/completed tasks that might recur
+                      or(
+                          eq(tasks.status, 'active'), 
+                          eq(tasks.status, 'pending'),
+                          eq(tasks.status, 'completed') 
+                      )
                   )
               );
-              logger.debug({ userId: user.id, taskCount: recurringTasks.length }, `[scheduleRecurringTasks] Found potentially recurring tasks with time.`);
+              logger.debug({ userId: user.id, taskCount: recurringTasks.length }, `[scheduleRecurringTasks] Found potentially recurring tasks.`);
               if (recurringTasks.length === 0) continue; 
 
               for (const task of recurringTasks) {
-                   logger.debug({ userId: user.id, taskId: task.id, pattern: task.recurrencePattern }, `[scheduleRecurringTasks] Checking task recurrence.`);
+                   logger.debug({ userId: user.id, taskId: task.id, pattern: task.recurrencePattern, status: task.status }, `[scheduleRecurringTasks] Checking task recurrence.`);
                    // Pass recurrencePattern which can be null
                   if (this.doesTaskRecurOnDate(task.recurrencePattern, todayStartLocal)) {
-                       logger.debug({ userId: user.id, taskId: task.id }, `[scheduleRecurringTasks] Task recurs today. Checking existing reminders.`);
+                       logger.debug({ userId: user.id, taskId: task.id }, `[scheduleRecurringTasks] Task recurs today.`);
+                       
+                       // ---> REWRITTEN BLOCK: Reset status to active if needed <---
+                       if (task.status === 'pending' || task.status === 'completed') {
+                           logger.info({ userId: user.id, taskId: task.id }, `[scheduleRecurringTasks] Resetting status to 'active' for recurring task due today.`);
+                           await db.update(tasks)
+                               .set({ status: 'active', completedAt: null, updatedAt: new Date() })
+                               .where(eq(tasks.id, task.id));
+                           // Update the local task object status for reminder check logic below
+                           task.status = 'active'; 
+                           task.completedAt = null;
+                       }
+                       // ---> END REWRITTEN BLOCK <---
+ 
+                       // Check if reminders already exist for today
                        const existingReminders = await db.select({ id: messageSchedules.id }).from(messageSchedules).where(
                            and(
                                eq(messageSchedules.userId, user.id),
@@ -1630,8 +1722,10 @@ Your response MUST be JSON.`;
           console.warn(`[scheduleRemindersForSpecificDate] Task ${task.id} has no scheduledTime. Cannot schedule.`);
           return schedulesCreated;
       }
-
+      
+      // ---> FIX: Use the parseHHMM helper function
       const timeParts = parseHHMM(task.scheduledTime);
+      // <--- END FIX
       if (!timeParts) {
           console.error(`[scheduleRemindersForSpecificDate] Invalid time format \"${task.scheduledTime}\" for task ${task.id}`);
           return schedulesCreated;
@@ -1714,3 +1808,17 @@ Your response MUST be JSON.`;
 }
 
 export const messagingService = new MessagingService();
+
+// ---> NEW: Helper function to parse HH:MM time
+function parseHHMM(timeString: string | null | undefined): { hours: number; minutes: number } | null {
+    if (!timeString) return null;
+    const match = timeString.match(/^(\d{1,2}):(\d{2})$/);
+    if (!match) return null;
+    const hours = parseInt(match[1], 10);
+    const minutes = parseInt(match[2], 10);
+    if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+        return null;
+    }
+    return { hours, minutes };
+}
+// <--- END NEW

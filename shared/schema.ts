@@ -21,6 +21,8 @@ export const users = pgTable("users", {
   preferredMessageTime: text("preferred_message_time"), // Format: "HH:mm", Will be phased out in favor of routineStartTime
   timeZone: text("time_zone"),
   preferredModel: text("preferred_model").default("o1-mini"), // Default to o1-mini, alternatives: gpt-4o, gpt-4o-mini, etc.
+  customOpenaiServerUrl: text("custom_openai_server_url"), // e.g., http://localhost:8080/v1
+  customOpenaiModelName: text("custom_openai_model_name"), // Specific model name for the custom server
   isActive: boolean("is_active").notNull().default(true),
   deactivatedAt: timestamp("deactivated_at"),
   last_user_initiated_message_at: timestamp("last_user_initiated_message_at"), // New field to track last user text
@@ -298,7 +300,12 @@ export const insertUserSchema = createInsertSchema(users).extend({
     "gpt-4", 
     "gpt-3.5-turbo",
     "gemini-1.5-pro-latest",
-    "gemini-1.5-flash-latest"
+    "gemini-1.5-flash-latest",
+    "gemini-2.5-flash-preview-04-17",
+    "gemini-2.5-pro-preview-03-25",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "custom"
   ]).default("o1-mini"),
 });
 
@@ -617,4 +624,16 @@ export const appSettings = pgTable("app_settings", {
 });
 
 export type AppSetting = typeof appSettings.$inferSelect;
+// <--- END NEW
+
+// ---> NEW: Password Reset Tokens Table
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }), // Link to user, delete token if user is deleted
+  tokenHash: text("token_hash").notNull().unique(), // Store a hash of the token, not the token itself
+  expiresAt: timestamp("expires_at").notNull(), // When the token becomes invalid
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 // <--- END NEW

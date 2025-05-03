@@ -648,7 +648,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         wakeTime,
         routineStartTime,
         sleepTime,
-        preferredModel
+        preferredModel,
+        customOpenaiServerUrl, // NEW
+        customOpenaiModelName  // NEW
       } = req.body;
       
       // Build the update object with only defined values
@@ -666,6 +668,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (routineStartTime !== undefined) updateData.routineStartTime = routineStartTime;
       if (sleepTime !== undefined) updateData.sleepTime = sleepTime;
       if (preferredModel !== undefined) updateData.preferredModel = preferredModel;
+      // Add new fields (allow empty string to clear the value)
+      if (customOpenaiServerUrl !== undefined) updateData.customOpenaiServerUrl = customOpenaiServerUrl || null;
+      if (customOpenaiModelName !== undefined) updateData.customOpenaiModelName = customOpenaiModelName || null;
       
       // Apply the update
       const updatedUser = await storage.updateUser({
@@ -2490,6 +2495,45 @@ wss.on('connection', (ws: WebSocket, req) => {
          return res.status(500).json({ error: "Database configuration error: app_settings table missing." });
       }
       res.status(500).json({ error: "Failed to update settings" });
+    }
+  });
+  // <--- END NEW
+
+  // ---> NEW: Task Completion Endpoint
+  app.post("/api/tasks/:taskId/complete", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const taskId = parseInt(req.params.taskId, 10);
+      if (isNaN(taskId)) {
+        return res.status(400).json({ error: "Invalid task ID" });
+      }
+      // Call the dedicated storage method which handles recurrence
+      const completedTask = await storage.completeTask(taskId, req.user.id);
+      res.json(completedTask); // Return the updated/reset task
+    } catch (error) {
+      console.error(`Error completing task ${req.params.taskId}:`, error);
+      // Send back specific error message if available
+      const message = error instanceof Error ? error.message : "Failed to complete task";
+      res.status(500).json({ error: message });
+    }
+  });
+  // <--- END NEW
+
+  // ---> NEW: Subtask Completion Endpoint
+  app.post("/api/subtasks/:subtaskId/complete", async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    try {
+      const subtaskId = parseInt(req.params.subtaskId, 10);
+      if (isNaN(subtaskId)) {
+        return res.status(400).json({ error: "Invalid subtask ID" });
+      }
+      // Call the dedicated storage method
+      const completedSubtask = await storage.completeSubtask(subtaskId, req.user.id);
+      res.json(completedSubtask); 
+    } catch (error) {
+      console.error(`Error completing subtask ${req.params.subtaskId}:`, error);
+      const message = error instanceof Error ? error.message : "Failed to complete subtask";
+      res.status(500).json({ error: message });
     }
   });
   // <--- END NEW

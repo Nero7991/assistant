@@ -2,6 +2,7 @@ import { Switch, Route, Redirect } from "wouter";
 import ChatPage from "./pages/chat-page";
 import AuthPage from "./pages/auth-page";
 import AdminPage from "./pages/admin-page";
+import ResetPasswordPage from "./pages/reset-password-page";
 import { AuthProvider, useAuth } from "./hooks/use-auth";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./lib/queryClient";
@@ -29,6 +30,7 @@ function App() {
         <AuthProvider>
           <Switch>
             <Route path="/auth" component={AuthPage} />
+            <Route path="/reset-password" component={ResetPasswordPage} />
             <Route path="/admin">
               <PrivateRoute> 
                 <AdminPage />

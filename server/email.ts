@@ -58,3 +58,49 @@ export async function sendVerificationEmail(
     return false;
   }
 }
+
+// ---> NEW: Send Password Reset Email
+export async function sendPasswordResetEmail(
+  to: string,
+  firstName: string,
+  resetLink: string
+): Promise<boolean> {
+  try {
+    console.log("Preparing password reset email:", { to, from: FROM_EMAIL });
+    const emailData = {
+      to,
+      from: FROM_EMAIL,
+      subject: 'Reset your Kona Password',
+      text: `Hi ${firstName},\n\nYou requested a password reset. Click the link below to set a new password:\n${resetLink}\n\nThis link will expire in ${PASSWORD_RESET_EXPIRY_MINUTES} minutes.\n\nIf you didn't request this, please ignore this email.\n\nThanks,\nThe Kona Team`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee;">
+          <h2 style="color: #333;">Password Reset Request</h2>
+          <p>Hi ${firstName},</p>
+          <p>We received a request to reset the password for your Kona account.</p>
+          <p>Click the button below to set a new password:</p>
+          <p style="text-align: center; margin: 30px 0;">
+            <a href="${resetLink}" style="background-color: #007bff; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-size: 16px;">
+              Reset Your Password
+            </a>
+          </p>
+          <p>This password reset link will expire in <strong>${PASSWORD_RESET_EXPIRY_MINUTES} minutes</strong>.</p>
+          <p style="color: #666;">If you didn't request a password reset, please ignore this email or contact support if you have concerns.</p>
+          <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+          <p style="color: #999; font-size: 12px;">Thanks,<br>The Kona Team</p>
+        </div>
+      `,
+    };
+
+    console.log("Sending password reset email with SendGrid...");
+    await mailService.send(emailData);
+    console.log("Password reset email sent successfully to:", to);
+    return true;
+  } catch (error: any) {
+    console.error("SendGrid password reset email error:", error);
+    if (error.response) {
+      console.error("SendGrid API Error Response:", error.response.body);
+    }
+    return false;
+  }
+}
+// <--- END NEW

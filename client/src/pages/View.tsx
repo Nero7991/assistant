@@ -168,6 +168,7 @@ const View: React.FC = () => {
     setIsRunning(true);
 
     let authToken: string | null = null;
+    let ws: WebSocket | null = null;
     try {
       setOutput(prev => [...prev, '[INFO] Requesting authentication token...']);
       const tokenResponse = await fetch('/api/devlm/ws-token', { method: 'POST' });
@@ -181,43 +182,21 @@ const View: React.FC = () => {
          throw new Error('Auth token not received from server.');
       }
       setOutput(prev => [...prev, '[INFO] Authentication token received.']);
-    } catch (err: any) {
-      console.error("Error fetching auth token:", err);
-      setError(`Authentication setup failed: ${err.message}`);
-      setIsRunning(false);
-      return;
-    }
 
+      // ---> Initialize WebSocket Correctly <--- 
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${wsProtocol}//${window.location.host}/api/devlm/ws`; 
 
     console.log(`Connecting to WebSocket: ${wsUrl}`);
-    const ws = new WebSocket(wsUrl);
+      ws = new WebSocket(wsUrl);
     webSocketRef.current = ws;
 
     ws.onopen = () => {
       console.log("WebSocket connection opened.");
       setOutput(prev => [...prev, '[INFO] WebSocket connection established. Authenticating...']);
       
-      const runPayload = {
-        task: taskInput,
-        mode,
-        model,
-        source,
-        publisher: source === 'gcloud' ? publisher : undefined,
-        projectPath,
-        writeMode,
-        projectId: source === 'gcloud' ? projectId : undefined,
-        region: source === 'gcloud' ? region : undefined,
-        serverUrl: source === 'openai' ? serverUrl : undefined,
-        debugPrompt,
-        noApproval,
-        frontend,
-        sessionId: selectedSessionId || undefined,
-      };
-      ws.send(JSON.stringify({ type: 'auth', token: authToken }));
-      ws.send(JSON.stringify({ type: 'run', payload: runPayload }));
-      setOutput(prev => [...prev, '[INFO] Running script...']);
+        // Send auth token
+        ws?.send(JSON.stringify({ type: 'auth', token: authToken }));
     };
 
     ws.onmessage = (event) => {
@@ -231,6 +210,7 @@ const View: React.FC = () => {
           case 'auth_success':
             console.log("WebSocket authenticated by server.");
             setOutput(prev => [...prev, `[INFO] ${payload.message}`]);
+              // Send the run command AFTER successful auth
             const runPayload = {
               task: taskInput,
               mode,
@@ -247,8 +227,16 @@ const View: React.FC = () => {
               frontend,
               sessionId: selectedSessionId || undefined,
             };
-            ws.send(JSON.stringify({ type: 'run', payload: runPayload }));
+              console.log("[WS Send] Preparing to send run command.");
+              if (webSocketRef.current && webSocketRef.current.readyState === WebSocket.OPEN) {
+                  webSocketRef.current.send(JSON.stringify({ type: 'run', payload: runPayload }));
+                  console.log("[WS Send] Sent run command successfully.");
             setOutput(prev => [...prev, '[INFO] Running script...']);
+              } else {
+                  console.error("WebSocket not open when trying to send run command after auth.");
+                  setError("Connection issue: Cannot start script.");
+                  setIsRunning(false);
+              }
             return;
           case 'status':
           case 'warning':
@@ -298,14 +286,17 @@ const View: React.FC = () => {
 
     ws.onclose = (event) => {
       console.log(`WebSocket connection closed. Code: ${event.code}, Reason: ${event.reason}`);
-      if (isRunning) {
-         setIsRunning(false);
-         if (!event.wasClean) {
-           setError("WebSocket connection closed unexpectedly.");
-         }
+        if (!event.wasClean && isRunning) { 
+            setError("WebSocket connection closed unexpectedly. Please try running again.");
       }
       webSocketRef.current = null;
     };
+
+    } catch (err: any) {
+      console.error("Error fetching auth token:", err);
+      setError(`Authentication setup failed: ${err.message}`);
+      setIsRunning(false);
+    }
   };
 
   const handleStopScript = () => {
@@ -332,6 +323,9 @@ const View: React.FC = () => {
     setStdinInput('');
   };
 
+  // Fix for MUI Grid 'item' prop issue
+  const GridItem = (props: any) => <Grid item {...props} />;
+
   return (
     <Box sx={{ p: 3 }}>
       <Typography variant="h4" gutterBottom>
@@ -343,7 +337,7 @@ const View: React.FC = () => {
           <Typography variant="h6" gutterBottom>Manage Sessions</Typography>
           {sessionError && <Typography color="error" sx={{ mb: 1 }}>{sessionError}</Typography>}
           <Grid container spacing={2} alignItems="center">
-            <Grid item xs={12} sm={6}>
+            <GridItem xs={12} sm={6}>
               <FormControl fullWidth size="small">
                 <InputLabel id="load-session-label">Load Session</InputLabel>
                 <Select
@@ -361,8 +355,8 @@ const View: React.FC = () => {
                   ))}
                 </Select>
               </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={6} sx={{ display: 'flex', gap: 1}}>
+            </GridItem>
+            <GridItem xs={12} sm={6} sx={{ display: 'flex', gap: 1}}>
                <TextField
                  fullWidth
                  size="small"
@@ -397,7 +391,7 @@ const View: React.FC = () => {
                    </Button>
                  </span>
                </Tooltip>
-            </Grid>
+            </GridItem>
           </Grid>
         </CardContent>
       </Card>
@@ -426,7 +420,7 @@ const View: React.FC = () => {
         </AccordionSummary>
         <AccordionDetails>
           <Grid container spacing={2}>
-            <Grid item xs={12} sm={4}>
+            <GridItem xs={12} sm={4}>
               <FormControl fullWidth size="small">
                 <InputLabel>Mode</InputLabel>
                 <Select label="Mode" value={mode} onChange={(e) => setMode(e.target.value)}>
@@ -434,11 +428,11 @@ const View: React.FC = () => {
                   <MenuItem value="test">test</MenuItem>
                 </Select>
               </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={4}>
+            </GridItem>
+            <GridItem xs={12} sm={4}>
                <TextField fullWidth size="small" label="Model" value={model} onChange={(e) => setModel(e.target.value)} />
-            </Grid>
-            <Grid item xs={12} sm={4}>
+            </GridItem>
+            <GridItem xs={12} sm={4}>
               <FormControl fullWidth size="small">
                 <InputLabel>Source</InputLabel>
                 <Select label="Source" value={source} onChange={(e) => setSource(e.target.value)}>
@@ -447,10 +441,10 @@ const View: React.FC = () => {
                   <MenuItem value="openai">openai</MenuItem>
                 </Select>
               </FormControl>
-            </Grid>
+            </GridItem>
             {source === 'gcloud' && (
               <>
-                <Grid item xs={12}>
+                <GridItem xs={12}>
                   <TextField 
                     fullWidth 
                     size="small" 
@@ -463,24 +457,24 @@ const View: React.FC = () => {
                       <MenuItem value="anthropic">anthropic</MenuItem>
                       <MenuItem value="google">google</MenuItem>
                   </TextField>
-                </Grid>
-                <Grid item xs={12} sm={6}>
+                </GridItem>
+                <GridItem xs={12} sm={6}>
                   <TextField fullWidth size="small" label="Project ID (GCloud)" value={projectId} onChange={(e) => setProjectId(e.target.value)} />
-                </Grid>
-                <Grid item xs={12} sm={6}>
+                </GridItem>
+                <GridItem xs={12} sm={6}>
                   <TextField fullWidth size="small" label="Region (GCloud)" value={region} onChange={(e) => setRegion(e.target.value)} />
-                </Grid>
+                </GridItem>
               </>
             )}
             {source === 'openai' && (
-              <Grid item xs={12}>
+              <GridItem xs={12}>
                 <TextField fullWidth size="small" label="Server URL (OpenAI Base)" value={serverUrl} onChange={(e) => setServerUrl(e.target.value)} />
-              </Grid>
+              </GridItem>
             )}
-            <Grid item xs={12} sm={6}>
+            <GridItem xs={12} sm={6}>
               <TextField fullWidth size="small" label="Project Path" value={projectPath} onChange={(e) => setProjectPath(e.target.value)} />
-            </Grid>
-            <Grid item xs={12} sm={6}>
+            </GridItem>
+            <GridItem xs={12} sm={6}>
               <FormControl fullWidth size="small">
                 <InputLabel>Write Mode</InputLabel>
                 <Select label="Write Mode" value={writeMode} onChange={(e) => setWriteMode(e.target.value)}>
@@ -488,18 +482,18 @@ const View: React.FC = () => {
                   <MenuItem value="direct">direct</MenuItem>
                 </Select>
               </FormControl>
-            </Grid>
-            <Grid item xs={12} sm={4}>
+            </GridItem>
+            <GridItem xs={12} sm={4}>
                <FormControlLabel control={<Switch checked={debugPrompt} onChange={(e) => setDebugPrompt(e.target.checked)} />} label="Debug Prompt" />
-            </Grid>
-            <Grid item xs={12} sm={4}>
+            </GridItem>
+            <GridItem xs={12} sm={4}>
                <FormControlLabel control={<Switch checked={noApproval} onChange={(e) => setNoApproval(e.target.checked)} />} label="No Approval Needed" />
-            </Grid>
-             <Grid item xs={12} sm={4}>
+            </GridItem>
+             <GridItem xs={12} sm={4}>
                <FormControlLabel control={<Switch checked={frontend} onChange={(e) => setFrontend(e.target.checked)} />} label="Frontend Testing" />
-            </Grid>
+            </GridItem>
             {source === 'anthropic' && (
-              <Grid item xs={12}>
+              <GridItem xs={12}>
                 <TextField 
                   fullWidth 
                   size="small" 
@@ -509,10 +503,10 @@ const View: React.FC = () => {
                   onChange={(e) => setAnthropicApiKey(e.target.value)} 
                   helperText="Leave blank to use environment variable"
                 />
-              </Grid>
+              </GridItem>
             )}
             {source === 'openai' && (
-              <Grid item xs={12}>
+              <GridItem xs={12}>
                 <TextField 
                   fullWidth 
                   size="small" 
@@ -522,7 +516,7 @@ const View: React.FC = () => {
                   onChange={(e) => setOpenaiApiKey(e.target.value)} 
                   helperText="Leave blank to use environment variable"
                 />
-              </Grid>
+              </GridItem>
             )}
           </Grid>
         </AccordionDetails>

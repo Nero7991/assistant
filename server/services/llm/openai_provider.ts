@@ -5,17 +5,60 @@ import {
   StandardizedChatCompletionMessage,
 } from "./provider";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Type for OpenAI function definition properties
+type OpenAIFunctionProperty = {
+    type: string;
+    description?: string;
+    enum?: string[];
+};
+
+// Type for OpenAI function parameters
+type OpenAIFunctionParameters = {
+    type: "object";
+    properties: { [key: string]: OpenAIFunctionProperty };
+    required?: string[];
+};
+
+// Type for OpenAI function definition
+type OpenAIFunctionDefinition = {
+    name: string;
+    description: string;
+    parameters: OpenAIFunctionParameters;
+};
 
 export class OpenAIProvider implements LLMProvider {
+  constructor() {
+    // No default client initialization needed here anymore
+  }
+
   async generateCompletion(
     model: string,
     messages: StandardizedChatCompletionMessage[],
     temperature?: number,
     jsonMode?: boolean,
-    functionDefinitions?: any[] // Parameter added but not used by OpenAI here
+    functionDefinitions?: any[], // Using any[] for simplicity
+    customBaseUrl?: string | null,
+    customApiKey?: string | null // Optional API key override
   ): Promise<StandardizedChatCompletionMessage> {
     
+    // ---> NEW: Dynamic Client Creation
+    const apiKeyToUse = customApiKey || process.env.OPENAI_API_KEY;
+    if (!apiKeyToUse) {
+        console.error("OpenAI API Key is missing (checked custom, env). Cannot proceed.");
+        throw new Error("OpenAI API Key is missing.");
+    }
+    
+    // Use 'any' for options type if specific type is causing issues
+    const clientOptions: any = { 
+         apiKey: apiKeyToUse,
+    };
+    if (customBaseUrl) {
+        console.log(`[OpenAIProvider] Using custom baseURL: ${customBaseUrl}`);
+        clientOptions.baseURL = customBaseUrl;
+    }
+    const dynamicOpenaiClient = new OpenAI(clientOptions);
+    // <--- END NEW
+
     // Map standardized messages to specific OpenAI format based on role
     const openAIMessages: ChatCompletionMessageParam[] = messages.map(msg => {
       switch (msg.role) {
@@ -66,7 +109,7 @@ export class OpenAIProvider implements LLMProvider {
 
     try {
         console.log(`[OpenAIProvider] Calling model ${model}...`);
-        const response = await openai.chat.completions.create(completionParams);
+        const response = await dynamicOpenaiClient.chat.completions.create(completionParams);
         const choice = response.choices[0];
 
         if (!choice?.message) {

@@ -7,11 +7,14 @@ import { promisify } from "util";
 import { storage } from "./storage";
 import { User as SelectUser } from "@shared/schema";
 import { sendVerificationMessage, generateVerificationCode } from "./messaging";
+import { sendPasswordResetEmail } from "./email";
 import connectPgSimple from 'connect-pg-simple';
 import { pool } from './db';
 import { insertWaitlistEntrySchema } from "@shared/schema";
 import rateLimit from 'express-rate-limit';
 import { Request, Response, NextFunction } from "express";
+import crypto from 'crypto';
+import { z } from 'zod';
 
 // Add tempUserId to session type
 declare module 'express-session' {
@@ -155,6 +158,19 @@ export const isAdmin = (req: Request, res: Response, next: NextFunction) => {
 };
 // <--- END NEW
 
+// ---> NEW: Password Reset Helpers
+const PASSWORD_RESET_EXPIRY_MINUTES = 60; // Token valid for 1 hour
+
+function generateResetToken(): string {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+async function hashResetToken(token: string): Promise<string> {
+  // Use a strong hashing algorithm like SHA-256
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+// <--- END NEW
+
 export function setupAuth(app: Express): session.SessionRequestHandler {
   const PgStore = connectPgSimple(session);
 
@@ -181,9 +197,9 @@ export function setupAuth(app: Express): session.SessionRequestHandler {
   app.use(passport.session());
 
   passport.use(
-    new LocalStrategy(async (username, password, done) => {
+    new LocalStrategy({ usernameField: 'email' }, async (email, password, done) => {
       try {
-        const user = await storage.getUserByUsername(username);
+        const user = await storage.getUserByEmail(email);
         
         // Check if user exists, password matches, and account is active
         if (!user || !(await comparePasswords(password, user.password))) {
@@ -192,7 +208,7 @@ export function setupAuth(app: Express): session.SessionRequestHandler {
         
         // Check if account is active (if isActive is undefined, we assume it's active)
         if (user.isActive === false) {
-          console.log(`Login attempt from deactivated account: ${username}`);
+          console.log(`Login attempt from deactivated account: ${email}`);
           return done(null, false, { message: 'Account has been deactivated' });
         }
         
@@ -242,6 +258,22 @@ export function setupAuth(app: Express): session.SessionRequestHandler {
         console.log(`Registration attempt denied: No registration slots available (Value: ${slotsValue}).`);
         return res.status(403).json({ message: "Registration is currently closed." });
       }
+      
+      // ---> NEW: Check for existing email/phone before creating user
+      const existingEmailUser = await storage.getUserByEmail(req.body.email);
+      if (existingEmailUser) {
+          console.log(`Registration attempt failed: Email ${req.body.email} already exists.`);
+          return res.status(400).json({ message: "An account with this email already exists." });
+      }
+      
+      if (req.body.phoneNumber) {
+          const existingPhoneUser = await storage.getUserByPhone(req.body.phoneNumber);
+          if (existingPhoneUser) {
+              console.log(`Registration attempt failed: Phone number ${req.body.phoneNumber} already exists.`);
+              return res.status(400).json({ message: "An account with this phone number already exists." });
+          }
+      }
+      // <--- END NEW
       
       // Attempt to decrement the slot count *before* creating the user
       // This is a simple decrement, could be improved with transactions for higher concurrency
@@ -552,20 +584,6 @@ export function setupAuth(app: Express): session.SessionRequestHandler {
     res.json(req.user);
   });
 
-  // Apply checkLimiter
-  app.get("/api/check-username/:username", checkLimiter, async (req, res) => {
-    try {
-      const existingUser = await storage.getUserByUsername(req.params.username);
-      if (existingUser) {
-        return res.status(400).json({ message: "Username already exists" });
-      }
-      res.status(200).json({ message: "Username available" });
-    } catch (error) {
-      console.error("Username check error:", error);
-      res.status(500).json({ message: "Failed to check username availability" });
-    }
-  });
-
   // ---> RE-ADD: Registration Status Endpoint
   app.get("/api/registration-status", checkLimiter, (req, res) => { 
     // This endpoint ONLY checks the global environment variable override
@@ -602,6 +620,92 @@ export function setupAuth(app: Express): session.SessionRequestHandler {
       res.status(500).json({ message: "Failed to add to waitlist." });
     }
   });
+
+  // ---> NEW: Forgot Password Endpoint
+  const forgotPasswordSchema = z.object({ email: z.string().email() });
+  app.post("/api/forgot-password", authLimiter, async (req, res) => {
+    try {
+      const validation = forgotPasswordSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ message: "Invalid email address." });
+      }
+      const { email } = validation.data;
+
+      const user = await storage.getUserByEmail(email);
+
+      if (user) {
+        const token = generateResetToken();
+        const tokenHash = await hashResetToken(token);
+        const expiresAt = new Date(Date.now() + PASSWORD_RESET_EXPIRY_MINUTES * 60 * 1000);
+
+        await storage.createPasswordResetToken(user.id, tokenHash, expiresAt);
+
+        // Send the email (implementation needed in messaging.ts)
+        const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${token}`;
+        const emailSent = await sendPasswordResetEmail(user.email, user.firstName || 'User', resetLink);
+        
+        if (!emailSent) {
+           console.error(`Failed to send password reset email to ${email} for user ${user.id}`);
+           // Don't expose failure details to the user
+        } else {
+            console.log(`Password reset email initiated for ${email}`);
+      }
+      }
+
+      // Always return success to prevent email enumeration
+      res.status(200).json({ message: "If an account with that email exists, a password reset link has been sent." });
+
+    } catch (error) {
+      console.error("Forgot password error:", error);
+      res.status(500).json({ message: "An error occurred. Please try again later." });
+    }
+  });
+  // <--- END NEW
+
+  // ---> NEW: Reset Password Endpoint
+  const resetPasswordSchema = z.object({
+      token: z.string().min(1, "Token is required"),
+      password: z.string().min(6, "Password must be at least 6 characters"),
+  });
+  app.post("/api/reset-password", authLimiter, async (req, res) => {
+    try {
+      const validation = resetPasswordSchema.safeParse(req.body);
+      if (!validation.success) {
+        return res.status(400).json({ message: "Invalid input.", errors: validation.error.flatten().fieldErrors });
+      }
+      const { token, password } = validation.data;
+      
+      const tokenHash = await hashResetToken(token);
+      const tokenData = await storage.findResetTokenByHash(tokenHash);
+
+      if (!tokenData) {
+        return res.status(400).json({ message: "Invalid or expired password reset token." });
+      }
+
+      // Check expiry
+      if (new Date() > tokenData.expiresAt) {
+        await storage.deleteResetToken(tokenData.id); // Clean up expired token
+        return res.status(400).json({ message: "Password reset token has expired." });
+      }
+
+      // Hash the new password
+      const newPasswordHash = await hashPassword(password); // Use existing hashPassword func
+
+      // Update user's password
+      await storage.updateUser({ ...tokenData.user, password: newPasswordHash });
+
+      // Delete the used token
+      await storage.deleteResetToken(tokenData.id);
+
+      console.log(`Password successfully reset for user ${tokenData.userId}`);
+      res.status(200).json({ message: "Password successfully reset. You can now log in." });
+
+    } catch (error) {
+      console.error("Reset password error:", error);
+      res.status(500).json({ message: "An error occurred. Please try again later." });
+    }
+  });
+  // <--- END NEW
 
   return sessionMiddleware;
 }

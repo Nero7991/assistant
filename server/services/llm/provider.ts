@@ -22,7 +22,8 @@ export interface LLMProvider {
     messages: StandardizedChatCompletionMessage[],
     temperature?: number,
     jsonMode?: boolean,
-    // TODO: Add function definitions parameter if needed for providers like Gemini
-    functionDefinitions?: any[] // Placeholder for function definitions
+    functionDefinitions?: any[], // Placeholder for function definitions
+    customBaseUrl?: string | null,
+    customApiKey?: string | null
   ): Promise<StandardizedChatCompletionMessage>; // Return a standardized response message
 }

@@ -72,7 +72,9 @@ export class GCloudProvider implements LLMProvider {
         messages: StandardizedChatCompletionMessage[],
         temperature?: number,
         jsonMode?: boolean,
-        functionDefinitions?: any[] // Use the passed definitions
+        functionDefinitions?: any[], // Use the passed definitions
+        customBaseUrl?: string | null,
+        customApiKey?: string | null
     ): Promise<StandardizedChatCompletionMessage> {
 
         const geminiModel = genAI.getGenerativeModel({
@@ -83,7 +85,8 @@ export class GCloudProvider implements LLMProvider {
                  { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
                  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE },
              ],
-             tools: mapFunctionsToGeminiTool(functionDefinitions || llmFunctionDefinitions) // Use passed defs or defaults
+             // Remove tools config to avoid conflict with jsonMode when not forcing function calls
+             // tools: mapFunctionsToGeminiTool(functionDefinitions || llmFunctionDefinitions) 
         });
 
         // Convert messages to Gemini's Content format

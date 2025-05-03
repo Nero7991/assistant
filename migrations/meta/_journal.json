@@ -50,6 +50,20 @@
       "when": 1745870679403,
       "tag": "0006_workable_shaman",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1746118250525,
+      "tag": "0007_stiff_devos",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1746210100413,
+      "tag": "0008_mute_squirrel_girl",
+      "breakpoints": true
     }
   ]
 }

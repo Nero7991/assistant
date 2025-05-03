@@ -4,7 +4,7 @@ import {
   User, Goal, CheckIn, Task, KnownUserFact, InsertKnownUserFact, InsertTask, Subtask, InsertSubtask,
   DailySchedule, ScheduleItem, ScheduleRevision, MessageSchedule,
   InsertDailySchedule, InsertScheduleItem, InsertScheduleRevision,
-  taskEvents, waitlistEntries, appSettings
+  taskEvents, waitlistEntries, appSettings, passwordResetTokens
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, desc, gte, lte, inArray, isNull, not, lt } from "drizzle-orm";
@@ -19,7 +19,7 @@ import { addDays, formatISO, parseISO, addMonths, setDate, isBefore, parse as pa
 import { sql } from 'drizzle-orm';
 import { or } from 'drizzle-orm';
 import { getDay, set as setTime } from 'date-fns';
-import { MessagingService } from './services/messaging';
+// import { MessagingService } from './services/messaging';
 
 export type TaskWithSubtasks = Task & { subtasks: Subtask[] };
 export type { User };
@@ -31,6 +31,8 @@ export interface IStorage {
   sessionStore: session.Store;
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
+  getUserByPhone(phoneNumber: string): Promise<User | undefined>;
   createUser(user: { username: string; password: string; phoneNumber?: string; email: string; contactPreference?: string; isEmailVerified?: boolean; isPhoneVerified?: boolean; }): Promise<User>;
   updateUser(user: User): Promise<User>;
   deactivateUser(userId: number): Promise<void>;
@@ -117,6 +119,12 @@ export interface IStorage {
   // ---> NEW: App Settings Methods
   getSetting(key: string): Promise<string | null>;
   setSetting(key: string, value: string): Promise<void>;
+  // <--- END NEW
+
+  // ---> NEW: Password Reset Token Methods
+  createPasswordResetToken(userId: number, tokenHash: string, expiresAt: Date): Promise<void>;
+  findResetTokenByHash(tokenHash: string): Promise<(typeof passwordResetTokens.$inferSelect & { user: User }) | undefined>;
+  deleteResetToken(id: number): Promise<void>;
   // <--- END NEW
 }
 
@@ -263,6 +271,39 @@ export class DatabaseStorage implements IStorage {
         return result.length > 0 ? { ...result[0], isActive: true } as User : undefined;
       }
       throw error;
+    }
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    try {
+      const [user] = await db.select().from(users).where(eq(users.email, email));
+      return user;
+    } catch (error) {
+      // Handle potential errors like missing columns during development/migration
+      console.error(`Error fetching user by email ${email}:`, error);
+      // Depending on error type, you might want to re-throw or handle differently
+      // For now, we'll return undefined on error like other getUser methods
+      return undefined; 
+    }
+  }
+
+  async getUserByPhone(phoneNumber: string): Promise<User | undefined> {
+    // Ensure phone number is not null or empty before querying
+    if (!phoneNumber) {
+        return undefined;
+    }
+    try {
+      // Query where phoneNumber matches and is not null
+      const [user] = await db.select().from(users).where(
+          and(
+              eq(users.phoneNumber, phoneNumber),
+              not(isNull(users.phoneNumber)) // Explicitly check for non-null
+          )
+      );
+      return user;
+    } catch (error) {
+      console.error(`Error fetching user by phone ${phoneNumber}:`, error);
+      return undefined;
     }
   }
 
@@ -1351,6 +1392,38 @@ export class DatabaseStorage implements IStorage {
       console.error(`[Storage setSetting] Error setting '${key}':`, error);
       throw error;
     }
+  }
+  // <--- END NEW
+
+  // ---> NEW: Password Reset Token Method Implementations
+  async createPasswordResetToken(userId: number, tokenHash: string, expiresAt: Date): Promise<void> {
+    // Optionally: Delete existing tokens for the user before creating a new one
+    await db.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, userId));
+    await db.insert(passwordResetTokens).values({ userId, tokenHash, expiresAt });
+    console.log(`[Storage] Created password reset token entry for user ${userId}`);
+  }
+
+  async findResetTokenByHash(tokenHash: string): Promise<(typeof passwordResetTokens.$inferSelect & { user: User }) | undefined> {
+    // Find the token and join with the user table to get user info simultaneously
+    const result = await db
+      .select({
+        token: passwordResetTokens,
+        user: users
+      })
+      .from(passwordResetTokens)
+      .innerJoin(users, eq(passwordResetTokens.userId, users.id))
+      .where(eq(passwordResetTokens.tokenHash, tokenHash));
+
+    if (result.length === 0) {
+      return undefined;
+    }
+    // Combine token and user data into the desired structure
+    return { ...result[0].token, user: result[0].user }; 
+  }
+
+  async deleteResetToken(id: number): Promise<void> {
+    await db.delete(passwordResetTokens).where(eq(passwordResetTokens.id, id));
+    console.log(`[Storage] Deleted password reset token entry ID ${id}`);
   }
   // <--- END NEW
 }
