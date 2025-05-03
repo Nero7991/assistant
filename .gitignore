@@ -1,8 +1,31 @@
-node_modules
-dist
+# Log files and directories
+logs/
+prompt_logs/
+*.log
+
+# Node runtime
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Build output
+dist/
+
+# IDE/Editor folders
+.vscode/
+.idea/
+
+# OS generated files
 .DS_Store
+Thumbs.db
+
 server/public
 vite.config.ts.*
 *.tar.gz
 *.txt
-.env
