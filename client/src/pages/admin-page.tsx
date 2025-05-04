@@ -9,10 +9,12 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
 import { z } from 'zod';
+import { Switch } from '@/components/ui/switch';
 
 const settingsSchema = z.object({
   registration_slots_available: z.number().min(0).optional(),
   registration_globally_enabled: z.boolean().optional(),
+  log_llm_prompts: z.boolean().optional(),
 });
 
 // Fetch function for admin settings
@@ -42,6 +44,7 @@ export default function AdminPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [newSlotCount, setNewSlotCount] = useState<string>('');
+  const [logPrompts, setLogPrompts] = useState<boolean>(false);
 
   // Fetch admin settings
   const { data: settings, isLoading: isLoadingSettings, error: fetchError, refetch } = useQuery({
@@ -49,6 +52,9 @@ export default function AdminPage() {
     queryFn: fetchAdminSettings,
     enabled: !isAuthLoading && !!user, // Only run if user is loaded
     retry: false, // Don't retry on 403 or other fetch errors
+    onSuccess: (data) => {
+      setLogPrompts(data?.log_llm_prompts ?? false);
+    }
   });
 
   // Mutation for updating settings
@@ -56,7 +62,7 @@ export default function AdminPage() {
     mutationFn: updateAdminSettings,
     onSuccess: (data) => {
       toast({ title: 'Success', description: data.message });
-      queryClient.invalidateQueries({ queryKey: ['adminSettings'] }); // Refetch settings
+      queryClient.invalidateQueries({ queryKey: ['adminSettings'] });
       setNewSlotCount(''); // Clear input
     },
     onError: (error) => {
@@ -71,6 +77,10 @@ export default function AdminPage() {
       return;
     }
     updateMutation.mutate({ registration_slots_available: parsedCount });
+  };
+
+  const handleSavePromptLogSetting = () => {
+    updateMutation.mutate({ log_llm_prompts: logPrompts });
   };
 
   // Loading state
@@ -154,7 +164,27 @@ export default function AdminPage() {
 Enter the total number of new users allowed to register. Setting to 0 disables registration.
             </p>
           </div>
-           {/* Add more settings management sections here as needed */}
+
+          <div className="space-y-2 pt-4 border-t">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label htmlFor="log-prompts">Log Full LLM Prompts</Label>
+                <p className="text-sm text-muted-foreground">
+                  Save complete prompt text to files in `prompt_logs/` on the server.
+                </p>
+              </div>
+              <Switch 
+                id="log-prompts"
+                checked={logPrompts}
+                onCheckedChange={(checked) => {
+                  setLogPrompts(checked);
+                  updateMutation.mutate({ log_llm_prompts: checked });
+                }}
+                disabled={updateMutation.isPending}
+                aria-label="Toggle LLM prompt logging"
+              />
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>

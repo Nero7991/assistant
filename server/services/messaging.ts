@@ -36,6 +36,9 @@ import {
   format // Keep format from date-fns
 } from 'date-fns'; // Consolidated date-fns imports
 
+import fs from 'fs/promises'; // Import fs promises API
+import path from 'path'; // Import path for joining
+
 // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const twilioClient = twilio( // Added twilio client init
@@ -62,6 +65,9 @@ const REMINDER_BUFFER_MINUTES = 5; // Send reminder 5 mins before task
 const POST_REMINDER_BUFFER_MINUTES = 30; // Follow up 30 mins after task time if not completed
 const FINAL_SCHEDULE_MARKER = "FINAL_SCHEDULE_MARKER"; // Ensure defined correctly
 // ... rest of the file ...
+
+// ---> Define Log Directory
+const PROMPT_LOG_DIR = path.resolve(process.cwd(), 'prompt_logs'); // Store logs in project root subdir
 
 export interface MessageContext {
   user: StorageUser; // Changed User to StorageUser
@@ -154,11 +160,15 @@ export class MessagingService {
 
     switch (messageType) {
       case "morning":
-        // Corrected multi-line template literal
-        goalInstructionPart = `Generate the morning summary and plan for ${currentDateTime.split(",")[0]}. 
-Review the user's active non-daily tasks (personal projects, long-term projects, life goals) listed in the context. 
-Ask the user if they want to dedicate time today to work on any specific project or goal, perhaps suggesting one or two based on recent activity or priority. 
-Then, propose a daily schedule using 'propose_daily_schedule', incorporating any daily tasks and any project work the user wants to schedule. Your response MUST be JSON.`;
+        // ---> REVISED Goal Instruction for Morning Message (More Flexible)
+        goalInstructionPart = `Generate a warm, encouraging and concise morning check-in message for ${currentDateTime.split(",")[0]}. 
+1. Use the get_task_list function to retrieve the user's active tasks.
+2. Identify key tasks for today. Prioritize non-daily recurring 'regular' tasks and important one-off tasks (use description/priority/deadline if available to judge importance). Briefly mention 2-4 key tasks, including their scheduled times if they have one.
+3. Keep the tone positive and supportive. Avoid just listing tasks; frame it as a helpful overview.
+4. End with an encouraging remark or an open question about their readiness for the day.
+5. Your final response MUST be a single JSON object like this: { "message": "...your generated morning message..." }.
+6. DO NOT call propose_daily_schedule or other complex functions unless the user explicitly asks later. Only use get_task_list here.`;
+        // ---> END REVISED Goal Instruction
         break;
       case "reschedule":
         goalInstructionPart = `User wants help rescheduling tasks or their day. Analyze their request and the current tasks/schedule. If appropriate, propose a new schedule using 'propose_daily_schedule'. Your response MUST be JSON.`;
@@ -249,10 +259,15 @@ Your response MUST be JSON.`;
   // --- New Core LLM Interaction Function ---
   private async generateUnifiedResponse(
     userId: number,
-    prompt: string,
+    promptArgument: string, // Use this name consistently
     conversationHistory: StandardizedChatCompletionMessage[],
-    user: StorageUser 
+    user: StorageUser // Back to 4 arguments
   ): Promise<StandardizedChatCompletionMessage> {
+    // ---> Fetch logging setting at the start
+    const logSetting = await storage.getSetting('log_llm_prompts');
+    const shouldLogPrompts = logSetting === 'true';
+    // <--- End Fetch
+
     const preferredModel = user.preferredModel || "gpt-4o";
     console.log(`Using user's preferred model: ${preferredModel} for unified response`);
 
@@ -285,17 +300,37 @@ Your response MUST be JSON.`;
     // --- Prepare SINGLE User Message for ALL models ---
     const messages: StandardizedChatCompletionMessage[] = [];
     // ---> REVISED: Use the prompt string directly (history is now included by createUnifiedPrompt)
-    const combinedMessage = `${prompt}\n\nKona's Response:`;
+    const combinedMessage = `${promptArgument}\n\nKona's Response:`;
     // <--- END REVISED
     
-    // Log the full combined message being sent
-    console.log(`[DEBUG generateUnifiedResponse User ${userId}] FULL combined message content for model ${effectiveModel}:\n====== START COMBINED PROMPT ======\n${combinedMessage}\n====== END COMBINED PROMPT ======\n`);
+    // ---> REVISED Logging Block <---
+    if (shouldLogPrompts) {
+        // 1. Log Context to Console
+        const triggerType = promptArgument.includes("System Request: Initiate") 
+            ? `system_request:${promptArgument.match(/System Request: Initiate (\S+)/)?.[1] || 'unknown'}` 
+            : "handle_response";
+        console.log("\n===== PROMPT LOG CONTEXT =====");
+        console.log(`  User ID:   ${userId}`);
+        console.log(`  Trigger:   ${triggerType}`);
+        console.log(`  Provider:  ${provider.constructor.name}`);
+        console.log(`  Model:     ${effectiveModel}`);
+        console.log("============================\n");
+
+        // 2. Call the correct 3-argument logger
+        await logPromptToFile(triggerType, userId, combinedMessage);
+    } else {
+        // Optional console log remains the same
+        const triggerType = promptArgument.includes("System Request: Initiate") 
+            ? `system_request:${promptArgument.match(/System Request: Initiate (\S+)/)?.[1] || 'unknown'}` 
+            : "handle_response";
+        console.log(`[Prompt Logging Disabled] Trigger: ${triggerType}, User: ${userId}, Model: ${effectiveModel}`);
+    }
+    // ---> END REVISED Logging Block <---
     
     // Add the single message to the array
     messages.push({ role: "user", content: combinedMessage });
 
     // ---> Set requiresJson based on model capability (heuristic)
-    // Assume most models *except* known limited ones might follow JSON instruction in prompt
     const requiresJson = !effectiveModel.startsWith("o1-") && !effectiveModel.startsWith("o3-");
     console.log(`[generateUnifiedResponse] Setting requiresJson=${requiresJson} for model ${effectiveModel}`);
     // <--- End JSON mode logic
@@ -309,23 +344,46 @@ Your response MUST be JSON.`;
     // --- Set Temperature ---
     const temperature = (effectiveModel.startsWith("o1-") || effectiveModel.startsWith("o3-")) ? undefined : 0.7;
 
+    // ---> Logging Block Moved Here <---
+    if (shouldLogPrompts) {
+        // 1. Log Context to Console
+        const triggerType = promptArgument.includes("System Request: Initiate")
+            ? `system_request:${promptArgument.match(/System Request: Initiate (\S+)/)?.[1] || 'unknown'}`
+            : "handle_response";
+        console.log("\n===== PROMPT LOG CONTEXT =====");
+        console.log(`  User ID:   ${userId}`);
+        console.log(`  Trigger:   ${triggerType}`);
+        console.log(`  Provider:  ${provider.constructor.name}`);
+        console.log(`  Model:     ${effectiveModel}`);
+        console.log(`  Temp:      ${temperature ?? 'Default'}`); // Now defined
+        console.log(`  JSON Mode: ${requiresJson}`); // Now defined
+        console.log("============================\n");
+
+        // 2. Call the correct 3-argument logger
+        await logPromptToFile(triggerType, userId, combinedMessage);
+    } else {
+        // Optional console log - reconstruct trigger type here too if needed
+        const triggerType = promptArgument.includes("System Request: Initiate")
+            ? `system_request:${promptArgument.match(/System Request: Initiate (\S+)/)?.[1] || 'unknown'}`
+            : "handle_response";
+        console.log(`[Prompt Logging Disabled] Trigger: ${triggerType}, User: ${userId}, Model: ${effectiveModel}`);
+    }
+    // ---> End Logging Block <---
+
     // DEBUG: Log parameters before calling provider
     console.log("\n===== MESSAGING DEBUG: PROVIDER CALL PARAMS =====");
-    // ... logging ...
-    console.log(`Message Count: ${messages.length}`); // Should always be 1 now
-    // ... logging messages array ...
-    console.log("============================================\n");
+    console.log(`Provider: ${provider.constructor.name}`);
 
     // --- Call the Provider ---
     try {
       const responseMessage = await provider.generateCompletion(
         effectiveModel, 
-        messages, // Always pass the single-message array
+        messages, 
         temperature,
         requiresJson,
         llmFunctionDefinitions, 
-        effectiveBaseUrl, // Use determined base URL
-        customApiKey // Pass custom API key (currently null)
+        effectiveBaseUrl, 
+        customApiKey 
       );
 
       // DEBUG: Log provider response
@@ -424,7 +482,7 @@ Your response MUST be JSON.`;
             userId, 
             currentPrompt, 
             conversationHistory,
-            user // Pass the full user object
+            user // Back to 4 arguments
         );
         // Raw content is now directly from the standardized response
         const assistantRawContent = assistantResponseObject.content || `{ "message": "Error: Received empty response from LLM." }`;
@@ -588,7 +646,7 @@ Your response MUST be JSON.`;
   // --- Refactored handleSystemMessage ---
   async handleSystemMessage(
     userId: number,
-    systemRequestType: string, // Now just string
+    systemRequestType: string, 
     contextData: Record<string, any> = {},
   ): Promise<string> { // Returns the message content for potential immediate use
     logger.info({ userId, systemRequestType, contextData }, `Handling system message`); // Use logger
@@ -635,7 +693,12 @@ Your response MUST be JSON.`;
       // ---> Log Full System Prompt
       console.log(`\n====== START SYSTEM PROMPT (User: ${userId}, Type: ${systemRequestType}) ======\n${prompt}\n====== END SYSTEM PROMPT ======\n`);
       // <--- End Log
-      const assistantMessage = await this.generateUnifiedResponse(userId, prompt, conversationHistory, user);
+      const assistantMessage = await this.generateUnifiedResponse(
+          userId, 
+          prompt, 
+          conversationHistory, 
+          user // Back to 4 arguments
+      );
       const finalContent = assistantMessage.content || `{ "message": "System message generation failed." }`;
       const processedResult = this.processLLMResponse(finalContent);
  
@@ -1634,6 +1697,57 @@ Your response MUST be JSON.`;
                 logger.info({ userId: user.id, count: userScheduledCount }, `[scheduleRecurringTasks] Scheduled reminders for recurring tasks.`);
               }
 
+              // ---> REWRITTEN BLOCK: Schedule Morning Message <---
+              try {
+                  const preferredTimeStr = user.preferredMessageTime || user.wakeTime || '08:00'; // Use preferred, fallback to wake, then default
+                  const timeParts = parseHHMM(preferredTimeStr);
+                  
+                  if (timeParts) {
+                      let morningMessageDate = new Date(todayStartLocal); // Start with today in local TZ
+                      morningMessageDate.setHours(timeParts.hours, timeParts.minutes, 0, 0);
+                      
+                      // If the calculated time has already passed today, schedule for tomorrow
+                      if (morningMessageDate < new Date()) { // Compare with current time
+                          morningMessageDate = addDays(morningMessageDate, 1);
+                          logger.debug({ userId: user.id, time: preferredTimeStr }, `Morning message time already passed today, scheduling for tomorrow.`);
+                      }
+                      
+                      const scheduleDateUTC = toDate(morningMessageDate, { timeZone }); // Convert final local date/time to UTC for DB
+                      
+                      // Check if a morning message already exists for this user for the target date
+                      const targetDayStart = startOfDay(scheduleDateUTC);
+                      const targetDayEnd = addDays(targetDayStart, 1);
+
+                      const existingMorningMessage = await db.select({id: messageSchedules.id}).from(messageSchedules).where(
+                          and(
+                              eq(messageSchedules.userId, user.id),
+                              eq(messageSchedules.type, 'morning_message'),
+                              gte(messageSchedules.scheduledFor, targetDayStart),
+                              lt(messageSchedules.scheduledFor, targetDayEnd)
+                          )
+                      ).limit(1);
+
+                      if (existingMorningMessage.length === 0) {
+                          await db.insert(messageSchedules).values({
+                              userId: user.id,
+                              type: 'morning_message',
+                              scheduledFor: scheduleDateUTC, // Store UTC time
+                              status: 'pending',
+                              createdAt: new Date(),
+                              updatedAt: new Date(),
+                          });
+                          logger.info({ userId: user.id, scheduledFor: scheduleDateUTC.toISOString() }, `[scheduleRecurringTasks] Scheduled morning message.`);
+                      } else {
+                           logger.debug({ userId: user.id, date: formatISO(targetDayStart) }, `[scheduleRecurringTasks] Morning message already scheduled for this date. Skipping.`);
+                      }
+                  } else {
+                       logger.warn({ userId: user.id, time: preferredTimeStr }, `[scheduleRecurringTasks] Invalid preferred time format for morning message. Skipping.`);
+                  }
+              } catch (morningError) {
+                  logger.error({ userId: user.id, error: morningError }, `[scheduleRecurringTasks] Error scheduling morning message.`);
+              }
+              // ---> END REWRITTEN BLOCK <---
+
             } catch (error) {
               logger.error({ userId: user.id, error }, `[scheduleRecurringTasks] Error processing user.`); 
           }
@@ -1820,5 +1934,22 @@ function parseHHMM(timeString: string | null | undefined): { hours: number; minu
         return null;
     }
     return { hours, minutes };
+}
+// <--- END NEW
+
+// ---> NEW: Helper function to log prompts to file
+async function logPromptToFile(logType: string, userId: number, promptContent: string): Promise<void> {
+    try {
+        await fs.mkdir(PROMPT_LOG_DIR, { recursive: true }); 
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-'); 
+        const filename = `${logType}_user-${userId}_${timestamp}.log`; 
+        const filePath = path.join(PROMPT_LOG_DIR, filename);
+        
+        // Write only prompt content
+        await fs.writeFile(filePath, promptContent, 'utf8');
+        console.log(`[Prompt Logging] Saved ${logType} prompt for user ${userId} to ${filename}`);
+    } catch (error) {
+        console.error(`[Prompt Logging] Failed to write ${logType} prompt log for user ${userId}:`, error);
+    }
 }
 // <--- END NEW

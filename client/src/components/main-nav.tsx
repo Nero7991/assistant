@@ -83,6 +83,13 @@ export function MainNav() {
                     Test Messages
                   </DropdownMenuItem>
                 </Link>
+                {user?.isAdmin && (
+                  <Link href="/master">
+                    <DropdownMenuItem className="cursor-pointer font-semibold text-indigo-600 hover:text-indigo-500">
+                      Admin Settings
+                    </DropdownMenuItem>
+                  </Link>
+                )}
               </>
             )}
           </DropdownMenuContent>
@@ -113,6 +120,13 @@ export function MainNav() {
                       Test Messages
                     </DropdownMenuItem>
                   </Link>
+                  {user?.isAdmin && (
+                    <Link href="/master">
+                      <DropdownMenuItem className="cursor-pointer font-semibold text-indigo-600 hover:text-indigo-500">
+                        Admin Settings
+                      </DropdownMenuItem>
+                    </Link>
+                  )}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem 
                     className="cursor-pointer text-destructive"

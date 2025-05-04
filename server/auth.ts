@@ -581,7 +581,16 @@ export function setupAuth(app: Express): session.SessionRequestHandler {
       cookies: req.headers.cookie
     });
     if (!req.isAuthenticated()) return res.sendStatus(401);
-    res.json(req.user);
+    
+    // ---> Add isAdmin flag to response
+    const adminEmail = process.env.ADMIN_EMAIL;
+    const userResponse = {
+        ...req.user,
+        isAdmin: !!adminEmail && req.user.email === adminEmail
+    };
+    // <--- End Add
+    
+    res.json(userResponse);
   });
 
   // ---> RE-ADD: Registration Status Endpoint

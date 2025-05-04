@@ -442,7 +442,7 @@ export const insertMessagingPreferencesSchema = createInsertSchema(messagingPref
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
-export type User = typeof users.$inferSelect;
+export type User = typeof users.$inferSelect & { isAdmin?: boolean };
 export type Goal = typeof goals.$inferSelect;
 export type CheckIn = typeof checkIns.$inferSelect;
 export type KnownUserFact = typeof knownUserFacts.$inferSelect;

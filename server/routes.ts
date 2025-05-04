@@ -2464,13 +2464,14 @@ wss.on('connection', (ws: WebSocket, req) => {
   app.get("/api/admin/settings", isAdmin, async (req, res) => {
     try {
       const slotsValue = await storage.getSetting('registration_slots_available');
+      const logPromptsValue = await storage.getSetting('log_llm_prompts'); // Fetch new setting
       const slots = slotsValue ? parseInt(slotsValue, 10) : 0;
-      const globallyEnabled = process.env.REGISTRATION_ENABLED === "true"; // Get global status
+      const globallyEnabled = process.env.REGISTRATION_ENABLED === "true";
       
-      // Return relevant settings (add more as needed)
       res.json({ 
         registration_slots_available: isNaN(slots) ? 0 : slots, 
-        registration_globally_enabled: globallyEnabled // Add global status to response
+        registration_globally_enabled: globallyEnabled,
+        log_llm_prompts: logPromptsValue === 'true' // Convert string to boolean
       });
     } catch (error) {
       console.error("Error fetching admin settings:", error);
@@ -2480,13 +2481,31 @@ wss.on('connection', (ws: WebSocket, req) => {
 
   app.patch("/api/admin/settings", isAdmin, async (req, res) => {
     try {
-      const { registration_slots_available } = req.body;
+      const { registration_slots_available, log_llm_prompts } = req.body;
+      let settingsUpdated = false;
 
       if (typeof registration_slots_available === 'number' && registration_slots_available >= 0) {
         await storage.setSetting('registration_slots_available', registration_slots_available.toString());
+        settingsUpdated = true;
+      }
+
+      // Handle the boolean log_llm_prompts setting
+      if (typeof log_llm_prompts === 'boolean') {
+          await storage.setSetting('log_llm_prompts', log_llm_prompts.toString());
+          settingsUpdated = true;
+      }
+
+      // Check if at least one setting was updated
+      if (settingsUpdated) {
         res.json({ message: "Settings updated successfully." });
       } else {
-        res.status(400).json({ error: "Invalid value for registration_slots_available. Must be a non-negative number." });
+        // Send error only if no valid settings were provided
+        if (registration_slots_available === undefined && log_llm_prompts === undefined) {
+            res.status(400).json({ error: "No valid settings provided to update." });
+        } else {
+            // If only one setting was provided but it was invalid
+            res.status(400).json({ error: "Invalid value provided for update." });
+        }
       }
     } catch (error) {
       console.error("Error updating admin settings:", error);
