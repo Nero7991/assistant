@@ -38,6 +38,7 @@ import {
 
 import fs from 'fs/promises'; // Import fs promises API
 import path from 'path'; // Import path for joining
+import { v4 as uuidv4 } from 'uuid'; // For generating unique interaction IDs
 
 // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -68,6 +69,18 @@ const FINAL_SCHEDULE_MARKER = "FINAL_SCHEDULE_MARKER"; // Ensure defined correct
 
 // ---> Define Log Directory
 const PROMPT_LOG_DIR = path.resolve(process.cwd(), 'prompt_logs'); // Store logs in project root subdir
+
+// ---> RE-DEFINE: PromptLogContext Interface
+interface PromptLogContext {
+    userId: number;
+    triggerType: string; 
+    provider: string;
+    model: string;
+    temperature?: number;
+    jsonMode: boolean;
+    interactionId: string; 
+}
+// <--- END RE-DEFINE
 
 export interface MessageContext {
   user: StorageUser; // Changed User to StorageUser
@@ -145,7 +158,7 @@ export class MessagingService {
     // <--- End log
 
     // Construct the system prompt portion
-    const systemPromptPart = `You are an expert assistant coach called Kona specialized in helping users their tasks, schedule, and well-being.\nCurrent User ID: ${userId}\nCurrent Time (${user.timeZone || 'UTC'}): ${currentDateTime}\n\nUSER PROFILE:\n- First Name: ${user.firstName}\n- Username: ${user.username}\n- Email: ${user.email} ${user.isEmailVerified ? '(Verified)' : '(Not Verified)'}\n- Phone: ${user.phoneNumber || 'Not provided'} ${user.isPhoneVerified ? '(Verified)' : '(Not Verified)'}\n- Contact Preference: ${user.contactPreference}\n- Schedule: Wake ${user.wakeTime}, Start Routine ${user.routineStartTime}, Sleep ${user.sleepTime}\n- Preferred LLM: ${user.preferredModel}\n\nUSER FACTS:\n${facts.length > 0 ? facts.map((fact) => `- ${fact.category}: ${fact.content}`).join("\n") : "No specific facts known."}\n\nActive Tasks (for context, use functions to get latest status/details):\n${tasks.length > 0 ? tasks.filter(t => t.status === 'active').map((task) => `- ID:${task.id} | ${task.title} | Type: ${task.taskType}${task.scheduledTime ? ` | Scheduled: ${task.scheduledTime}` : ""}`).join("\n") : "No active tasks."}\n\nAVAILABLE FUNCTIONS:\n- \`get_task_list({ status: 'active'|'completed'|'all' = 'active' })\`: Retrieves the user's tasks. Default status is 'active'.\n- \`create_task({ title: string, description?: string, taskType: 'regular'|'personal_project'|'long_term_project'|'life_goal', priority?: number (1-5), estimatedDuration?: string ('30m', '2h', '1d', '1w', '1M', '1y'), deadline?: string (ISO8601), scheduledTime?: string ('HH:MM'), recurrencePattern?: string ('daily', 'weekly:1,3,5', 'monthly:15', 'none') })\`: Creates a new task.\n    - **IMPORTANT (Scheduling & Recurrence)**: If a task is time-sensitive (e.g., 'Take medication') or the user wants it to repeat, ask for clarification:\n        - For timing: \"What time should this be scheduled for (e.g., 9am, 14:30)?\" (Provide \`scheduledTime\` argument)\n        - For recurrence: \"Should this task repeat? If so, how often (e.g., daily, specific weekdays, monthly)?\" (Provide \`recurrencePattern\` argument: 'daily', 'weekly:1,3,5', 'monthly:15').\n        - **If the user doesn't specify recurrence, assume it's a one-off task and use \`recurrencePattern: 'none'\`.**\n        - A recurring task usually needs a \`scheduledTime\`. If recurrence is given but time is missing, ask for the time.\n    - **IMPORTANT (Projects/Goals)**: If \`taskType\` is 'personal_project', 'long_term_project', or 'life_goal', follow this sequence:\n        1. Ask for \`description\` AND overall \`estimatedDuration\` (e.g., '2w', '3M', '1y').\n        2. WAIT for the user's response.\n        3. THEN, **suggest** 3-5 relevant initial subtasks with estimated durations/deadlines based on the description and overall duration. Ask the user to confirm or modify these suggestions.\n        4. WAIT for the user's response confirming or modifying the subtasks.\n        5. FINALLY, call \`create_task\` with the title, description, and duration, then call \`create_subtask\` for each confirmed/modified subtask.\n- \`update_task({ taskId: number, updates: { title?: string, description?: string, status?: 'active'|'completed'|'archived', priority?: number, estimatedDuration?: string, deadline?: string, scheduledTime?: string, recurrencePattern?: string } })\`: Updates an existing task. **Requires** \`taskId\` and an \`updates\` object containing the fields to change. Example: \`{ "taskId": 123, "updates": { "status": "completed" } }\`.\n- \`delete_task({ taskId: number })\`: Deletes a task. Requires \`taskId\`.\n- \`create_subtask({ parentTaskId: number, title: string, description?: string, estimatedDuration?: string })\`: Adds a subtask to a parent task. Requires \`parentTaskId\` and \`title\`.
+    const systemPromptPart = `You are an expert assistant coach called Kona specialized in helping users their tasks, schedule, and well-being. Try to not end every response asking the user if they'd need assistant. Be concise when possible.\nCurrent User ID: ${userId}\nCurrent Time (${user.timeZone || 'UTC'}): ${currentDateTime}\n\nUSER PROFILE:\n- First Name: ${user.firstName}\n- Username: ${user.username}\n- Email: ${user.email} ${user.isEmailVerified ? '(Verified)' : '(Not Verified)'}\n- Phone: ${user.phoneNumber || 'Not provided'} ${user.isPhoneVerified ? '(Verified)' : '(Not Verified)'}\n- Contact Preference: ${user.contactPreference}\n- Schedule: Wake ${user.wakeTime}, Start Routine ${user.routineStartTime}, Sleep ${user.sleepTime}\n- Preferred LLM: ${user.preferredModel}\n\nUSER FACTS:\n${facts.length > 0 ? facts.map((fact) => `- ${fact.category}: ${fact.content}`).join("\n") : "No specific facts known."}\n\nActive Tasks (for context, use functions to get latest status/details):\n${tasks.length > 0 ? tasks.filter(t => t.status === 'active').map((task) => `- ID:${task.id} | ${task.title} | Type: ${task.taskType}${task.scheduledTime ? ` | Scheduled: ${task.scheduledTime}` : ""}`).join("\n") : "No active tasks."}\n\nAVAILABLE FUNCTIONS:\n- \`get_task_list({ status: 'active'|'completed'|'all' = 'active' })\`: Retrieves the user's tasks. Default status is 'active'.\n- \`create_task({ title: string, description?: string, taskType: 'regular'|'personal_project'|'long_term_project'|'life_goal', priority?: number (1-5), estimatedDuration?: string ('30m', '2h', '1d', '1w', '1M', '1y'), deadline?: string (ISO8601), scheduledTime?: string ('HH:MM'), recurrencePattern?: string ('daily', 'weekly:1,3,5', 'monthly:15', 'none') })\`: Creates a new task.\n    - **IMPORTANT (Scheduling & Recurrence)**: If a task is time-sensitive (e.g., 'Take medication') or the user wants it to repeat, ask for clarification:\n        - For timing: \"What time should this be scheduled for (e.g., 9am, 14:30)?\" (Provide \`scheduledTime\` argument)\n        - For recurrence: \"Should this task repeat? If so, how often (e.g., daily, specific weekdays, monthly)?\" (Provide \`recurrencePattern\` argument: 'daily', 'weekly:1,3,5', 'monthly:15').\n        - **If the user doesn't specify recurrence, assume it's a one-off task and use \`recurrencePattern: 'none'\`.**\n        - A recurring task usually needs a \`scheduledTime\`. If recurrence is given but time is missing, ask for the time.\n    - **IMPORTANT (Projects/Goals)**: If \`taskType\` is 'personal_project', 'long_term_project', or 'life_goal', follow this sequence:\n        1. Ask for \`description\` AND overall \`estimatedDuration\` (e.g., '2w', '3M', '1y').\n        2. WAIT for the user's response.\n        3. THEN, **suggest** 3-5 relevant initial subtasks with estimated durations/deadlines based on the description and overall duration. Ask the user to confirm or modify these suggestions.\n        4. WAIT for the user's response confirming or modifying the subtasks.\n        5. FINALLY, call \`create_task\` with the title, description, and duration, then call \`create_subtask\` for each confirmed/modified subtask.\n- \`update_task({ taskId: number, updates: { title?: string, description?: string, status?: 'active'|'completed'|'archived', priority?: number, estimatedDuration?: string, deadline?: string, scheduledTime?: string, recurrencePattern?: string } })\`: Updates an existing task. **Requires** \`taskId\` and an \`updates\` object containing the fields to change. Example: \`{ "taskId": 123, "updates": { "status": "completed" } }\`.\n- \`delete_task({ taskId: number })\`: Deletes a task. Requires \`taskId\`.\n- \`create_subtask({ parentTaskId: number, title: string, description?: string, estimatedDuration?: string })\`: Adds a subtask to a parent task. Requires \`parentTaskId\` and \`title\`.
 - \`update_subtask({ subtaskId: number, updates: { title?: string, description?: string, status?: 'active'|'completed'|'archived', estimatedDuration?: string, ... } })\`: Updates an existing subtask. **Requires** \`subtaskId\` and an \`updates\` object containing the fields to change.
 - \`delete_subtask({ subtaskId: number, parentTaskId: number })\`: Deletes a subtask. **Requires** both \`subtaskId\` and \`parentTaskId\`.
 - \`get_user_facts({ category?: 'life_event'|'core_memory'|...|'custom' })\`: Retrieves known facts about the user, optionally filtered by category.
@@ -162,7 +175,7 @@ export class MessagingService {
       case "morning":
         // ---> REVISED Goal Instruction for Morning Message (More Flexible)
         goalInstructionPart = `Generate a warm, encouraging and concise morning check-in message for ${currentDateTime.split(",")[0]}. 
-1. Use the get_task_list function to retrieve the user's active tasks.
+1. Use the 'get_task_list' function call in the appropriate call format to retrieve the user's active tasks.
 2. Identify key tasks for today. Prioritize non-daily recurring 'regular' tasks and important one-off tasks (use description/priority/deadline if available to judge importance). Briefly mention 2-4 key tasks, including their scheduled times if they have one.
 3. Keep the tone positive and supportive. Avoid just listing tasks; frame it as a helpful overview.
 4. End with an encouraging remark or an open question about their readiness for the day.
@@ -259,28 +272,26 @@ Your response MUST be JSON.`;
   // --- New Core LLM Interaction Function ---
   private async generateUnifiedResponse(
     userId: number,
-    promptArgument: string, // Use this name consistently
+    promptArgument: string, 
     conversationHistory: StandardizedChatCompletionMessage[],
-    user: StorageUser // Back to 4 arguments
+    user: StorageUser,
+    interactionId: string 
   ): Promise<StandardizedChatCompletionMessage> {
-    // ---> Fetch logging setting at the start
     const logSetting = await storage.getSetting('log_llm_prompts');
     const shouldLogPrompts = logSetting === 'true';
-    // <--- End Fetch
 
+    // 1. Determine Provider and Effective Model Name
     const preferredModel = user.preferredModel || "gpt-4o";
     console.log(`Using user's preferred model: ${preferredModel} for unified response`);
-
-    // --- Determine Provider and Effective Model Name ---
     let provider: LLMProvider;
     let effectiveModel = preferredModel;
     let effectiveBaseUrl = user.customOpenaiServerUrl || null;
     const customModelName = user.customOpenaiModelName || null;
-    const customApiKey = null; // No per-user API key support yet
+    const customApiKey = null; 
 
     if (preferredModel === "custom" && effectiveBaseUrl) {
-        provider = openAIProvider; // Assume custom URL uses OpenAI provider
-        effectiveModel = customModelName || "model"; // Use custom name or default
+        provider = openAIProvider;
+        effectiveModel = customModelName || "model";
         console.log(`[generateUnifiedResponse] Using Custom OpenAI config: URL=${effectiveBaseUrl}, Model=${effectiveModel}`);
     } else if (preferredModel.startsWith("gemini-")) {
         provider = gcloudProvider;
@@ -295,86 +306,62 @@ Your response MUST be JSON.`;
         provider = openAIProvider; 
         effectiveModel = "gpt-4o"; 
     }
-    // ---> END Provider/Model Logic
 
-    // --- Prepare SINGLE User Message for ALL models ---
+    // 2. Prepare SINGLE User Message for ALL models
     const messages: StandardizedChatCompletionMessage[] = [];
-    // ---> REVISED: Use the prompt string directly (history is now included by createUnifiedPrompt)
     const combinedMessage = `${promptArgument}\n\nKona's Response:`;
-    // <--- END REVISED
-    
-    // ---> REVISED Logging Block <---
-    if (shouldLogPrompts) {
-        // 1. Log Context to Console
-        const triggerType = promptArgument.includes("System Request: Initiate") 
-            ? `system_request:${promptArgument.match(/System Request: Initiate (\S+)/)?.[1] || 'unknown'}` 
-            : "handle_response";
-        console.log("\n===== PROMPT LOG CONTEXT =====");
-        console.log(`  User ID:   ${userId}`);
-        console.log(`  Trigger:   ${triggerType}`);
-        console.log(`  Provider:  ${provider.constructor.name}`);
-        console.log(`  Model:     ${effectiveModel}`);
-        console.log("============================\n");
-
-        // 2. Call the correct 3-argument logger
-        await logPromptToFile(triggerType, userId, combinedMessage);
-    } else {
-        // Optional console log remains the same
-        const triggerType = promptArgument.includes("System Request: Initiate") 
-            ? `system_request:${promptArgument.match(/System Request: Initiate (\S+)/)?.[1] || 'unknown'}` 
-            : "handle_response";
-        console.log(`[Prompt Logging Disabled] Trigger: ${triggerType}, User: ${userId}, Model: ${effectiveModel}`);
-    }
-    // ---> END REVISED Logging Block <---
-    
-    // Add the single message to the array
     messages.push({ role: "user", content: combinedMessage });
-
-    // ---> Set requiresJson based on model capability (heuristic)
+    
+    // 3. Set requiresJson and temperature
     const requiresJson = !effectiveModel.startsWith("o1-") && !effectiveModel.startsWith("o3-");
     console.log(`[generateUnifiedResponse] Setting requiresJson=${requiresJson} for model ${effectiveModel}`);
-    // <--- End JSON mode logic
-    
-    // ---> REMOVE the old conditional message prep logic <---
-    // if (provider === openAIProvider && !effectiveModel.startsWith("o1-") && !effectiveModel.startsWith("o3-")) { ... }
-    // else if (provider === gcloudProvider) { ... }
-    // else { ... } 
-    // ---> END REMOVE <---
-
-    // --- Set Temperature ---
     const temperature = (effectiveModel.startsWith("o1-") || effectiveModel.startsWith("o3-")) ? undefined : 0.7;
 
-    // ---> Logging Block Moved Here <---
+    // 4. Logging Block (NOW all variables are defined)
     if (shouldLogPrompts) {
-        // 1. Log Context to Console
-        const triggerType = promptArgument.includes("System Request: Initiate")
-            ? `system_request:${promptArgument.match(/System Request: Initiate (\S+)/)?.[1] || 'unknown'}`
+        const triggerType = promptArgument.includes("System Request: Initiate") 
+            ? `system_request:${promptArgument.match(/System Request: Initiate (\S+)/)?.[1] || 'unknown'}` 
             : "handle_response";
-        console.log("\n===== PROMPT LOG CONTEXT =====");
+        
+        console.log("\n===== PROMPT LOG CONTEXT (Console Only) =====");
         console.log(`  User ID:   ${userId}`);
         console.log(`  Trigger:   ${triggerType}`);
         console.log(`  Provider:  ${provider.constructor.name}`);
         console.log(`  Model:     ${effectiveModel}`);
-        console.log(`  Temp:      ${temperature ?? 'Default'}`); // Now defined
-        console.log(`  JSON Mode: ${requiresJson}`); // Now defined
-        console.log("============================\n");
+        console.log(`  Temp:      ${temperature ?? 'Default'}`);
+        console.log(`  JSON Mode: ${requiresJson}`);
+        console.log("===============================================\n");
 
-        // 2. Call the correct 3-argument logger
-        await logPromptToFile(triggerType, userId, combinedMessage);
+        const logContext: PromptLogContext = {
+            userId,
+            triggerType,
+            provider: provider.constructor.name, 
+            model: effectiveModel,
+            temperature: temperature, 
+            jsonMode: requiresJson,
+            interactionId 
+        };
+        await logPromptToFile(logContext, combinedMessage, 'prompt'); 
     } else {
-        // Optional console log - reconstruct trigger type here too if needed
-        const triggerType = promptArgument.includes("System Request: Initiate")
-            ? `system_request:${promptArgument.match(/System Request: Initiate (\S+)/)?.[1] || 'unknown'}`
+        const triggerType = promptArgument.includes("System Request: Initiate") 
+            ? `system_request:${promptArgument.match(/System Request: Initiate (\S+)/)?.[1] || 'unknown'}` 
             : "handle_response";
         console.log(`[Prompt Logging Disabled] Trigger: ${triggerType}, User: ${userId}, Model: ${effectiveModel}`);
     }
-    // ---> End Logging Block <---
-
-    // DEBUG: Log parameters before calling provider
+    
+    // 5. DEBUG: Log parameters before calling provider (Optional, can be part of above if desired)
     console.log("\n===== MESSAGING DEBUG: PROVIDER CALL PARAMS =====");
     console.log(`Provider: ${provider.constructor.name}`);
+    console.log(`Model: ${effectiveModel}`);
+    console.log(`Message Count: ${messages.length}`);
+    if (messages.length > 0) {
+        console.log("Messages being sent:", JSON.stringify(messages, null, 2));
+    } else {
+        console.error("[CRITICAL] Trying to call provider with EMPTY messages array!");
+    }
+    console.log("============================================\n");
 
-    // --- Call the Provider ---
+    // 6. Call the Provider
     try {
       const responseMessage = await provider.generateCompletion(
         effectiveModel, 
@@ -385,30 +372,25 @@ Your response MUST be JSON.`;
         effectiveBaseUrl, 
         customApiKey 
       );
-
-      // DEBUG: Log provider response
-      console.log("\n===== MESSAGING DEBUG: PROVIDER RESPONSE =====");
-      console.log(`Role: ${responseMessage.role}`);
-      console.log(`Has Content: ${!!responseMessage.content}`);
-      console.log(`Tool Calls: ${responseMessage.tool_calls?.length || 0}`);
-      // console.log("Raw Content:", responseMessage.content); // Uncomment for deep debugging
-      console.log("==========================================\n");
-
+      // Raw response logging is now handled by the CALLER of generateUnifiedResponse (handleUserResponse or handleSystemMessage)
       return responseMessage;
-
-        } catch (error) {
-        console.error(`[generateUnifiedResponse] Error during provider execution:`, error);
-          return {
-            role: "assistant",
-            content: `{ "message": "Sorry, I encountered an error communicating with the AI service." }`,
-            name: undefined,
-            tool_calls: undefined
-        };
+    } catch (error) {
+      console.error(`[generateUnifiedResponse] Error during provider execution:`, error);
+      // Error object logging is handled by the CALLER
+      return {
+        role: "assistant",
+        content: `{ "message": "Sorry, I encountered an error communicating with the AI service (provider error). Original error: ${error instanceof Error ? error.message : String(error)}" }`,
+        name: undefined,
+        tool_calls: undefined
+      };
     }
   }
 
   // --- Refactored handleUserResponse (Main Orchestrator) ---
   async handleUserResponse(userId: number, userMessageContent: string): Promise<string | null> {
+    const interactionId = uuidv4(); // Create ONCE per top-level call
+    const logSetting = await storage.getSetting('log_llm_prompts');
+    const shouldLogPrompts = logSetting === 'true';
     console.log(`Processing response from user ${userId}: "${userMessageContent.substring(0, 50)}..."`);
 
     const now = new Date(); // Get current time once
@@ -479,13 +461,23 @@ Your response MUST be JSON.`;
         // <--- End Log
         // C. Call the LLM using the new abstracted function
         const assistantResponseObject = await this.generateUnifiedResponse(
-            userId, 
-            currentPrompt, 
-            conversationHistory,
-            user // Back to 4 arguments
+            userId, currentPrompt, conversationHistory, user, interactionId // Pass interactionId
         );
         // Raw content is now directly from the standardized response
         const assistantRawContent = assistantResponseObject.content || `{ "message": "Error: Received empty response from LLM." }`;
+
+        if (shouldLogPrompts) {
+            const logContext: PromptLogContext = { 
+                userId, 
+                triggerType: "handle_response", 
+                provider: "N/A_in_loop", // Provider/model details are in the prompt log itself
+                model: user.preferredModel || "unknown", 
+                temperature: undefined, 
+                jsonMode: false,
+                interactionId
+            };
+            await logPromptToFile(logContext, assistantRawContent, 'llm_response');
+        }
 
         // D. Process the LLM's JSON Content String (using existing function)
         const processedResult = this.processLLMResponse(assistantRawContent);
@@ -549,6 +541,12 @@ Your response MUST be JSON.`;
 
             // I. Store results for next prompt context
             currentFunctionResults = { [functionName]: executionResult };
+
+            if (shouldLogPrompts && executionResult) {
+                const funcResultLog = JSON.stringify(executionResult, null, 2);
+                const logContext: PromptLogContext = { userId, triggerType: "handle_response", provider: "N/A_in_loop", model: user.preferredModel || "unknown", jsonMode: false, interactionId, temperature: undefined }; 
+                await logPromptToFile(logContext, `Function Result: ${funcResultLog}`, 'function_result');
+            }
 
             // J. Continue loop
             continue;
@@ -648,8 +646,11 @@ Your response MUST be JSON.`;
     userId: number,
     systemRequestType: string, 
     contextData: Record<string, any> = {},
-  ): Promise<string> { // Returns the message content for potential immediate use
-    logger.info({ userId, systemRequestType, contextData }, `Handling system message`); // Use logger
+    interactionId: string 
+  ): Promise<string> { 
+    const logSetting = await storage.getSetting('log_llm_prompts');
+    const shouldLogPrompts = logSetting === 'true';
+    logger.info({ userId, systemRequestType, contextData, interactionId }, `Handling system message`); // Log interactionId too
     try {
       // 1. Prepare Context (Fetch user WITH the new timestamp field)
       const user = await db.select().from(users).where(eq(users.id, userId)).limit(1).then(res => res[0]); // Fetch directly
@@ -697,11 +698,32 @@ Your response MUST be JSON.`;
           userId, 
           prompt, 
           conversationHistory, 
-          user // Back to 4 arguments
+          user, 
+          interactionId 
       );
       const finalContent = assistantMessage.content || `{ "message": "System message generation failed." }`;
+      
+      // ---> Log LLM Raw Response for system message (if enabled)
+      if (shouldLogPrompts) {
+          const triggerType = `system_request:${systemRequestType}`; 
+          const logContext: PromptLogContext = { 
+              userId, 
+              triggerType, 
+              provider: "N/A_SysMsg_Resp", // Placeholder, actual provider logged with prompt
+              model: user.preferredModel || "unknown", 
+              temperature: undefined, // Not directly available here
+              jsonMode: false, // Assume not JSON for simple system messages unless known
+              interactionId 
+          };
+          await logPromptToFile(logContext, finalContent, 'llm_response');
+      }
+      // <--- End Log LLM Raw Response
+
       const processedResult = this.processLLMResponse(finalContent);
  
+      // System messages typically don't have function calls, but if they did, logging would go here.
+      // For now, we assume system messages directly produce a message or null.
+
       let messageToUser: string | null = null;
  
       // --- Fallback Logic ---
@@ -882,7 +904,7 @@ Your response MUST be JSON.`;
 
         } catch (error) {
       // Log error with logger
-      logger.error({ userId, systemRequestType, error: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined }, `Error handling system message`);
+      logger.error({ userId, systemRequestType, interactionId, error }, `Error handling system message`);
       return "Sorry, I encountered an error processing the system request.";
     }
   }
@@ -1589,7 +1611,8 @@ Your response MUST be JSON.`;
              { 
                  messageScheduleId: schedule.id, 
                  taskDetails: (schedule.metadata as any)?.taskDetails ?? (schedule.metadata as any) // Pass metadata
-             } 
+             },
+             uuidv4() // Generate unique ID for this interaction
          );
 
          if (messageContent && !messageContent.startsWith("Sorry")) {
@@ -1938,18 +1961,51 @@ function parseHHMM(timeString: string | null | undefined): { hours: number; minu
 // <--- END NEW
 
 // ---> NEW: Helper function to log prompts to file
-async function logPromptToFile(logType: string, userId: number, promptContent: string): Promise<void> {
+async function logPromptToFile(
+    context: PromptLogContext, 
+    contentToLog: string, 
+    type: 'prompt' | 'function_call' | 'function_result' | 'llm_response'
+): Promise<void> {
     try {
         await fs.mkdir(PROMPT_LOG_DIR, { recursive: true }); 
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-'); 
-        const filename = `${logType}_user-${userId}_${timestamp}.log`; 
+        const filename = `${context.triggerType}_user-${context.userId}_interaction-${context.interactionId}.log`; 
         const filePath = path.join(PROMPT_LOG_DIR, filename);
         
-        // Write only prompt content
-        await fs.writeFile(filePath, promptContent, 'utf8');
-        console.log(`[Prompt Logging] Saved ${logType} prompt for user ${userId} to ${filename}`);
+        let logEntry = "";
+        const logTimestamp = new Date().toISOString();
+
+        if (type === 'prompt') {
+            logEntry = `\n\n====== LLM PROMPT (${logTimestamp}) ======+
+User ID:         ${context.userId}
+Trigger:         ${context.triggerType}
+Provider:        ${context.provider}
+Model:           ${context.model}
+Temperature:     ${context.temperature ?? 'Default'}
+JSON Mode:       ${context.jsonMode}
+Interaction ID:  ${context.interactionId} 
+=========================================
+${contentToLog}
+=========================================
+`;
+        } else if (type === 'function_call') {
+            logEntry = `\n\n---- Function Call by LLM (${logTimestamp}) ---- Interaction ID: ${context.interactionId} ----+
+${contentToLog}
+--------------------------------------\n`;
+        } else if (type === 'function_result') {
+            logEntry = `\n\n---- Function Result (${logTimestamp}) ---- Interaction ID: ${context.interactionId} ----+
+${contentToLog}
+-----------------------------------\n`;
+        } else if (type === 'llm_response') {
+             logEntry = `\n\n====== LLM RAW RESPONSE (${logTimestamp}) ====== Interaction ID: ${context.interactionId} ======+
+${contentToLog}
+==========================================\n`;
+        }
+
+        await fs.appendFile(filePath, logEntry, 'utf8');
+        console.log(`[Prompt Logging] Appended ${type} log for user ${context.userId}, interaction ${context.interactionId} to ${filename}`);
     } catch (error) {
-        console.error(`[Prompt Logging] Failed to write ${logType} prompt log for user ${userId}:`, error);
+        console.error(`[Prompt Logging] Failed to write ${type} log for user ${context.userId} (Interaction: ${context.interactionId}):`, error);
     }
 }
-// <--- END NEW
+// <--- END RE-DEFINE
