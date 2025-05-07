@@ -385,264 +385,238 @@ Your response MUST be JSON.`;
     }
   }
 
-  // --- Refactored handleUserResponse (Main Orchestrator) ---
-  async handleUserResponse(userId: number, userMessageContent: string): Promise<string | null> {
-    const interactionId = uuidv4(); // Create ONCE per top-level call
-    const logSetting = await storage.getSetting('log_llm_prompts');
-    const shouldLogPrompts = logSetting === 'true';
-    const triggerTypeForLogs = "handle_response"; // Define once for this handler
-    console.log(`Processing response from user ${userId}: "${userMessageContent.substring(0, 50)}..."`);
-
-    const now = new Date(); // Get current time once
-
-    // 1. Store User Message & Update User Timestamp
-    await db.insert(messageHistory).values({ userId, content: userMessageContent, type: "user_message", status: "received", createdAt: now });
-    await db.update(users).set({ last_user_initiated_message_at: now }).where(eq(users.id, userId)); // Update the timestamp
-    console.log(`Updated last_user_initiated_message_at for user ${userId}`);
-
-    // 2. Prepare Initial Context & History
-    const user = await storage.getUser(userId);
-    if (!user) { console.error(`User not found: ${userId}`); return null; }
-    const userTasks = await storage.getTasks(userId); // Get current tasks for context
-    const userFacts = await storage.getKnownUserFacts(userId);
-    const dbHistory = await db.select().from(messageHistory).where(eq(messageHistory.userId, userId)).orderBy(desc(messageHistory.createdAt)).limit(20);
-
-    // Convert DB history to Standardized format, adding localized timestamp
-    let conversationHistory: StandardizedChatCompletionMessage[] = dbHistory.map(msg => {
-          // ---> Change the format to include the date
-          const timestamp = `(${(formatInTimeZone(msg.createdAt, user.timeZone || 'UTC', 'MMM d, h:mm a'))}) `; // e.g., (Apr 18, 9:15 AM)
-          // <--- End format change
-          return {
-            role: (msg.type === "user_message" || msg.type === "system_request") ? "user" as const : "assistant" as const,
-            // ---> Prepend timestamp directly to content here
-            content: `(${(formatInTimeZone(msg.createdAt, user.timeZone || 'UTC', 'MMM d, h:mm a'))}) ${msg.content || ""}`,
-            // <--- End prepend
-            name: undefined,
-            tool_calls: undefined
-        };
-    }).reverse();
-
-    // Add current user message (without timestamp, as it's the latest)
-    conversationHistory.push({ role: "user", content: userMessageContent, name: undefined });
-
-    let messageContext: MessageContext = { // Initial context for the *first* prompt
-        user,
-        tasks: userTasks,
-        facts: userFacts,
-        previousMessages: dbHistory, // Keep original format for prompt generation function
-        currentDateTime: new Date().toLocaleString("en-US", { timeZone: user.timeZone || undefined, dateStyle: "full", timeStyle: "long" }),
-        messageType: "response",
-        userResponse: userMessageContent,
-    };
-
-    // 3. LLM Interaction Loop
+  // ---> NEW: Extracted LLM Interaction Loop
+  private async _llmInteractionLoop(
+    userId: number,
+    initialPrompt: string,
+    initialHistory: StandardizedChatCompletionMessage[],
+    user: StorageUser,
+    interactionId: string,
+    shouldLogPrompts: boolean,
+    messageContext: MessageContext // Pass initial context
+  ): Promise<{ finalAssistantMessage: string | null; lastProcessedResult: any | null }> { // Update return type
     let loopCount = 0;
     const MAX_LOOPS = 25;
     let currentFunctionResults: Record<string, any> | undefined = undefined;
+    let currentHistory = [...initialHistory]; // Work with a copy
     let finalAssistantMessage: string | null = null;
+    let lastProcessedResult: any | null = null; // Variable to store the last result
 
     while (loopCount < MAX_LOOPS) {
         loopCount++;
-        console.log(`Unified Response Loop - Iteration ${loopCount}`);
+        console.log(`Unified Response Loop - Iteration ${loopCount} (Interaction: ${interactionId})`);
 
-        // A. Update context with function results
+        // A. Update context with function results for prompt generation
         messageContext.functionResults = currentFunctionResults;
-        if (currentFunctionResults) {
-            console.log(`\n--- Function Results Provided to LLM for Iteration ${loopCount} ---`);
-            console.log(JSON.stringify(currentFunctionResults, null, 2));
-            console.log("----------------------------------------------------\n");
-        }
-
-        // B. Build the prompt
         const currentPrompt = this.createUnifiedPrompt(messageContext);
 
-        // ---> Add Explicit Log
-        console.log("[DEBUG handleUserResponse] User object before calling generateUnifiedResponse:", user);
-        // <--- End Log
-        // C. Call the LLM using the new abstracted function
+        // B. Call the LLM (generateUnifiedResponse logs the prompt to file)
         const assistantResponseObject = await this.generateUnifiedResponse(
-            userId, 
-            currentPrompt, 
-            conversationHistory, 
-            user,
-            interactionId,
-            triggerTypeForLogs // Pass consistent trigger type
+            userId,
+            currentPrompt, // Pass the dynamically generated prompt for this loop
+            currentHistory, 
+            user, 
+            interactionId, 
+            messageContext.messageType // Use messageType from context for trigger
         );
-        // Raw content is now directly from the standardized response
-        const assistantRawContent = assistantResponseObject.content || `{ "message": "Error: Received empty response from LLM." }`;
+        const assistantRawContent = assistantResponseObject.content || `{ "message": "Error: LLM response content was null." }`;
 
+        // C. Log LLM Raw Response (if enabled)
         if (shouldLogPrompts) {
+            // Create context just for logging this step
             const logContext: PromptLogContext = { 
                 userId, 
-                triggerType: triggerTypeForLogs, 
-                provider: "N/A_in_loop", // Provider/model details are in the prompt log itself
-                model: user.preferredModel || "unknown", 
-                temperature: undefined, 
+                triggerType: messageContext.messageType, // Use messageType
+                provider: "N/A",
+                model: user.preferredModel || "unknown",
+                temperature: undefined,
                 jsonMode: false,
                 interactionId
             };
             await logPromptToFile(logContext, assistantRawContent, 'llm_response');
         }
 
-        // D. Process the LLM's JSON Content String (using existing function)
-        const processedResult = this.processLLMResponse(assistantRawContent);
+        // D. Process the LLM's JSON Content String
+        lastProcessedResult = this.processLLMResponse(assistantRawContent); // Assign to loop-scoped variable
 
-        // E. Add the assistant's message to history (Standardized Format)
-        conversationHistory.push({
-            role: "assistant",
-            content: processedResult.message, 
-            name: undefined,
-            // We won't directly use tool_calls from the response object for function execution anymore
-            // but might keep it for history reconstruction later if needed.
-            tool_calls: assistantResponseObject.tool_calls 
-        });
+        // E. Add the assistant's message to history (for next loop iteration)
+        if (lastProcessedResult.message !== null) { // Don't add null messages to history
+            currentHistory.push({
+                role: "assistant",
+                content: lastProcessedResult.message, 
+                name: undefined,
+                tool_calls: assistantResponseObject.tool_calls 
+            });
+        }
 
-        // F. Check for Function Call Request (ONLY check the parsed JSON content)
+        // F. Check for Function Call Request
         let functionName: string | undefined = undefined;
         let functionArgs: Record<string, any> | undefined = undefined;
-
-        // Mechanism: Check function_call parsed from JSON content (processLLMResponse)
-        if (processedResult.function_call && processedResult.function_call.name) {
-            functionName = processedResult.function_call.name;
-            functionArgs = processedResult.function_call.arguments || {}; // Already parsed
+        if (lastProcessedResult.function_call && lastProcessedResult.function_call.name) {
+            functionName = lastProcessedResult.function_call.name;
+            functionArgs = lastProcessedResult.function_call.arguments || {};
             console.log(`LLM requested function call via JSON content: ${functionName}`);
-    } else {
-            // Log if no function call was found in the parsed content
+        } else {
             console.log("No function_call found in processed LLM response content.");
         }
 
-        // --- Proceed if a function call was detected --- 
         if (functionName && functionArgs !== undefined) {
-            // G. Execute Function and Collect Results
-            // (Existing logic remains the same)
+            // G. Log Function Call
+            if (shouldLogPrompts) {
+                const funcCallLog = JSON.stringify({ name: functionName, arguments: functionArgs }, null, 2);
+                // Create context just for logging this step
+                const logContext: PromptLogContext = { 
+                    userId, 
+                    triggerType: messageContext.messageType, // Use messageType
+                    provider: "N/A_Func_Call",
+                    model: user.preferredModel || "unknown",
+                    temperature: undefined,
+                    jsonMode: false,
+                    interactionId
+                };
+                await logPromptToFile(logContext, `Function Call: ${funcCallLog}`, 'function_call');
+            }
+
+            // H. Execute Function
             let executionResult: any;
             let functionResultMessageContent = "";
-
             try {
-                console.log(`Executing function: ${functionName} with args: `, functionArgs);
                 const funcToExecute = llmFunctionExecutors[functionName];
                 if (typeof funcToExecute === 'function') {
-                    executionResult = await funcToExecute({ userId: userId, messagingService: this }, functionArgs);
-                    console.log(`Function ${functionName} result: `, executionResult);
+                    // Pass the updated messageContext for function execution if needed
+                    executionResult = await funcToExecute({ userId: userId, messagingService: this, context: messageContext }, functionArgs); 
                     functionResultMessageContent = JSON.stringify(executionResult);
                 } else {
-                    console.warn(`Unknown function called: ${functionName}`);
                     executionResult = { error: `Unknown function: ${functionName}` };
                     functionResultMessageContent = JSON.stringify(executionResult);
                 }
-          } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-                console.error(`Error executing function ${functionName}: `, error);
+            } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
                 executionResult = { error: `Error executing function ${functionName}: ${errorMessage}` };
                 functionResultMessageContent = JSON.stringify(executionResult);
             }
 
-            // H. Add Function Result to History
-            conversationHistory.push({
+            // I. Log Function Result
+            if (shouldLogPrompts && executionResult) {
+                const funcResultLog = JSON.stringify(executionResult, null, 2);
+                // Create context just for logging this step
+                const logContext: PromptLogContext = { 
+                    userId, 
+                    triggerType: messageContext.messageType, // Use messageType
+                    provider: "N/A_Func_Result",
+                    model: user.preferredModel || "unknown",
+                    temperature: undefined,
+                    jsonMode: false,
+                    interactionId
+                };
+                await logPromptToFile(logContext, `Function Result: ${funcResultLog}`, 'function_result');
+            }
+
+            // J. Add Function Result to History for next LLM call
+            currentHistory.push({
                 role: "function",
                 name: functionName,
                 content: functionResultMessageContent,
             });
 
-            // I. Store results for next prompt context
+            // K. Store results for next prompt context & Continue loop
             currentFunctionResults = { [functionName]: executionResult };
-
-            if (shouldLogPrompts && executionResult) {
-                const funcResultLog = JSON.stringify(executionResult, null, 2);
-                const logContext: PromptLogContext = { userId, triggerType: triggerTypeForLogs, provider: "N/A_in_loop", model: user.preferredModel || "unknown", jsonMode: false, interactionId, temperature: undefined }; 
-                await logPromptToFile(logContext, `Function Result: ${funcResultLog}`, 'function_result');
-            }
-
-            // J. Continue loop
             continue;
-
-      } else {
-            // --- No Function Call Detected - Final Response ---
-            console.log("LLM provided final response (no function_call in content). Processing final actions.");
-            finalAssistantMessage = processedResult.message;
-            
-            // ---> FIX: Ensure finalAssistantMessage is not null before using .includes()
-            const finalMessageContent = finalAssistantMessage ?? ""; // Use empty string if null
-            const isConfirmation = finalMessageContent.includes(FINAL_SCHEDULE_MARKER);
-            const isProposal = finalMessageContent.includes("PROPOSED_SCHEDULE_AWAITING_CONFIRMATION");
-            // <--- END FIX
-            
-            // ---> NEW: Post-process message for WhatsApp formatting (Ensure not null)
-            if (finalAssistantMessage !== null) {
-                finalAssistantMessage = finalAssistantMessage.replace(/\*\*(.*?)\*\*/g, '*$1*');
-                console.log("[Formatting] Applied WhatsApp bold conversion.");
-            }
-            // <--- END NEW
-
-            let finalMetadata: any = {};
-            // ...(rest of schedule/message/sentiment handling)... 
-            if (processedResult.scheduleUpdates && processedResult.scheduleUpdates.length > 0) {
-                 if (isConfirmation) {
-                     console.log(`Processing ${processedResult.scheduleUpdates.length} confirmed schedule updates based on marker: ${FINAL_SCHEDULE_MARKER}`); // Log usage
-                     await this.processScheduleUpdates(userId, processedResult.scheduleUpdates);
-                      await db.insert(messageHistory).values({ userId, content: "✅ Schedule confirmed! Your tasks are updated.", type: "system_notification", status: "sent", createdAt: new Date() });
-                 } else if (isProposal) {
-                      console.log("Storing proposed schedule updates in metadata, not processing yet.");
-                      finalMetadata.scheduleUpdates = processedResult.scheduleUpdates;
         } else {
-                      console.log(`Processing ${processedResult.scheduleUpdates.length} updates from regular response.`);
-                      await this.processScheduleUpdates(userId, processedResult.scheduleUpdates);
-                      await db.insert(messageHistory).values({ userId, content: "✅ Okay, I've updated your tasks.", type: "system_notification", status: "sent", createdAt: new Date() });
-                 }
-            } else if (isConfirmation) {
-                  console.log(`Processing schedule confirmation based ONLY on marker: ${FINAL_SCHEDULE_MARKER} (no explicit updates in final JSON).`); // Log usage
-                  await db.insert(messageHistory).values({ userId, content: "✅ Schedule confirmed!", type: "system_notification", status: "sent", createdAt: new Date() });
-            }
-            if (processedResult.scheduledMessages && processedResult.scheduledMessages.length > 0) {
-                 console.log(`Processing ${processedResult.scheduledMessages.length} scheduled messages.`);
-                 await this.processScheduledMessages(userId, processedResult.scheduledMessages);
-            }
-
-            // L. Save Final Assistant Message to History
-            console.log(`[DEBUG] Saving final assistant message to DB. Content: "${finalAssistantMessage}"`);
-            let metadataToSave = finalMetadata; 
-            try {
-                // ---> FIX: Ensure content is not null for DB insert
-                const contentToSave = finalAssistantMessage ?? "[LLM generated null message]";
-                const insertResult = await db.insert(messageHistory).values({
-                   userId: userId,
-                   content: contentToSave, // Use non-null value
-                   type: "coach_response",
-                   status: "sent",
-                   metadata: Object.keys(metadataToSave).length > 0 ? metadataToSave : undefined,
-                   createdAt: new Date(),
-                }).returning({ insertedId: messageHistory.id });
-                // <--- END FIX
-                console.log(`[DEBUG] Successfully inserted coach_response message with ID: ${insertResult[0]?.insertedId}`);
-            } catch (dbError) {
-                console.error(`[CRITICAL] Failed to save final assistant message to DB for user ${userId}: `, dbError);
-            }
-
-            // M. Send Final Message to User
-             if (user.phoneNumber) { 
-                 console.log(`[Sync] Attempting to send final response to WhatsApp for user ${userId}`);
-                 // ---> FIX: Ensure message is not null before sending
-                 if (finalAssistantMessage !== null) { 
-                    await this.sendWhatsAppMessage(user.phoneNumber, finalAssistantMessage);
-                 } else {
-                    console.warn(`[handleUserResponse] Skipping WhatsApp send for user ${userId} because final message was null.`);
-                 }
-                 // <--- END FIX
-             }
-
-            // N. Exit Loop
-                break;
+            // --- No Function Call Detected - Final Response --- 
+            finalAssistantMessage = lastProcessedResult.message;
+            
+            // Perform final actions outside the loop (formatting, saving, sending)
+            break; // Exit Loop
         }
     } // End while loop
-    // ...(rest of handleUserResponse - loop limit check, return finalAssistantMessage)
+
     if (loopCount >= MAX_LOOPS) {
-      console.error(`Max loops (${MAX_LOOPS}) reached for user ${userId}. Aborting.`);
-      const fallbackMsg = "Sorry, I got stuck trying to process that. Could you try rephrasing?";
-       await db.insert(messageHistory).values({ userId, content: fallbackMsg, type: "coach_response", status: "sent", createdAt: new Date() });
-       if (user.phoneNumber && user.contactPreference === "whatsapp") {
-          await this.sendWhatsAppMessage(user.phoneNumber, fallbackMsg);
-       }
+        console.error(`Max loops (${MAX_LOOPS}) reached for interaction ${interactionId}. Aborting.`);
+        finalAssistantMessage = "Sorry, I got stuck trying to process that. Could you try rephrasing?";
+        // Note: Saving/Sending the fallback is handled by the caller
     }
+
+    return { finalAssistantMessage, lastProcessedResult }; // Return object
+  }
+  // <--- END Extracted Loop
+
+  // --- Refactored handleUserResponse (Main Orchestrator) ---
+  async handleUserResponse(userId: number, userMessageContent: string): Promise<string | null> {
+    const interactionId = uuidv4();
+    const logSetting = await storage.getSetting('log_llm_prompts');
+    const shouldLogPrompts = logSetting === 'true';
+    const triggerTypeForLogs = "handle_response"; 
+    console.log(`Processing response from user ${userId}: "${userMessageContent.substring(0, 50)}..." (Interaction: ${interactionId})`);
+
+    const now = new Date();
+    await db.insert(messageHistory).values({ userId, content: userMessageContent, type: "user_message", status: "received", createdAt: now });
+    await db.update(users).set({ last_user_initiated_message_at: now }).where(eq(users.id, userId));
+
+    const user = await storage.getUser(userId);
+    if (!user) { console.error(`User not found: ${userId}`); return null; }
+    const userTasks = await storage.getTasks(userId);
+    const userFacts = await storage.getKnownUserFacts(userId);
+    const dbHistory = await db.select().from(messageHistory).where(eq(messageHistory.userId, userId)).orderBy(desc(messageHistory.createdAt)).limit(20);
+
+    let conversationHistory: StandardizedChatCompletionMessage[] = dbHistory.map(msg => ({
+        role: (msg.type === "user_message" || msg.type === "system_request") ? "user" as const : "assistant" as const,
+        content: `(${(formatInTimeZone(msg.createdAt, user.timeZone || 'UTC', 'MMM d, h:mm a'))}) ${msg.content || ""}`,
+    })).reverse();
+    conversationHistory.push({ role: "user", content: userMessageContent });
+
+    let messageContext: MessageContext = {
+        user,
+        tasks: userTasks,
+        facts: userFacts,
+        previousMessages: dbHistory, 
+        currentDateTime: new Date().toLocaleString("en-US", { timeZone: user.timeZone || undefined, dateStyle: "full", timeStyle: "long" }),
+        messageType: "response",
+        userResponse: userMessageContent,
+    };
+
+    // ---> Call the extracted loop method & Destructure
+    let { finalAssistantMessage, lastProcessedResult } = await this._llmInteractionLoop(
+        userId,
+        this.createUnifiedPrompt(messageContext), // Pass initial prompt string
+        conversationHistory, 
+        user, 
+        interactionId, 
+        shouldLogPrompts,
+        messageContext // Pass context for function execution
+    );
+    // <--- End call
+ 
+    // --- Process Final Result (Save, Format, Send) ---
+    if (finalAssistantMessage) {
+        finalAssistantMessage = finalAssistantMessage.replace(/\*\*(.*?)\*\*/g, '*$1*'); // Apply formatting
+        console.log("[Formatting] Applied WhatsApp bold conversion.");
+    }
+
+    console.log(`[DEBUG] Saving final assistant message to DB. Content: "${finalAssistantMessage}"`);
+    const contentToSave = finalAssistantMessage ?? "[LLM generation failed or produced null]";
+    try {
+        await db.insert(messageHistory).values({
+            userId: userId,
+            content: contentToSave,
+            type: "coach_response",
+            status: "sent", // Assuming it will be sent
+            metadata: {}, // Reset metadata for final save?
+            createdAt: new Date(),
+        });
+    } catch (dbError) {
+        console.error(`[CRITICAL] Failed to save final assistant message to DB for user ${userId} (Interaction: ${interactionId}): `, dbError);
+    }
+
+    // Send Final Message
+    if (user.phoneNumber && finalAssistantMessage) { 
+        console.log(`[Sync] Attempting to send final response to WhatsApp for user ${userId} (Interaction: ${interactionId})`);
+        await this.sendWhatsAppMessage(user.phoneNumber, finalAssistantMessage);
+    } else if (user.phoneNumber && !finalAssistantMessage) {
+        console.warn(`[handleUserResponse] Skipping WhatsApp send for user ${userId} because final message was null (Interaction: ${interactionId}).`);
+    }
+    // ---> End Process Final Result
+    
     return finalAssistantMessage;
   }
 
@@ -700,79 +674,59 @@ Your response MUST be JSON.`;
       // ---> Log Full System Prompt
       console.log(`\n====== START SYSTEM PROMPT (User: ${userId}, Type: ${systemRequestType}) ======\n${prompt}\n====== END SYSTEM PROMPT ======\n`);
       // <--- End Log
-      const assistantMessage = await this.generateUnifiedResponse(
-          userId, 
-          prompt, 
-          conversationHistory, 
-          user, 
-          interactionId, // Pass the generated interactionId
-          triggerTypeForLogs // Pass consistent trigger type
+
+      // ---> Call the extracted loop method & Destructure
+      let { finalAssistantMessage, lastProcessedResult } = await this._llmInteractionLoop(
+          userId,
+          prompt,
+          conversationHistory,
+          user,
+          interactionId,
+          shouldLogPrompts,
+          messageContext
       );
-      const finalContent = assistantMessage.content || `{ "message": "System message generation failed." }`;
+      // <--- End call
+
+      // --- Process Final Result (Save, Format, Send) ---
+      let messageToUser: string | null;
       
-      // ---> Log LLM Raw Response for system message (if enabled)
-      if (shouldLogPrompts) {
-          const logContext: PromptLogContext = { 
-              userId, 
-              triggerType: triggerTypeForLogs, 
-              provider: "N/A_SysMsg_Resp", // Placeholder, details logged with initial prompt
-              model: user.preferredModel || "unknown", // Placeholder
-              temperature: undefined, // Placeholder
-              jsonMode: false, // Placeholder
-              interactionId // Use the SAME interactionId
-          };
-          await logPromptToFile(logContext, finalContent, 'llm_response');
-      }
-      // <--- End Log LLM Raw Response
-
-      const processedResult = this.processLLMResponse(finalContent);
- 
-      // System messages typically don't have function calls, but if they did, logging would go here.
-      // For now, we assume system messages directly produce a message or null.
-
-      let messageToUser: string | null = null;
- 
-      // --- Fallback Logic ---
-      if (processedResult.message === null) {
-          // Case 1: LLM explicitly said not to send (message is null)
-          logger.info({ userId, systemRequestType, scheduleId: contextData.messageScheduleId }, `LLM determined message no longer relevant. Skipping send.`);
-          messageToUser = null; // Keep it null
-      } else if (typeof processedResult.message === 'string' && processedResult.message.trim().length > 0) {
-          // Case 2: LLM provided a valid, non-empty message string
-          messageToUser = processedResult.message;
-      } else {
-          // Case 3: LLM response was invalid (not string, empty, etc.) - Use fallback
-          logger.warn({ userId, systemRequestType, scheduleId: contextData.messageScheduleId, rawContent: finalContent }, `LLM response for system message was invalid or empty. Using hardcoded fallback.`);
+      // Apply Fallback logic if needed
+      if (finalAssistantMessage === null || finalAssistantMessage.trim().length === 0) {
+          // Use fallback if loop returned null/empty or if LLM explicitly returned null (which should be handled inside loop, but double-check here)
+          logger.warn({ userId, systemRequestType, interactionId, llmReturned: finalAssistantMessage }, `LLM interaction loop returned invalid/empty message. Applying fallback.`);
+          
+          // Re-generate fallback message here
           const taskTitle = contextData.taskDetails?.taskTitle || "your task";
           const taskTime = contextData.taskDetails?.taskScheduledTime || "the scheduled time";
           const userName = user.firstName || 'there';
- 
+
           switch (systemRequestType) {
+              // ... (cases for task_pre_reminder, task_reminder, etc. as before) ...
               case 'task_pre_reminder':
-                  messageToUser = `Hi ${userName}, friendly reminder about your task "${taskTitle}" coming up soon at ${taskTime}.`;
-                  break;
+                    messageToUser = `Hi ${userName}, friendly reminder about your task "${taskTitle}" coming up soon at ${taskTime}.`;
+                    break;
               case 'task_reminder':
-                  messageToUser = `Hi ${userName}, it's time for your task "${taskTitle}" (scheduled for ${taskTime}).`;
-                  break;
+                    messageToUser = `Hi ${userName}, it's time for your task "${taskTitle}" (scheduled for ${taskTime}).`;
+                    break;
               case 'task_post_reminder_follow_up':
-              case 'task_follow_up': // Use same fallback for general follow-up
-                  messageToUser = `Hi ${userName}, just checking in on the task "${taskTitle}" scheduled for ${taskTime}. How did it go?`;
-                  break;
+              case 'task_follow_up': 
+                    messageToUser = `Hi ${userName}, just checking in on the task "${taskTitle}" scheduled for ${taskTime}. How did it go?`;
+                    break;
               case 'morning_summary':
-                  messageToUser = `Good morning ${userName}! Hope you have a great day. Ready to plan your tasks?`; // Simple fallback
-                  break;
+                    messageToUser = `Good morning ${userName}! Hope you have a great day. Ready to plan your tasks?`;
+                    break;
               default:
-                  messageToUser = `Hi ${userName}, just checking in!`; // Generic fallback
+                    messageToUser = `Hi ${userName}, just checking in!`;
           }
           console.log(`Generated fallback message: "${messageToUser}"`);
+      } else {
+          // Use the valid message returned from the loop
+          messageToUser = finalAssistantMessage;
       }
-      // --- End Fallback Logic ---
- 
-      // If messageToUser is null at this point, we skip saving and sending
-      if (messageToUser === null) {
-          return ""; // Explicitly return empty string to signify skip
-      }
- 
+
+      // If messageToUser is STILL null (e.g., explicit skip from LLM, handled inside loop now ideally, but safeguard)
+      if (messageToUser === null) return ""; // Return empty to skip sending
+
       messageToUser = messageToUser.replace(/\*\*(.*?)\*\*/g, '*$1*');
       logger.debug({ userId, systemRequestType }, `Generated system message content (pre-send): ${messageToUser.substring(0,100)}...`); // Debug log
 
@@ -780,13 +734,13 @@ Your response MUST be JSON.`;
        const finalMetadata: any = { systemInitiated: true, type: systemRequestType };
 
       // Store proposal updates if present
-        if (processedResult.scheduleUpdates && systemRequestType === 'reschedule_request') {
-            finalMetadata.scheduleUpdates = processedResult.scheduleUpdates;
+        if (lastProcessedResult.scheduleUpdates && systemRequestType === 'reschedule_request') {
+            finalMetadata.scheduleUpdates = lastProcessedResult.scheduleUpdates;
             console.log("Storing proposed schedule updates from system message.");
         }
         // Process scheduled messages immediately if generated
-        if (processedResult.scheduledMessages && processedResult.scheduledMessages.length > 0) {
-            await this.processScheduledMessages(userId, processedResult.scheduledMessages);
+        if (lastProcessedResult.scheduledMessages && lastProcessedResult.scheduledMessages.length > 0) {
+            await this.processScheduledMessages(userId, lastProcessedResult.scheduledMessages);
         }
 
       // ---> Save to History only if messageToUser is a non-empty string AFTER formatting
