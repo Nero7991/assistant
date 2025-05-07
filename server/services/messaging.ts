@@ -274,12 +274,13 @@ Your response MUST be JSON.`;
     userId: number,
     promptArgument: string, 
     conversationHistory: StandardizedChatCompletionMessage[],
-    user: StorageUser,
-    interactionId: string 
+    user: StorageUser, 
+    interactionId: string,
+    explicitTriggerType: string // NEW: For consistent file naming
   ): Promise<StandardizedChatCompletionMessage> {
     const logSetting = await storage.getSetting('log_llm_prompts');
     const shouldLogPrompts = logSetting === 'true';
-
+    
     // 1. Determine Provider and Effective Model Name
     const preferredModel = user.preferredModel || "gpt-4o";
     console.log(`Using user's preferred model: ${preferredModel} for unified response`);
@@ -334,19 +335,17 @@ Your response MUST be JSON.`;
 
         const logContext: PromptLogContext = {
             userId,
-            triggerType,
+            triggerType: explicitTriggerType, // USE PASSED-IN TRIGGER TYPE
             provider: provider.constructor.name, 
             model: effectiveModel,
             temperature: temperature, 
             jsonMode: requiresJson,
-            interactionId 
+            interactionId
         };
         await logPromptToFile(logContext, combinedMessage, 'prompt'); 
     } else {
-        const triggerType = promptArgument.includes("System Request: Initiate") 
-            ? `system_request:${promptArgument.match(/System Request: Initiate (\S+)/)?.[1] || 'unknown'}` 
-            : "handle_response";
-        console.log(`[Prompt Logging Disabled] Trigger: ${triggerType}, User: ${userId}, Model: ${effectiveModel}`);
+        // Optional console log
+        console.log(`[Prompt Logging Disabled] Trigger: ${explicitTriggerType}, User: ${userId}, Model: ${effectiveModel}`);
     }
     
     // 5. DEBUG: Log parameters before calling provider (Optional, can be part of above if desired)
@@ -391,6 +390,7 @@ Your response MUST be JSON.`;
     const interactionId = uuidv4(); // Create ONCE per top-level call
     const logSetting = await storage.getSetting('log_llm_prompts');
     const shouldLogPrompts = logSetting === 'true';
+    const triggerTypeForLogs = "handle_response"; // Define once for this handler
     console.log(`Processing response from user ${userId}: "${userMessageContent.substring(0, 50)}..."`);
 
     const now = new Date(); // Get current time once
@@ -461,7 +461,12 @@ Your response MUST be JSON.`;
         // <--- End Log
         // C. Call the LLM using the new abstracted function
         const assistantResponseObject = await this.generateUnifiedResponse(
-            userId, currentPrompt, conversationHistory, user, interactionId // Pass interactionId
+            userId, 
+            currentPrompt, 
+            conversationHistory, 
+            user,
+            interactionId,
+            triggerTypeForLogs // Pass consistent trigger type
         );
         // Raw content is now directly from the standardized response
         const assistantRawContent = assistantResponseObject.content || `{ "message": "Error: Received empty response from LLM." }`;
@@ -469,7 +474,7 @@ Your response MUST be JSON.`;
         if (shouldLogPrompts) {
             const logContext: PromptLogContext = { 
                 userId, 
-                triggerType: "handle_response", 
+                triggerType: triggerTypeForLogs, 
                 provider: "N/A_in_loop", // Provider/model details are in the prompt log itself
                 model: user.preferredModel || "unknown", 
                 temperature: undefined, 
@@ -544,7 +549,7 @@ Your response MUST be JSON.`;
 
             if (shouldLogPrompts && executionResult) {
                 const funcResultLog = JSON.stringify(executionResult, null, 2);
-                const logContext: PromptLogContext = { userId, triggerType: "handle_response", provider: "N/A_in_loop", model: user.preferredModel || "unknown", jsonMode: false, interactionId, temperature: undefined }; 
+                const logContext: PromptLogContext = { userId, triggerType: triggerTypeForLogs, provider: "N/A_in_loop", model: user.preferredModel || "unknown", jsonMode: false, interactionId, temperature: undefined }; 
                 await logPromptToFile(logContext, `Function Result: ${funcResultLog}`, 'function_result');
             }
 
@@ -645,12 +650,13 @@ Your response MUST be JSON.`;
   async handleSystemMessage(
     userId: number,
     systemRequestType: string, 
-    contextData: Record<string, any> = {},
-    interactionId: string 
+    contextData: Record<string, any> = {}
   ): Promise<string> { 
+    const interactionId = uuidv4(); // Generate ONCE here
     const logSetting = await storage.getSetting('log_llm_prompts');
     const shouldLogPrompts = logSetting === 'true';
-    logger.info({ userId, systemRequestType, contextData, interactionId }, `Handling system message`); // Log interactionId too
+    const triggerTypeForLogs = `system_request:${systemRequestType}`; // Define once
+    logger.info({ userId, systemRequestType, contextData, interactionId }, `Handling system message`); // Log the generated ID
     try {
       // 1. Prepare Context (Fetch user WITH the new timestamp field)
       const user = await db.select().from(users).where(eq(users.id, userId)).limit(1).then(res => res[0]); // Fetch directly
@@ -699,21 +705,21 @@ Your response MUST be JSON.`;
           prompt, 
           conversationHistory, 
           user, 
-          interactionId 
+          interactionId, // Pass the generated interactionId
+          triggerTypeForLogs // Pass consistent trigger type
       );
       const finalContent = assistantMessage.content || `{ "message": "System message generation failed." }`;
       
       // ---> Log LLM Raw Response for system message (if enabled)
       if (shouldLogPrompts) {
-          const triggerType = `system_request:${systemRequestType}`; 
           const logContext: PromptLogContext = { 
               userId, 
-              triggerType, 
-              provider: "N/A_SysMsg_Resp", // Placeholder, actual provider logged with prompt
-              model: user.preferredModel || "unknown", 
-              temperature: undefined, // Not directly available here
-              jsonMode: false, // Assume not JSON for simple system messages unless known
-              interactionId 
+              triggerType: triggerTypeForLogs, 
+              provider: "N/A_SysMsg_Resp", // Placeholder, details logged with initial prompt
+              model: user.preferredModel || "unknown", // Placeholder
+              temperature: undefined, // Placeholder
+              jsonMode: false, // Placeholder
+              interactionId // Use the SAME interactionId
           };
           await logPromptToFile(logContext, finalContent, 'llm_response');
       }
@@ -1611,8 +1617,7 @@ Your response MUST be JSON.`;
              { 
                  messageScheduleId: schedule.id, 
                  taskDetails: (schedule.metadata as any)?.taskDetails ?? (schedule.metadata as any) // Pass metadata
-             },
-             uuidv4() // Generate unique ID for this interaction
+             }
          );
 
          if (messageContent && !messageContent.startsWith("Sorry")) {
