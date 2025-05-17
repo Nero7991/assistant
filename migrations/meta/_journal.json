@@ -64,6 +64,13 @@
       "when": 1746210100413,
       "tag": "0008_mute_squirrel_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1746839235701,
+      "tag": "0009_handy_true_believers",
+      "breakpoints": true
     }
   ]
 }

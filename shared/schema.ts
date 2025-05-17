@@ -535,6 +535,7 @@ export const devlmSessions = pgTable("devlm_sessions", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
   sessionName: text("session_name").notNull(),
+  taskDescription: text("task_description"), // NEW: For storing task input
   mode: text("mode").notNull().default('generate'), // 'test' or 'generate'
   model: text("model").default('claude'),
   source: text("source").default('anthropic'), // 'gcloud', 'anthropic', 'openai'
@@ -545,7 +546,7 @@ export const devlmSessions = pgTable("devlm_sessions", {
   region: text("region"), // For gcloud source
   serverUrl: text("server_url"), // For openai source
   projectPath: text("project_path").default('.'),
-  writeMode: text("write_mode").default('diff'), // 'direct' or 'diff'
+  writeMode: text("write_mode").default('diff'), // 'direct', 'diff', or 'git_diff'
   debugPrompt: boolean("debug_prompt").default(false),
   noApproval: boolean("no_approval").default(false),
   frontend: boolean("frontend").default(false),
@@ -566,6 +567,7 @@ export const devlmSessionsRelations = relations(devlmSessions, ({ one }) => ({
 export const insertDevlmSessionSchema = createInsertSchema(devlmSessions)
   .pick({
     sessionName: true,
+    taskDescription: true, // NEW: Pick the new field
     mode: true,
     model: true,
     source: true,
@@ -583,7 +585,9 @@ export const insertDevlmSessionSchema = createInsertSchema(devlmSessions)
   })
   .extend({
     sessionName: z.string().min(1, "Session name is required"),
+    taskDescription: z.string().optional(), // NEW: Add to Zod schema, optional
     mode: z.enum(['generate', 'test']).default('generate'),
+    writeMode: z.enum(['direct', 'diff', 'git_patch']).default('diff'), // Change git_diff to git_patch
     source: z.enum(['gcloud', 'anthropic', 'openai']).default('anthropic'),
     publisher: z.string().optional(), // NEW: Optional publisher
     anthropicApiKey: z.string().optional(), 

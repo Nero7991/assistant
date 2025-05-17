@@ -58,7 +58,7 @@ export class OpenAIProvider implements LLMProvider {
     }
     const dynamicOpenaiClient = new OpenAI(clientOptions);
     // <--- END NEW
-
+    
     // Map standardized messages to specific OpenAI format based on role
     const openAIMessages: ChatCompletionMessageParam[] = messages.map(msg => {
       switch (msg.role) {

@@ -1,0 +1,1 @@
+ALTER TABLE "devlm_sessions" ADD COLUMN "task_description" text;

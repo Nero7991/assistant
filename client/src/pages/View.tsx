@@ -12,6 +12,12 @@ type DevlmSession = { id: number; sessionName: string; [key: string]: any };
 // Exclude API keys from the type used on the frontend for safety
 type DevlmSessionFrontend = Omit<DevlmSession, 'anthropicApiKey' | 'openaiApiKey'> & { id: number; sessionName: string };
 
+// ---> Create memoized input components to potentially help with focus issues
+const MemoizedTextField = React.memo(TextField);
+const MemoizedSelect = React.memo(Select);
+const MemoizedSwitch = React.memo(Switch);
+// <--- End memoized components
+
 const View: React.FC = () => {
   // --- State for Inputs ---
   const [taskInput, setTaskInput] = useState('');
@@ -65,6 +71,7 @@ const View: React.FC = () => {
     }
     const sessionData = {
       sessionName: newSessionName,
+      taskDescription: taskInput,
       mode,
       model,
       source,
@@ -128,6 +135,7 @@ const View: React.FC = () => {
     if (selectedSessionId) {
       const selectedSession = sessions.find(s => s.id === selectedSessionId);
       if (selectedSession) {
+        setTaskInput(selectedSession.taskDescription || '');
         setMode(selectedSession.mode || 'generate');
         setModel(selectedSession.model || 'claude');
         setSource(selectedSession.source || 'anthropic');
@@ -423,29 +431,29 @@ const View: React.FC = () => {
             <GridItem xs={12} sm={4}>
               <FormControl fullWidth size="small">
                 <InputLabel>Mode</InputLabel>
-                <Select label="Mode" value={mode} onChange={(e) => setMode(e.target.value)}>
+                <MemoizedSelect label="Mode" value={mode} onChange={(e) => setMode(String(e.target.value))}>
                   <MenuItem value="generate">generate</MenuItem>
                   <MenuItem value="test">test</MenuItem>
-                </Select>
+                </MemoizedSelect>
               </FormControl>
             </GridItem>
             <GridItem xs={12} sm={4}>
-               <TextField fullWidth size="small" label="Model" value={model} onChange={(e) => setModel(e.target.value)} />
+               <MemoizedTextField fullWidth size="small" label="Model" value={model} onChange={(e) => setModel(e.target.value)} />
             </GridItem>
             <GridItem xs={12} sm={4}>
               <FormControl fullWidth size="small">
                 <InputLabel>Source</InputLabel>
-                <Select label="Source" value={source} onChange={(e) => setSource(e.target.value)}>
+                <MemoizedSelect label="Source" value={source} onChange={(e) => setSource(String(e.target.value))}>
                   <MenuItem value="anthropic">anthropic</MenuItem>
                   <MenuItem value="gcloud">gcloud</MenuItem>
                   <MenuItem value="openai">openai</MenuItem>
-                </Select>
+                </MemoizedSelect>
               </FormControl>
             </GridItem>
             {source === 'gcloud' && (
               <>
                 <GridItem xs={12}>
-                  <TextField 
+                  <MemoizedTextField 
                     fullWidth 
                     size="small" 
                     label="Publisher (Vertex AI)" 
@@ -456,45 +464,46 @@ const View: React.FC = () => {
                   >
                       <MenuItem value="anthropic">anthropic</MenuItem>
                       <MenuItem value="google">google</MenuItem>
-                  </TextField>
+                  </MemoizedTextField>
                 </GridItem>
                 <GridItem xs={12} sm={6}>
-                  <TextField fullWidth size="small" label="Project ID (GCloud)" value={projectId} onChange={(e) => setProjectId(e.target.value)} />
+                  <MemoizedTextField fullWidth size="small" label="Project ID (GCloud)" value={projectId} onChange={(e) => setProjectId(e.target.value)} />
                 </GridItem>
                 <GridItem xs={12} sm={6}>
-                  <TextField fullWidth size="small" label="Region (GCloud)" value={region} onChange={(e) => setRegion(e.target.value)} />
+                  <MemoizedTextField fullWidth size="small" label="Region (GCloud)" value={region} onChange={(e) => setRegion(e.target.value)} />
                 </GridItem>
               </>
             )}
             {source === 'openai' && (
               <GridItem xs={12}>
-                <TextField fullWidth size="small" label="Server URL (OpenAI Base)" value={serverUrl} onChange={(e) => setServerUrl(e.target.value)} />
+                <MemoizedTextField fullWidth size="small" label="Server URL (OpenAI Base)" value={serverUrl} onChange={(e) => setServerUrl(e.target.value)} />
               </GridItem>
             )}
             <GridItem xs={12} sm={6}>
-              <TextField fullWidth size="small" label="Project Path" value={projectPath} onChange={(e) => setProjectPath(e.target.value)} />
+              <MemoizedTextField fullWidth size="small" label="Project Path" value={projectPath} onChange={(e) => setProjectPath(e.target.value)} />
             </GridItem>
             <GridItem xs={12} sm={6}>
               <FormControl fullWidth size="small">
                 <InputLabel>Write Mode</InputLabel>
-                <Select label="Write Mode" value={writeMode} onChange={(e) => setWriteMode(e.target.value)}>
+                <MemoizedSelect label="Write Mode" value={writeMode} onChange={(e) => setWriteMode(String(e.target.value))}>
                   <MenuItem value="diff">diff</MenuItem>
                   <MenuItem value="direct">direct</MenuItem>
-                </Select>
+                  <MenuItem value="git_patch">git_patch</MenuItem>
+                </MemoizedSelect>
               </FormControl>
             </GridItem>
             <GridItem xs={12} sm={4}>
-               <FormControlLabel control={<Switch checked={debugPrompt} onChange={(e) => setDebugPrompt(e.target.checked)} />} label="Debug Prompt" />
+               <FormControlLabel control={<MemoizedSwitch checked={debugPrompt} onChange={(e) => setDebugPrompt(e.target.checked)} />} label="Debug Prompt" />
             </GridItem>
             <GridItem xs={12} sm={4}>
-               <FormControlLabel control={<Switch checked={noApproval} onChange={(e) => setNoApproval(e.target.checked)} />} label="No Approval Needed" />
+               <FormControlLabel control={<MemoizedSwitch checked={noApproval} onChange={(e) => setNoApproval(e.target.checked)} />} label="No Approval Needed" />
             </GridItem>
              <GridItem xs={12} sm={4}>
-               <FormControlLabel control={<Switch checked={frontend} onChange={(e) => setFrontend(e.target.checked)} />} label="Frontend Testing" />
+               <FormControlLabel control={<MemoizedSwitch checked={frontend} onChange={(e) => setFrontend(e.target.checked)} />} label="Frontend Testing" />
             </GridItem>
             {source === 'anthropic' && (
               <GridItem xs={12}>
-                <TextField 
+                <MemoizedTextField 
                   fullWidth 
                   size="small" 
                   label="Anthropic API Key" 
@@ -507,7 +516,7 @@ const View: React.FC = () => {
             )}
             {source === 'openai' && (
               <GridItem xs={12}>
-                <TextField 
+                <MemoizedTextField 
                   fullWidth 
                   size="small" 
                   label="OpenAI API Key" 

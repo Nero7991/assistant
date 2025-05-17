@@ -91,6 +91,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const [newSession] = await db.insert(devlmSessions).values({
         ...validationResult.data,
         userId: req.user.id,
+        taskDescription: validationResult.data.taskDescription || null, // Add taskDescription
         publisher: validationResult.data.publisher || (validationResult.data.source === 'gcloud' ? 'anthropic' : null), // NEW: Default publisher if gcloud
         anthropicApiKey: validationResult.data.anthropicApiKey || null,
         openaiApiKey: validationResult.data.openaiApiKey || null,
@@ -117,6 +118,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         frontend: devlmSessions.frontend,
         createdAt: devlmSessions.createdAt,
         updatedAt: devlmSessions.updatedAt,
+        taskDescription: devlmSessions.taskDescription, // Return taskDescription
       });
       res.status(201).json(newSession);
     } catch (error) {
@@ -149,6 +151,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         frontend: devlmSessions.frontend,
         createdAt: devlmSessions.createdAt,
         updatedAt: devlmSessions.updatedAt,
+        taskDescription: devlmSessions.taskDescription, // Select taskDescription
       }).from(devlmSessions)
         .where(eq(devlmSessions.userId, req.user.id))
         .orderBy(desc(devlmSessions.updatedAt)); 

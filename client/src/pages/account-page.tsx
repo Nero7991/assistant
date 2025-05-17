@@ -68,7 +68,7 @@ export default function AccountPage() {
   
   // Derived state to check if custom URL is active
   const isCustomUrlActive = customUrl && customUrl.trim() !== '';
-
+  
   // Get browser timezone on component mount
   useEffect(() => {
     if (user) {
@@ -145,7 +145,7 @@ export default function AccountPage() {
           finalCustomModel = null;
       }
       // <--- End Logic
-
+      
       // Call the API to update the user settings
       const response = await apiRequest("PATCH", "/api/user", {
         timeZone,

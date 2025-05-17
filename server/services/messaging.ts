@@ -280,7 +280,7 @@ Your response MUST be JSON.`;
   ): Promise<StandardizedChatCompletionMessage> {
     const logSetting = await storage.getSetting('log_llm_prompts');
     const shouldLogPrompts = logSetting === 'true';
-    
+
     // 1. Determine Provider and Effective Model Name
     const preferredModel = user.preferredModel || "gpt-4o";
     console.log(`Using user's preferred model: ${preferredModel} for unified response`);
@@ -291,12 +291,12 @@ Your response MUST be JSON.`;
     const customApiKey = null; 
 
     if (preferredModel === "custom" && effectiveBaseUrl) {
-        provider = openAIProvider;
+      provider = openAIProvider;
         effectiveModel = customModelName || "model";
         console.log(`[generateUnifiedResponse] Using Custom OpenAI config: URL=${effectiveBaseUrl}, Model=${effectiveModel}`);
     } else if (preferredModel.startsWith("gemini-")) {
         provider = gcloudProvider;
-        effectiveModel = preferredModel; 
+      effectiveModel = preferredModel;
         console.log("[generateUnifiedResponse] Using GCloudProvider.");
     } else if (preferredModel.startsWith("gpt-") || preferredModel.startsWith("o1-") || preferredModel.startsWith("o3-")) {
         provider = openAIProvider;
@@ -363,8 +363,8 @@ Your response MUST be JSON.`;
     // 6. Call the Provider
     try {
       const responseMessage = await provider.generateCompletion(
-        effectiveModel, 
-        messages, 
+        effectiveModel,
+        messages,
         temperature,
         requiresJson,
         llmFunctionDefinitions, 
@@ -373,15 +373,15 @@ Your response MUST be JSON.`;
       );
       // Raw response logging is now handled by the CALLER of generateUnifiedResponse (handleUserResponse or handleSystemMessage)
       return responseMessage;
-    } catch (error) {
-      console.error(`[generateUnifiedResponse] Error during provider execution:`, error);
+        } catch (error) {
+        console.error(`[generateUnifiedResponse] Error during provider execution:`, error);
       // Error object logging is handled by the CALLER
-      return {
-        role: "assistant",
+          return {
+            role: "assistant",
         content: `{ "message": "Sorry, I encountered an error communicating with the AI service (provider error). Original error: ${error instanceof Error ? error.message : String(error)}" }`,
-        name: undefined,
-        tool_calls: undefined
-      };
+            name: undefined,
+            tool_calls: undefined
+        };
     }
   }
 
@@ -442,11 +442,11 @@ Your response MUST be JSON.`;
         // E. Add the assistant's message to history (for next loop iteration)
         if (lastProcessedResult.message !== null) { // Don't add null messages to history
             currentHistory.push({
-                role: "assistant",
+            role: "assistant",
                 content: lastProcessedResult.message, 
-                name: undefined,
-                tool_calls: assistantResponseObject.tool_calls 
-            });
+            name: undefined,
+            tool_calls: assistantResponseObject.tool_calls 
+        });
         }
 
         // F. Check for Function Call Request
@@ -456,7 +456,7 @@ Your response MUST be JSON.`;
             functionName = lastProcessedResult.function_call.name;
             functionArgs = lastProcessedResult.function_call.arguments || {};
             console.log(`LLM requested function call via JSON content: ${functionName}`);
-        } else {
+    } else {
             console.log("No function_call found in processed LLM response content.");
         }
 
@@ -490,8 +490,8 @@ Your response MUST be JSON.`;
                     executionResult = { error: `Unknown function: ${functionName}` };
                     functionResultMessageContent = JSON.stringify(executionResult);
                 }
-            } catch (error) {
-                const errorMessage = error instanceof Error ? error.message : String(error);
+          } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
                 executionResult = { error: `Error executing function ${functionName}: ${errorMessage}` };
                 functionResultMessageContent = JSON.stringify(executionResult);
             }
@@ -522,8 +522,8 @@ Your response MUST be JSON.`;
             // K. Store results for next prompt context & Continue loop
             currentFunctionResults = { [functionName]: executionResult };
             continue;
-        } else {
-            // --- No Function Call Detected - Final Response --- 
+      } else {
+            // --- No Function Call Detected - Final Response ---
             finalAssistantMessage = lastProcessedResult.message;
             
             // Perform final actions outside the loop (formatting, saving, sending)
@@ -593,25 +593,25 @@ Your response MUST be JSON.`;
         console.log("[Formatting] Applied WhatsApp bold conversion.");
     }
 
-    console.log(`[DEBUG] Saving final assistant message to DB. Content: "${finalAssistantMessage}"`);
+            console.log(`[DEBUG] Saving final assistant message to DB. Content: "${finalAssistantMessage}"`);
     const contentToSave = finalAssistantMessage ?? "[LLM generation failed or produced null]";
-    try {
+            try {
         await db.insert(messageHistory).values({
-            userId: userId,
+                   userId: userId,
             content: contentToSave,
-            type: "coach_response",
+                   type: "coach_response",
             status: "sent", // Assuming it will be sent
             metadata: {}, // Reset metadata for final save?
-            createdAt: new Date(),
+                   createdAt: new Date(),
         });
-    } catch (dbError) {
+            } catch (dbError) {
         console.error(`[CRITICAL] Failed to save final assistant message to DB for user ${userId} (Interaction: ${interactionId}): `, dbError);
-    }
+            }
 
     // Send Final Message
     if (user.phoneNumber && finalAssistantMessage) { 
         console.log(`[Sync] Attempting to send final response to WhatsApp for user ${userId} (Interaction: ${interactionId})`);
-        await this.sendWhatsAppMessage(user.phoneNumber, finalAssistantMessage);
+                 await this.sendWhatsAppMessage(user.phoneNumber, finalAssistantMessage);
     } else if (user.phoneNumber && !finalAssistantMessage) {
         console.warn(`[handleUserResponse] Skipping WhatsApp send for user ${userId} because final message was null (Interaction: ${interactionId}).`);
     }
@@ -717,7 +717,7 @@ Your response MUST be JSON.`;
                     break;
               default:
                     messageToUser = `Hi ${userName}, just checking in!`;
-          }
+      }
           console.log(`Generated fallback message: "${messageToUser}"`);
       } else {
           // Use the valid message returned from the loop
@@ -1571,7 +1571,7 @@ Your response MUST be JSON.`;
              { 
                  messageScheduleId: schedule.id, 
                  taskDetails: (schedule.metadata as any)?.taskDetails ?? (schedule.metadata as any) // Pass metadata
-             }
+             } 
          );
 
          if (messageContent && !messageContent.startsWith("Sorry")) {
@@ -1818,7 +1818,7 @@ Your response MUST be JSON.`;
           console.warn(`[scheduleRemindersForSpecificDate] Task ${task.id} has no scheduledTime. Cannot schedule.`);
           return schedulesCreated;
       }
-      
+
       // ---> FIX: Use the parseHHMM helper function
       const timeParts = parseHHMM(task.scheduledTime);
       // <--- END FIX
