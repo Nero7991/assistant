@@ -23,15 +23,26 @@ export function log(message: string, source = "express") {
 }
 
 export async function setupVite(app: Express, server: Server) {
-  const mergedServerOptions = {
-    ...(viteConfig.server || {}),
+  const mergedServerOptions: Record<string, any> = {
     middlewareMode: true,
     hmr: {
-      ...(viteConfig.server?.hmr || {}),
       server 
     },
-    host: viteConfig.server?.host || '0.0.0.0' 
+    host: '0.0.0.0' 
   };
+  
+  // Safely merge server options
+  if (viteConfig.server) {
+    Object.assign(mergedServerOptions, viteConfig.server);
+    
+    // Safely merge hmr options
+    if (viteConfig.server.hmr && typeof viteConfig.server.hmr === 'object') {
+      mergedServerOptions.hmr = {
+        ...mergedServerOptions.hmr,
+        ...viteConfig.server.hmr
+      };
+    }
+  }
 
   const vite = await createViteServer({
     ...viteConfig,
