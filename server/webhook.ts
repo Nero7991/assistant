@@ -1,9 +1,12 @@
-import { Request, Response } from "express";
+import { Request, Response, Router } from "express";
 import twilio from "twilio";
 import { MessagingService, messagingService } from "./services/messaging";
 import { db } from "./db";
 import { users } from "@shared/schema";
 import { eq } from "drizzle-orm";
+
+// Create a router for webhook endpoints
+const webhookRouter = Router();
 
 // Initialize Twilio client and log configuration
 const twilioClient = twilio(
@@ -64,6 +67,7 @@ async function findUserByPhoneNumber(phoneNumber: string): Promise<number | null
   }
 }
 
+// Define the webhook endpoint handler
 export async function handleWhatsAppWebhook(req: Request, res: Response) {
   // Log raw request details for debugging
   console.log('********** INCOMING WHATSAPP WEBHOOK REQUEST **********');
@@ -136,3 +140,9 @@ export async function handleWhatsAppWebhook(req: Request, res: Response) {
     }
   }
 }
+
+// Register the WhatsApp webhook route
+webhookRouter.post('/whatsapp', handleWhatsAppWebhook);
+
+// Export the router for use in the main app
+export { webhookRouter };

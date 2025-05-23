@@ -44,7 +44,7 @@ export const DevlmRunnerProvider: React.FC<DevlmRunnerProviderProps> = ({ childr
   const webSocketRef = useRef<WebSocket | null>(null);
   const currentRunParams = useRef<StartScriptParams | null>(null); // Store params for retries/reconnects
   const authToken = useRef<string | null>(null); // Store auth token
-  constisAuthenticated = useRef<boolean>(false); // Track WS auth status
+  const isAuthenticated = useRef<boolean>(false); // Track WS auth status
 
   // Function to add output lines, handling newlines
   const addOutput = useCallback((data: string) => {

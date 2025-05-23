@@ -24,12 +24,13 @@ import { Loader2 } from "lucide-react";
 interface VerificationDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSuccess: () => void;
+  onSuccess: ((code?: string) => void);
   onSkip?: () => void;
   title: string;
   description?: string;
   type: "email" | "phone";
   showSkip?: boolean;
+  isPending?: boolean;
 }
 
 export function VerificationDialog({
@@ -41,6 +42,7 @@ export function VerificationDialog({
   description,
   type,
   showSkip = false,
+  isPending = false,
 }: VerificationDialogProps) {
   const { toast } = useToast();
   const [isVerifying, setIsVerifying] = useState(false);
@@ -86,8 +88,8 @@ export function VerificationDialog({
       });
       console.log("3. Verification Status:", {
         type,
-        isEmailVerified: updatedUser?.isEmailVerified,
-        isPhoneVerified: updatedUser?.isPhoneVerified,
+        isEmailVerified: updatedUser && typeof updatedUser === 'object' && 'isEmailVerified' in updatedUser ? updatedUser.isEmailVerified : undefined,
+        isPhoneVerified: updatedUser && typeof updatedUser === 'object' && 'isPhoneVerified' in updatedUser ? updatedUser.isPhoneVerified : undefined,
       });
       console.log("4. Session Info:", {
         hasUser: !!updatedUser,
@@ -100,7 +102,7 @@ export function VerificationDialog({
         description: `Your ${type} has been verified.`
       });
 
-      onSuccess();
+      onSuccess(data.code);
     } catch (error) {
       console.error(`${type} verification failed:`, error);
       toast({
@@ -187,10 +189,10 @@ export function VerificationDialog({
             <div className="flex flex-col gap-2">
               <Button
                 type="submit"
-                disabled={isVerifying}
+                disabled={isVerifying || isPending}
                 data-testid={`${type}-verify-button`}
               >
-                {isVerifying ? (
+                {isVerifying || isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Verifying...

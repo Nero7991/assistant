@@ -128,7 +128,7 @@ export function AddSubtaskDialog({ open, onOpenChange, taskId }: AddSubtaskDialo
                   <FormControl>
                     <Input 
                       type="date" 
-                      value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : field.value as string}
+                      value={field.value instanceof Date ? field.value.toISOString().split('T')[0] : (field.value ?? "")}
                       onChange={(e) => {
                         field.onChange(new Date(e.target.value));
                       }}

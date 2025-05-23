@@ -423,7 +423,7 @@ export async function createDailyScheduleFromParsed(
     for (const item of matchedItems) {
       if (item.taskId) {
         try {
-          await storage.updateTask(item.taskId, {
+          await storage.updateTask(item.taskId, userId, {
             scheduledTime: item.startTime
           });
           console.log(`Updated task ${item.taskId} with start time ${item.startTime}`);

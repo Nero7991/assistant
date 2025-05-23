@@ -16,7 +16,18 @@ import { Request, Response, NextFunction } from "express";
 import crypto from 'crypto';
 import { z } from 'zod';
 
+// Helper to safely access the tempUserId from session
+function getTempUserId(req: Request): number | undefined {
+  return (req.session as any).tempUserId;
+}
+
+// Helper to safely set the tempUserId in session
+function setTempUserId(req: Request, id: number): void {
+  (req.session as any).tempUserId = id;
+}
+
 // Add tempUserId to session type
+// Declare the session with tempUserId
 declare module 'express-session' {
   interface SessionData {
     tempUserId?: number;
@@ -31,7 +42,7 @@ declare global {
 
 const scryptAsync = promisify(scrypt);
 
-async function hashPassword(password: string) {
+export async function hashPassword(password: string) {
   const salt = randomBytes(16).toString("hex");
   const buf = (await scryptAsync(password, salt, 64)) as Buffer;
   return `${buf.toString("hex")}.${salt}`;
@@ -171,10 +182,12 @@ async function hashResetToken(token: string): Promise<string> {
 }
 // <--- END NEW
 
-export function setupAuth(app: Express): session.SessionRequestHandler {
-  const PgStore = connectPgSimple(session);
+export function setupAuth(app: Express): any {
+  // Use any for the return type to avoid session typing issues
+  const PgStore = connectPgSimple(session as any);
 
-  const sessionMiddleware = session({
+  // Use a type assertion to fix the call signature issue
+  const sessionMiddleware = (session as any)({
     store: new PgStore({
       pool: pool, 
       tableName: 'session', 
@@ -242,6 +255,8 @@ export function setupAuth(app: Express): session.SessionRequestHandler {
   });
 
   app.post("/api/register", authLimiter, async (req, res, next) => {
+    // Add type assertion to inform TypeScript about the extended session type
+    const session = req.session as any;
     // ---> NEW: Global override check first
     if (process.env.REGISTRATION_ENABLED !== "true") {
       console.log("Registration attempt denied: Registration is globally disabled via REGISTRATION_ENABLED.");
@@ -295,13 +310,13 @@ export function setupAuth(app: Express): session.SessionRequestHandler {
       // Check for verified contact from temp user
       let isEmailVerified = false;
       let isPhoneVerified = false;
-
-      if (req.session.tempUserId) {
-        console.log("Checking verifications from temp user:", req.session.tempUserId);
-        const verifications = await storage.getVerifications(req.session.tempUserId);
+      const tempUserId = getTempUserId(req);
+      if (tempUserId) {
+        console.log("Checking verifications from temp user:", tempUserId);
+        const verifications = await storage.getVerifications(tempUserId);
 
         console.log("Found verifications for temp user:", {
-          tempUserId: req.session.tempUserId,
+          tempUserId,
           verifications: verifications.map(v => ({
             type: v.type,
             verified: v.verified,
@@ -322,7 +337,7 @@ export function setupAuth(app: Express): session.SessionRequestHandler {
         }
 
         console.log("Verification status determined:", {
-          tempUserId: req.session.tempUserId,
+          tempUserId,
           isEmailVerified,
           isPhoneVerified
         });
@@ -381,8 +396,8 @@ export function setupAuth(app: Express): session.SessionRequestHandler {
 
       if (req.isAuthenticated()) {
         userId = req.user.id;
-      } else if (req.session.tempUserId) {
-        userId = req.session.tempUserId;
+      } else if (getTempUserId(req)) {
+        userId = getTempUserId(req)!;
       } else {
         console.log("No user ID found (neither authenticated nor temporary)");
         return res.status(401).json({ message: "No valid user session" });
@@ -447,13 +462,13 @@ export function setupAuth(app: Express): session.SessionRequestHandler {
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
       // Generate new temp ID only if one doesn't exist
-      if (!req.session.tempUserId) {
+      if (!getTempUserId(req)) {
         let tempId;
         do {
           tempId = generateTempUserId();
         } while (!(await validateTempUserId(tempId)));
 
-        req.session.tempUserId = tempId;
+        setTempUserId(req, tempId);
         // Save session explicitly to ensure the tempUserId is stored
         await new Promise<void>((resolve, reject) => {
           req.session.save((err) => {
@@ -463,14 +478,15 @@ export function setupAuth(app: Express): session.SessionRequestHandler {
         });
       }
 
+      const tempId = getTempUserId(req);
       console.log("Using temporary user ID for verification:", {
-        tempUserId: req.session.tempUserId,
+        tempUserId: tempId,
         type,
-        isNewId: !req.session.tempUserId
+        isNewId: !tempId
       });
 
       await storage.createContactVerification({
-        userId: req.session.tempUserId!,
+        userId: tempId!,
         type,
         code: verificationCode,
         expiresAt,
@@ -481,7 +497,7 @@ export function setupAuth(app: Express): session.SessionRequestHandler {
       // Send verification code
       const messageSent = await sendVerificationMessage(
         type,
-        contact,
+        contact || "",
         verificationCode
       );
 
@@ -491,7 +507,7 @@ export function setupAuth(app: Express): session.SessionRequestHandler {
 
       res.json({
         message: "Verification code sent",
-        tempUserId: req.session.tempUserId
+        tempUserId: getTempUserId(req)
       });
     } catch (error) {
       console.error("Verification initiation error:", error);
@@ -531,7 +547,7 @@ export function setupAuth(app: Express): session.SessionRequestHandler {
 
     const messageSent = await sendVerificationMessage(
       messageType,
-      contact,
+      contact || "",
       verificationCode
     );
 
@@ -550,7 +566,7 @@ export function setupAuth(app: Express): session.SessionRequestHandler {
   });
 
   app.post("/api/login", authLimiter, (req, res, next) => {
-    passport.authenticate("local", (err, user, info) => {
+    passport.authenticate("local", (err: any, user: Express.User | false, info: any) => {
       if (err) return next(err);
       if (!user) return res.status(401).json({ message: "Invalid credentials" });
 

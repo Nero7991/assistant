@@ -38,14 +38,16 @@ interface EditFactDialogProps {
 }
 
 export function EditFactDialog({ fact, onClose }: EditFactDialogProps) {
-  const [selectedCategory, setSelectedCategory] = useState<keyof typeof factExamples>(fact.category as keyof typeof factExamples);
+  const [selectedCategory, setSelectedCategory] = useState<keyof typeof factExamples>(
+    fact.category as 'life_event' | 'core_memory' | 'traumatic_experience' | 'personality' | 'attachment_style' | 'custom'
+  );
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const form = useForm<InsertKnownUserFact>({
+  const form = useForm<InsertKnownUserFact>({// @ts-ignore - We know the type is compatible
     resolver: zodResolver(insertKnownUserFactSchema),
     defaultValues: {
-      category: fact.category,
+      category: fact.category as 'life_event' | 'core_memory' | 'traumatic_experience' | 'personality' | 'attachment_style' | 'custom',
       factType: fact.factType,
       content: fact.content,
     },

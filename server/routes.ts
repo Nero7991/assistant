@@ -27,6 +27,7 @@ import { generateTaskSuggestions } from "./services/task-suggestions";
 import { db } from "./db";
 import { eq, desc, and, gte, lt } from "drizzle-orm";
 import { registerScheduleManagementAPI } from "./api/schedule-management";
+import { registerPeopleManagementAPI } from "./api/people-management";
 import OpenAI from "openai";
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import path, { dirname } from 'path'; 
@@ -45,7 +46,7 @@ import type { MessageContext, ScheduleUpdate } from "./services/messaging";
 // --- In-memory store for running DevLM processes & WS Auth Tokens ---
 interface RunningProcessInfo {
   process: ChildProcessWithoutNullStreams;
-  ws: WebSocket;
+  ws?: WebSocket;
 }
 const runningDevlmProcesses: Map<number, RunningProcessInfo> = new Map(); 
 
@@ -75,8 +76,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // WhatsApp Webhook endpoint
   app.post("/api/webhook/whatsapp", handleWhatsAppWebhook);
   
-  // Register schedule management API endpoints
+  // Register API endpoints
   registerScheduleManagementAPI(app);
+  registerPeopleManagementAPI(app);
 
   // DevLM Session CRUD Endpoints
   app.post('/api/devlm/sessions', async (req, res) => {
@@ -295,7 +297,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       // Store the process handle
-      runningDevlmProcesses.set(userId, { process: child, ws: null });
+      runningDevlmProcesses.set(userId, { process: child, ws: undefined });
       console.log(`[DevLM Runner] Started process PID ${child.pid} for user ${userId}`);
 
       // --- Stream Output ---
@@ -605,11 +607,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         };
         
         console.log("Generating test morning message...");
-        const message = await messagingService.generateMorningMessage(messagingContext);
+        const messageResult = await messagingService.generateMorningMessage(messagingContext);
         console.log("Message generated successfully");
         
         // Check if the message includes the marker
-        const includesMarker = message.toLowerCase().includes("the final schedule is as follows:".toLowerCase());
+        const includesMarker = messageResult.message.toLowerCase().includes("the final schedule is as follows:".toLowerCase());
         console.log(`Schedule marker included: ${includesMarker}`);
         
         // Return just a simple response instead of the full message
@@ -617,7 +619,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           success: true,
           includesMarker,
           markerText: "The final schedule is as follows:",
-          messagePreview: message.substring(0, 100) + "..." // Just show a preview
+          messagePreview: messageResult.message.substring(0, 100) + "..." // Just show a preview
         });
       } catch (error) {
         console.error("Error testing schedule marker:", error);
@@ -782,8 +784,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (isNaN(taskId)) {
         return res.status(400).json({ error: "Invalid task ID" });
       }
-      // Fetch subtasks for the given task ID (storage needs getSubtasks method)
-      const subtasks = await storage.getSubtasks(taskId, req.user.id); // Assuming storage verifies user owns task
+      // Fetch subtasks for the given task ID
+      // First verify user owns task
+      const task = await storage.getTask(taskId, req.user.id);
+      
+      if (!task) {
+        return res.status(404).json({ error: "Task not found or not owned by user" });
+      }
+      
+      // Now fetch subtasks
+      const subtasks = await storage.getSubtasks(taskId);
       res.json(subtasks);
     } catch (error) {
       console.error(`Error fetching subtasks for task ${req.params.taskId}:`, error);
@@ -1482,6 +1492,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .where(eq(messageHistory.userId, req.user.id))
         .orderBy(desc(messageHistory.createdAt))
         .limit(10);
+        
+      const previousMessages = messages;
 
       // Use the appropriate timeOfDay context and adjust current time
       let currentTime = new Date();
@@ -1505,12 +1517,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         messageType
       };
       
-      let message;
+      let messageResult;
       if (messageType === 'morning') {
-        message = await messagingService.generateMorningMessage(context);
+        messageResult = await messagingService.generateMorningMessage(context);
       } else {
-        message = await messagingService.generateFollowUpMessage(context);
+        messageResult = await messagingService.generateFollowUpMessage(context);
       }
+      const message = messageResult.message;
       
       // Store the test message in the message history
       const messageId = await db.insert(messageHistory).values({
@@ -1580,7 +1593,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       
       // --- ADDING DEBUG LOG --- 
-      console.log(`[DEBUG] GET /api/messages response for user ${req.user.id}. Sending ${transformedHistory.length} messages (chronological). Last message sender: ${transformedHistory[transformedHistory.length-1]?.sender}, content: "${transformedHistory[transformedHistory.length-1]?.content.substring(0, 50)}..."`);
+      console.log(`[DEBUG] GET /api/messages response for user ${req.user.id}. Sending ${transformedHistory.length} messages (chronological). Last message direction: ${transformedHistory[transformedHistory.length-1]?.direction}, content: "${transformedHistory[transformedHistory.length-1]?.content.substring(0, 50)}..."`);
       // -----------------------
       
       res.json(transformedHistory.reverse());  // Reverse to get chronological order
@@ -1875,7 +1888,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           id: String(userMessage.id),
           type: 'response',
           direction: 'outgoing',
-          content: message,
+          content: content,
           createdAt: new Date().toISOString()
         },
         assistantMessage: {
@@ -2133,7 +2146,7 @@ wss.on('connection', (ws: WebSocket, req) => {
     (ws as any).isAuthenticated = false;
     (ws as any).userId = null; 
 
-    const sendMessage = (type: string, payload: any) => {
+    const sendMessage = (type: string, payload: any): void => {
         if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type, payload }));
         }
@@ -2236,7 +2249,8 @@ wss.on('connection', (ws: WebSocket, req) => {
                 if (sId && !isNaN(sId) && (source === 'anthropic' || source === 'openai')) {
                     // ... (Fetch API key logic - same as before) ...
                     sendMessage('status', { message: `Fetching API key from session ${sId}...` });
-                    const session = await db.select(/* ... */).from(devlmSessions).where(/* ... */).limit(1);
+                    // Assuming devlmSessions is a table, select all columns
+                    const session = await db.select().from(devlmSessions).where(eq(devlmSessions.id, sId)).limit(1);
                     if (session.length > 0) { /* ... set apiKey ... */ 
                        if (!apiKey) sendMessage('warning', { message: `API key not found in session ${sId} for source ${source}.` });
                        else sendMessage('status', { message: `API key retrieved successfully for source ${source}.` });

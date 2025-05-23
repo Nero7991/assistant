@@ -15,11 +15,6 @@ function createTestQueryClient() {
         staleTime: 0,
       },
     },
-    logger: {
-      log: console.log,
-      warn: console.warn,
-      error: () => {},
-    },
   });
 }
 
@@ -53,3 +48,6 @@ function render(
 // re-export everything
 export * from '@testing-library/react';
 export { render };
+
+// Alias render as renderWithProviders for backward compatibility
+export const renderWithProviders = render;

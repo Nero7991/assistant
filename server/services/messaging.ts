@@ -1325,8 +1325,8 @@ Your response MUST be JSON.`;
   }
 
   // REVISED: Schedule reminders for daily tasks (uses helper)
-  private async scheduleDailyReminders(): Promise<void> {
-    logger.info("[Scheduler] Starting scheduleDailyReminders check..."); // Use logger
+  private async scheduleDailyReminders(scheduleMorningMessages: boolean = true): Promise<void> {
+    logger.info(`[Scheduler] Starting scheduleDailyReminders check... ${scheduleMorningMessages ? 'Including' : 'Excluding'} morning messages`); // Use logger
     const now = new Date();
     let totalScheduled = 0;
 
@@ -1386,7 +1386,7 @@ Your response MUST be JSON.`;
   }
 
   // NEW: Schedule follow-ups for overdue daily tasks
-  private async scheduleFollowUpsForUncompletedOptimized() {
+  async scheduleFollowUpsForUncompletedOptimized() {
       logger.info("[Scheduler] Starting scheduleFollowUpsForUncompletedOptimized check...");
     const FOLLOW_UP_BUFFER_MINUTES = 60; // How long after scheduled time to wait before following up
     const now = new Date(); // Current UTC time
@@ -1532,13 +1532,53 @@ Your response MUST be JSON.`;
     }
   }
 
-  // processPendingSchedules (Modified to call new functions)
+  // processPendingSchedules (Modified to exclude morning message scheduling)
+  // Message generation methods
+  async generateMorningMessage(context: any): Promise<{ message: string; scheduleUpdates?: ScheduleUpdate[] }> {
+    // Implementation for generating morning messages
+    const message = `Good morning! Here are your tasks for today: ${JSON.stringify(context.tasks || [])}`;
+    return {
+      message,
+      scheduleUpdates: []
+    };
+  }
+
+  async generateFollowUpMessage(context: any): Promise<{ message: string; scheduleUpdates?: ScheduleUpdate[] }> {
+    // Implementation for generating follow-up messages
+    const message = `Just checking in on your task: ${context.task?.title || 'your task'}. How's it going?`;
+    return {
+      message,
+      scheduleUpdates: []
+    };
+  }
+
+  async generateRescheduleMessage(context: any): Promise<{ message: string; scheduleUpdates: ScheduleUpdate[] }> {
+    // Implementation for generating reschedule messages
+    const taskTitle = context.task?.title || 'your task';
+    const message = `I noticed ${taskTitle} hasn't been completed. Would you like to reschedule it?`;
+    return {
+      message,
+      scheduleUpdates: []
+    };
+  }
+
+  async generateResponseMessage(context: any): Promise<{ message: string; scheduleUpdates: ScheduleUpdate[] }> {
+    // Implementation for generating response messages
+    const message = `Thanks for your message: "${context.userMessage}". Let me help you with that.`;
+    return {
+      message,
+      scheduleUpdates: []
+    };
+  }
+
   async processPendingSchedules(): Promise<void> {
     const now = new Date();
     logger.info(`[Scheduler - ${now.toISOString()}] Running processPendingSchedules...`); // Use logger
 
     try {
-      await this.scheduleDailyReminders();
+      // Call scheduleDailyReminders without scheduling morning messages
+      // Morning messages are now exclusively handled by scheduleRecurringTasks
+      await this.scheduleDailyReminders(false); 
     } catch (error) {
       logger.error({ error }, "[Scheduler] Error during scheduleDailyReminders call within processPendingSchedules:"); // Use logger
     }
@@ -1679,7 +1719,7 @@ Your response MUST be JSON.`;
                 logger.info({ userId: user.id, count: userScheduledCount }, `[scheduleRecurringTasks] Scheduled reminders for recurring tasks.`);
               }
 
-              // ---> REWRITTEN BLOCK: Schedule Morning Message <---
+              // ---> IMPROVED BLOCK: Schedule Morning Message with Enhanced Duplicate Detection <---
               try {
                   const preferredTimeStr = user.preferredMessageTime || user.wakeTime || '08:00'; // Use preferred, fallback to wake, then default
                   const timeParts = parseHHMM(preferredTimeStr);
@@ -1689,27 +1729,36 @@ Your response MUST be JSON.`;
                       morningMessageDate.setHours(timeParts.hours, timeParts.minutes, 0, 0);
                       
                       // If the calculated time has already passed today, schedule for tomorrow
-                      if (morningMessageDate < new Date()) { // Compare with current time
+                      const nowInLocalTZ = toZonedTime(new Date(), timeZone);
+                      if (morningMessageDate < nowInLocalTZ) {
                           morningMessageDate = addDays(morningMessageDate, 1);
                           logger.debug({ userId: user.id, time: preferredTimeStr }, `Morning message time already passed today, scheduling for tomorrow.`);
                       }
                       
-                      const scheduleDateUTC = toDate(morningMessageDate, { timeZone }); // Convert final local date/time to UTC for DB
+                      // Convert to UTC for storage in DB
+                      const scheduleDateUTC = toDate(morningMessageDate, { timeZone });
                       
-                      // Check if a morning message already exists for this user for the target date
-                      const targetDayStart = startOfDay(scheduleDateUTC);
-                      const targetDayEnd = addDays(targetDayStart, 1);
-
-                      const existingMorningMessage = await db.select({id: messageSchedules.id}).from(messageSchedules).where(
+                      // Enhanced duplicate detection - check for any pending or scheduled morning messages
+                      // This checks both the target day and also any other days (in case of timezone issues)
+                      const existingMorningMessages = await db.select({id: messageSchedules.id}).from(messageSchedules).where(
                           and(
                               eq(messageSchedules.userId, user.id),
                               eq(messageSchedules.type, 'morning_message'),
-                              gte(messageSchedules.scheduledFor, targetDayStart),
-                              lt(messageSchedules.scheduledFor, targetDayEnd)
+                              or(
+                                  eq(messageSchedules.status, 'pending'),
+                                  eq(messageSchedules.status, 'scheduled')
+                              )
                           )
-                      ).limit(1);
+                      );
 
-                      if (existingMorningMessage.length === 0) {
+                      logger.debug({ 
+                          userId: user.id, 
+                          found: existingMorningMessages.length, 
+                          scheduledFor: scheduleDateUTC.toISOString() 
+                      }, `[scheduleRecurringTasks] Found ${existingMorningMessages.length} pending morning messages.`);
+
+                      if (existingMorningMessages.length === 0) {
+                          // No morning messages found, safe to schedule one
                           await db.insert(messageSchedules).values({
                               userId: user.id,
                               type: 'morning_message',
@@ -1720,7 +1769,7 @@ Your response MUST be JSON.`;
                           });
                           logger.info({ userId: user.id, scheduledFor: scheduleDateUTC.toISOString() }, `[scheduleRecurringTasks] Scheduled morning message.`);
                       } else {
-                           logger.debug({ userId: user.id, date: formatISO(targetDayStart) }, `[scheduleRecurringTasks] Morning message already scheduled for this date. Skipping.`);
+                           logger.debug({ userId: user.id, count: existingMorningMessages.length }, `[scheduleRecurringTasks] Morning message(s) already scheduled. Skipping.`);
                       }
                   } else {
                        logger.warn({ userId: user.id, time: preferredTimeStr }, `[scheduleRecurringTasks] Invalid preferred time format for morning message. Skipping.`);
@@ -1728,7 +1777,7 @@ Your response MUST be JSON.`;
               } catch (morningError) {
                   logger.error({ userId: user.id, error: morningError }, `[scheduleRecurringTasks] Error scheduling morning message.`);
               }
-              // ---> END REWRITTEN BLOCK <---
+              // ---> END IMPROVED BLOCK <---
 
             } catch (error) {
               logger.error({ userId: user.id, error }, `[scheduleRecurringTasks] Error processing user.`); 

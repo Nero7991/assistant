@@ -12,6 +12,7 @@ import FactsPage from "@/pages/facts-page";
 import AccountPage from "@/pages/account-page";
 import ChatPage from "@/pages/chat-page";
 import SchedulePage from "@/pages/schedule-page";
+import PeoplePage from "@/pages/people-page";
 import TestMessagesPage from "@/pages/test-messages-page";
 import View from "@/pages/View";
 import NotFound from "@/pages/not-found";
@@ -55,6 +56,14 @@ function Router() {
         component={() => (
           <AppLayout>
             <FactsPage />
+          </AppLayout>
+        )} 
+      />
+      <ProtectedRoute 
+        path="/people" 
+        component={() => (
+          <AppLayout>
+            <PeoplePage />
           </AppLayout>
         )} 
       />

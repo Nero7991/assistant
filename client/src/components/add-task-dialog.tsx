@@ -197,13 +197,13 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
 
   const getDurationPlaceholder = () => {
     switch (currentTaskType) {
-      case "DAILY":
+      case "regular":
         return "e.g., 30m or 2h";
-      case "PERSONAL_PROJECT":
+      case "personal_project":
         return "e.g., 3d or 2w";
-      case "LONG_TERM_PROJECT":
+      case "long_term_project":
         return "e.g., 6M";
-      case "LIFE_GOAL":
+      case "life_goal":
         return "e.g., 5y";
       default:
         return "";
@@ -238,7 +238,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value={TaskType.DAILY}>Daily Task</SelectItem>
+                        <SelectItem value={TaskType.REGULAR}>Regular Task</SelectItem>
                         <SelectItem value={TaskType.PERSONAL_PROJECT}>Personal Project</SelectItem>
                         <SelectItem value={TaskType.LONG_TERM_PROJECT}>Long-term Project</SelectItem>
                         <SelectItem value={TaskType.LIFE_GOAL}>Life Goal</SelectItem>
@@ -291,7 +291,7 @@ export function AddTaskDialog({ open, onOpenChange, defaultType }: AddTaskDialog
                 )}
               />
               
-              {(currentTaskType === TaskType.DAILY) && (
+              {(currentTaskType === TaskType.REGULAR) && (
                 <>
                   <FormField
                     control={form.control}

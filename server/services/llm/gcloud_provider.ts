@@ -30,7 +30,7 @@ function mapFunctionsToGeminiTool(definitions: typeof llmFunctionDefinitions): F
         return undefined;
     }
 
-    const functionDeclarations: FunctionDeclarationSchema[] = definitions.map(def => {
+    const functionDeclarations = definitions.map(def => {
         // Use the GeminiFunctionParameterType for properties
         const properties: { [key: string]: { type: GeminiFunctionParameterType; description?: string; } } = {};
         const requiredParams: string[] = def.parameters?.required || [];
@@ -52,6 +52,7 @@ function mapFunctionsToGeminiTool(definitions: typeof llmFunctionDefinitions): F
             }
         }
 
+        // Create a function declaration that matches Gemini's expected format
         return {
             name: def.name,
             description: def.description,
@@ -63,7 +64,8 @@ function mapFunctionsToGeminiTool(definitions: typeof llmFunctionDefinitions): F
         };
     });
 
-    return { functionDeclarations };
+    // Cast to the expected type
+    return { functionDeclarations } as FunctionDeclarationsTool;
 }
 
 export class GCloudProvider implements LLMProvider {

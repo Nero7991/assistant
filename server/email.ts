@@ -8,6 +8,7 @@ const mailService = new MailService();
 mailService.setApiKey(process.env.SENDGRID_API_KEY);
 
 const FROM_EMAIL = 'kona@orencollaco.com'; // Updated sender email
+const PASSWORD_RESET_EXPIRY_MINUTES = 60; // Token valid for 1 hour
 
 export async function sendVerificationEmail(
   to: string,

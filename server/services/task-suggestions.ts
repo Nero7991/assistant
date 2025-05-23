@@ -2,7 +2,7 @@ import { db } from "../db";
 import { eq } from "drizzle-orm";
 import { KnownUserFact, TaskType, knownUserFacts } from "@shared/schema";
 import { storage } from "../storage";
-import { openai } from "../openai"; // Keep OpenAI import ONLY if needed elsewhere, ideally remove if not.
+// Remove openai import as it doesn't exist
 import { format, add } from 'date-fns';
 
 // Import LLM Providers and types

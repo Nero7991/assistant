@@ -10,6 +10,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import orensLabLogo from "../assets/logo.jpeg";
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -203,8 +204,13 @@ export default function AuthPage() {
           </div>
         </div>
         <footer className="py-4 border-t mt-auto">
-          <div className="container mx-auto text-center text-sm text-muted-foreground">
-            © {new Date().getFullYear()} Oren's Lab. All rights reserved.
+          <div className="container mx-auto text-center text-sm text-muted-foreground flex flex-col items-center justify-center">
+            <div className="mb-2">
+              <img src={orensLabLogo} alt="Oren's Lab Logo" className="h-8 w-8 rounded-full" />
+            </div>
+            <div>
+              © {new Date().getFullYear()} Oren's Lab. All rights reserved.
+            </div>
           </div>
         </footer>
       </div>
@@ -353,8 +359,8 @@ const RegisterForm = ({ onSwitchMode }: { onSwitchMode: () => void }) => {
                 registeredUser,
                 updatedUser,
                 isAuthenticated: !!updatedUser,
-                isEmailVerified: updatedUser?.isEmailVerified,
-                isPhoneVerified: updatedUser?.isPhoneVerified
+                isEmailVerified: updatedUser && typeof updatedUser === 'object' && 'isEmailVerified' in updatedUser ? updatedUser.isEmailVerified : undefined,
+                isPhoneVerified: updatedUser && typeof updatedUser === 'object' && 'isPhoneVerified' in updatedUser ? updatedUser.isPhoneVerified : undefined
             });
 
         } catch (error) {
@@ -374,8 +380,8 @@ const RegisterForm = ({ onSwitchMode }: { onSwitchMode: () => void }) => {
         // Check if user object has email verified
         const userState = queryClient.getQueryData(["/api/user"]);
         console.log("User state after email verification:", {
-            isEmailVerified: userState?.isEmailVerified,
-            isPhoneVerified: userState?.isPhoneVerified
+            isEmailVerified: userState && typeof userState === 'object' && 'isEmailVerified' in userState ? userState.isEmailVerified : undefined,
+            isPhoneVerified: userState && typeof userState === 'object' && 'isPhoneVerified' in userState ? userState.isPhoneVerified : undefined
         });
 
         if (form.getValues("contactPreference") === "whatsapp" && form.getValues("phoneNumber")) {
@@ -413,8 +419,8 @@ const RegisterForm = ({ onSwitchMode }: { onSwitchMode: () => void }) => {
         // Log verification state
         const userState = queryClient.getQueryData(["/api/user"]);
         console.log("User state after phone verification:", {
-            isEmailVerified: userState?.isEmailVerified,
-            isPhoneVerified: userState?.isPhoneVerified
+            isEmailVerified: userState && typeof userState === 'object' && 'isEmailVerified' in userState ? userState.isEmailVerified : undefined,
+            isPhoneVerified: userState && typeof userState === 'object' && 'isPhoneVerified' in userState ? userState.isPhoneVerified : undefined
         });
 
         await completeRegistration();

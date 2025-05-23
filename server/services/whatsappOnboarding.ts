@@ -1,7 +1,9 @@
 import { db } from '../db';
 import { users, contactVerifications } from '../../shared/schema';
 import { eq, and, desc } from 'drizzle-orm';
-import { sendVerificationEmail } from './emailService'; // Path seems correct based on previous usage
+// TODO: Create or import proper email service
+// import { sendVerificationEmail } from './emailService';
+import { sendVerificationMessage } from '../messaging';
 import { generateVerificationCode } from '../messaging'; // Corrected path based on search
 import { hashPassword } from '../auth'; // Corrected path based on search
 import { storage } from '../storage'; // Import storage for verification DB operations
@@ -87,13 +89,13 @@ export async function handleWhatsAppOnboarding(fromPhoneNumber: string, messageB
 
                 // Use storage method to create verification record using phone number as tempId
                 await storage.createContactVerification({
-                    tempId: tempId,
+                    userId: parseInt(tempId),
                     type: 'email',
                     code: code,
                     expiresAt: expiresAt,
                 });
 
-                await sendVerificationEmail(state.email, code);
+                await sendVerificationMessage('email', state.email, code);
                 state.step = 'awaiting_email_verification';
                 return `Okay, I've sent a 6-digit verification code to ${state.email}. Please enter it here.`;
             } catch (error) {
@@ -105,7 +107,7 @@ export async function handleWhatsAppOnboarding(fromPhoneNumber: string, messageB
             const enteredCode = messageBody.trim();
             try {
                  // Fetch the latest verification attempt for this tempId (phone number)
-                const verification = await storage.getLatestContactVerification(tempId, 'email');
+                const verification = await storage.getLatestContactVerification(parseInt(tempId));
 
                 if (!verification) {
                     // Should not happen if the flow is correct
@@ -121,7 +123,7 @@ export async function handleWhatsAppOnboarding(fromPhoneNumber: string, messageB
 
                 if (verification.code === enteredCode) {
                     // Mark verified in the DB
-                    await storage.markContactVerified(tempId, 'email');
+                    await storage.markContactVerified(parseInt(tempId), 'email');
 
                     // Verification successful! Create user.
                     if (!state.email || !state.firstName) {

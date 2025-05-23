@@ -71,6 +71,13 @@
       "when": 1746839235701,
       "tag": "0009_handy_true_believers",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1747755162127,
+      "tag": "0010_tough_virginia_dare",
+      "breakpoints": true
     }
   ]
 }

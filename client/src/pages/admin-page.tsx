@@ -52,10 +52,14 @@ export default function AdminPage() {
     queryFn: fetchAdminSettings,
     enabled: !isAuthLoading && !!user, // Only run if user is loaded
     retry: false, // Don't retry on 403 or other fetch errors
-    onSuccess: (data) => {
-      setLogPrompts(data?.log_llm_prompts ?? false);
-    }
   });
+  
+  // Update state when settings data is available
+  useEffect(() => {
+    if (settings) {
+      setLogPrompts(settings.log_llm_prompts ?? false);
+    }
+  }, [settings]);
 
   // Mutation for updating settings
   const updateMutation = useMutation({
@@ -127,8 +131,8 @@ export default function AdminPage() {
         <CardContent className="space-y-6">
           <div className="space-y-2">
             <Label>Global Registration Status (Read-Only)</Label>
-            <div className={`text-sm font-medium px-3 py-1 rounded-full inline-block ${settings?.registration_globally_enabled ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-              {settings?.registration_globally_enabled ? 'ENABLED' : 'DISABLED'}
+            <div className={`text-sm font-medium px-3 py-1 rounded-full inline-block ${settings && settings.registration_globally_enabled ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+              {settings && settings.registration_globally_enabled ? 'ENABLED' : 'DISABLED'}
             </div>
             <p className="text-xs text-muted-foreground">
               Controlled by the REGISTRATION_ENABLED environment variable on the server.
@@ -137,7 +141,7 @@ export default function AdminPage() {
           <div className="space-y-2">
             <Label>Current Available Registration Slots</Label>
             <p className="text-2xl font-semibold">
-              {settings?.registration_slots_available ?? 'N/A'}
+              {settings && 'registration_slots_available' in settings ? settings.registration_slots_available : 'N/A'}
             </p>
           </div>
 

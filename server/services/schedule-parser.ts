@@ -252,7 +252,7 @@ export async function createDailyScheduleFromParsed(
     for (const item of matchedItems) {
       if (item.taskId) {
         try {
-          await storage.updateTask(item.taskId, {
+          await storage.updateTask(item.taskId, userId, {
             scheduledTime: item.startTime
           });
           console.log(`Updated task ${item.taskId} with start time ${item.startTime}`);
@@ -305,13 +305,16 @@ export async function createDailyScheduleFromParsed(
         await db
           .insert(scheduleItems)
           .values({
+            userId: userId, // This was missing
             scheduleId: newSchedule.id,
+            date: new Date(), // Required field
             taskId: item.taskId || null, // Make sure to use null if taskId is undefined
             subtaskId: item.subtaskId || null, // Include the subtask ID if available
             title: item.title,
             description: item.description || null,
             startTime: item.startTime,
-            endTime: item.endTime || null
+            endTime: item.endTime || null,
+            status: 'scheduled'
           });
       }
       

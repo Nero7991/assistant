@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, jsonb, index, json, varchar } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, index, json, varchar, date } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations, sql } from "drizzle-orm";
@@ -640,4 +640,98 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
 });
 
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
+
+// ---> NEW: People Table
+export const RelationshipType = {
+  FAMILY: 'family',
+  FRIEND: 'friend',
+  COLLEAGUE: 'colleague',
+  SIGNIFICANT_OTHER: 'significant_other',
+  ACQUAINTANCE: 'acquaintance',
+  OTHER: 'other',
+} as const;
+
+export const people = pgTable("people", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }), // The user who added this person
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name"),
+  nickname: text("nickname"),
+  email: text("email"),
+  phoneNumber: text("phone_number"),
+  contactPreference: text("contact_preference").default('sms'), // 'sms' or 'whatsapp'
+  isPhoneVerified: boolean("is_phone_verified").notNull().default(false),
+  isEmailVerified: boolean("is_email_verified").notNull().default(false),
+  birthday: date("birthday"),
+  relationship: text("relationship").notNull(), // One of RelationshipType values
+  relationshipDetails: text("relationship_details"), // More specific info about relationship
+  notes: text("notes"),
+  metadata: jsonb("metadata"), // For any additional data
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at"), // For soft delete
+});
+
+// Table for verifying added people's contact info
+export const peopleVerifications = pgTable("people_verifications", {
+  id: serial("id").primaryKey(),
+  personId: integer("person_id").notNull().references(() => people.id, { onDelete: 'cascade' }),
+  type: text("type").notNull(), // 'email' or 'phone'
+  code: text("code").notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  verified: boolean("verified").notNull().default(false),
+});
+
+// Relationships
+export const peopleRelations = relations(people, ({ one }) => ({
+  user: one(users, {
+    fields: [people.userId],
+    references: [users.id],
+  }),
+}));
+
+// Schemas for people
+export const insertPersonSchema = createInsertSchema(people)
+  .pick({
+    firstName: true,
+    lastName: true,
+    nickname: true,
+    email: true,
+    phoneNumber: true,
+    contactPreference: true,
+    birthday: true,
+    relationship: true,
+    relationshipDetails: true,
+    notes: true,
+  })
+  .extend({
+    firstName: z.string().min(1, "First name is required"),
+    lastName: z.string().optional(),
+    nickname: z.string().optional(),
+    email: z.string().email("Please enter a valid email").optional().nullable(),
+    phoneNumber: z.string().regex(/^\+\d{1,3}\d{10}$/, "Please enter a valid phone number with country code (e.g. +1234567890)").optional().nullable(),
+    contactPreference: z.enum(['sms', 'whatsapp']).default('sms'),
+    birthday: z.coerce.date().optional().nullable(),
+    relationship: z.enum([
+      RelationshipType.FAMILY,
+      RelationshipType.FRIEND,
+      RelationshipType.COLLEAGUE,
+      RelationshipType.SIGNIFICANT_OTHER,
+      RelationshipType.ACQUAINTANCE,
+      RelationshipType.OTHER
+    ]),
+    relationshipDetails: z.string().optional(),
+    notes: z.string().optional(),
+  });
+
+// Schema for verification
+export const personVerificationSchema = z.object({
+  code: z.string().length(6, "Verification code must be 6 digits"),
+});
+
+// Types
+export type Person = typeof people.$inferSelect;
+export type InsertPerson = z.infer<typeof insertPersonSchema>;
+export type PeopleVerification = typeof peopleVerifications.$inferSelect;
 // <--- END NEW
