@@ -3,8 +3,7 @@ import { users, contactVerifications } from '../../shared/schema';
 import { eq, and, desc } from 'drizzle-orm';
 // TODO: Create or import proper email service
 // import { sendVerificationEmail } from './emailService';
-import { sendVerificationMessage } from '../messaging';
-import { generateVerificationCode } from '../messaging'; // Corrected path based on search
+import { sendVerificationMessage, generateVerificationCode } from '../messaging';
 import { hashPassword } from '../auth'; // Corrected path based on search
 import { storage } from '../storage'; // Import storage for verification DB operations
 

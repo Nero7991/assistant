@@ -4,6 +4,7 @@ import { MessagingService, messagingService } from "./services/messaging";
 import { db } from "./db";
 import { users } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import { handleWhatsAppOnboarding } from "./services/whatsappOnboarding";
 
 // Create a router for webhook endpoints
 const webhookRouter = Router();
@@ -94,13 +95,28 @@ export async function handleWhatsAppWebhook(req: Request, res: Response) {
       const userId = await findUserByPhoneNumber(userPhone);
       
       if (!userId) {
-        console.log(`[Webhook] No user found with phone ${userPhone}, sending rejection message.`);
+        console.log(`[Webhook] No user found with phone ${userPhone}, initiating onboarding.`);
         
-        // For unrecognized numbers, send a polite response via TwiML
-        const twimlReject = new twilio.twiml.MessagingResponse();
-        twimlReject.message('Sorry, we couldn\'t identify your account. Please make sure you\'ve verified your phone number in the app.');
-        // Respond synchronously for rejection
-        return res.type("text/xml").send(twimlReject.toString());
+        // Handle onboarding for new users
+        try {
+          const onboardingResponse = await handleWhatsAppOnboarding(from, messageBody);
+          
+          if (onboardingResponse) {
+            // Send the onboarding response
+            const twimlResponse = new twilio.twiml.MessagingResponse();
+            twimlResponse.message(onboardingResponse);
+            return res.type("text/xml").send(twimlResponse.toString());
+          } else {
+            // No response needed (existing user or error)
+            const twimlAck = new twilio.twiml.MessagingResponse();
+            return res.type("text/xml").send(twimlAck.toString());
+          }
+        } catch (onboardingError) {
+          console.error(`[Webhook] Error during onboarding:`, onboardingError);
+          const twimlError = new twilio.twiml.MessagingResponse();
+          twimlError.message('Sorry, there was an error processing your request. Please try again later.');
+          return res.type("text/xml").send(twimlError.toString());
+        }
       }
       
       console.log(`Processing WhatsApp message from user ${userId} (${userPhone}): ${messageBody.substring(0, 50)}${messageBody.length > 50 ? '...' : ''}`);
