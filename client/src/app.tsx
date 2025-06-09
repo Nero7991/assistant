@@ -14,6 +14,7 @@ import ChatPage from "@/pages/chat-page";
 import SchedulePage from "@/pages/schedule-page";
 import PeoplePage from "@/pages/people-page";
 import TestMessagesPage from "@/pages/test-messages-page";
+import IntegrationsPage from "@/pages/integrations-page";
 import View from "@/pages/View";
 import NotFound from "@/pages/not-found";
 import AdminPage from "@/pages/admin-page";
@@ -80,6 +81,14 @@ function Router() {
         component={() => (
           <AppLayout>
             <TestMessagesPage />
+          </AppLayout>
+        )} 
+      />
+      <ProtectedRoute 
+        path="/integrations" 
+        component={() => (
+          <AppLayout>
+            <IntegrationsPage />
           </AppLayout>
         )} 
       />

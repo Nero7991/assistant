@@ -28,6 +28,7 @@ import { db } from "./db";
 import { eq, desc, and, gte, lt } from "drizzle-orm";
 import { registerScheduleManagementAPI } from "./api/schedule-management";
 import { registerPeopleManagementAPI } from "./api/people-management";
+import { registerExternalServicesAPI } from "./api/external-services";
 import OpenAI from "openai";
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import path, { dirname } from 'path'; 
@@ -79,6 +80,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Register API endpoints
   registerScheduleManagementAPI(app);
   registerPeopleManagementAPI(app);
+  registerExternalServicesAPI(app);
 
   // DevLM Session CRUD Endpoints
   app.post('/api/devlm/sessions', async (req, res) => {

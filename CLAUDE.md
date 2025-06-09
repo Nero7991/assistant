@@ -57,18 +57,20 @@ Kona is a full-stack web application designed to assist individuals with executi
 ### Development
 
 ```bash
-# Start the development server
+# Start the development server (runs on port 5001)
 npm run dev
 
 # Build the project for production
 npm run build
 
-# Start the production server
+# Start the production server (runs on port 5000)
 npm run start
 
 # Type checking
 npm run check
 ```
+
+**Note**: Production server always runs on port 5000, so use port 5001 for development to avoid conflicts.
 
 ### Database Operations
 
@@ -166,3 +168,24 @@ The project uses Vitest for testing:
    - Schedule management tests
 
 When adding new features, be sure to add appropriate tests for both client and server components.
+
+## Test User Credentials
+
+For running automated tests, use these credentials:
+
+```
+Username: testuser
+Email: testuser@example.com (use this for login)
+Password: testpass123
+User ID: 5
+```
+
+**Note**: Login uses email and password, not username and password.
+
+Environment variables for tests:
+```bash
+TEST_USERNAME=testuser
+TEST_EMAIL=testuser@example.com
+TEST_PASSWORD=testpass123
+TEST_USER_ID=5
+```

@@ -735,3 +735,80 @@ export type Person = typeof people.$inferSelect;
 export type InsertPerson = z.infer<typeof insertPersonSchema>;
 export type PeopleVerification = typeof peopleVerifications.$inferSelect;
 // <--- END NEW
+
+// ---> NEW: External Services Tables
+export const externalServices = pgTable("external_services", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  serviceName: text("service_name").notNull(),
+  serviceSlug: text("service_slug").notNull().unique(), // Globally unique for URL
+  accessTokenHash: text("access_token_hash").notNull(), // Store hashed token
+  isActive: boolean("is_active").notNull().default(true),
+  rateLimit: integer("rate_limit").notNull().default(100), // Requests per hour
+  lastUsedAt: timestamp("last_used_at"),
+  metadata: jsonb("metadata"), // Additional service configuration
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  // Ensure service name is unique per user
+  uniqueUserService: index("unique_user_service").on(table.userId, table.serviceName),
+}));
+
+export const externalServiceMessages = pgTable("external_service_messages", {
+  id: serial("id").primaryKey(),
+  serviceId: integer("service_id").notNull().references(() => externalServices.id, { onDelete: 'cascade' }),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  messageContent: text("message_content").notNull(),
+  deliveryStatus: text("delivery_status").notNull().default('pending'), // 'pending', 'sent', 'failed'
+  deliveryMethod: text("delivery_method").notNull().default('all'), // 'text', 'whatsapp', 'email', 'all'
+  errorMessage: text("error_message"), // Store error if delivery failed
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Relations for external services
+export const externalServicesRelations = relations(externalServices, ({ one, many }) => ({
+  user: one(users, {
+    fields: [externalServices.userId],
+    references: [users.id],
+  }),
+  messages: many(externalServiceMessages),
+}));
+
+export const externalServiceMessagesRelations = relations(externalServiceMessages, ({ one }) => ({
+  service: one(externalServices, {
+    fields: [externalServiceMessages.serviceId],
+    references: [externalServices.id],
+  }),
+  user: one(users, {
+    fields: [externalServiceMessages.userId],
+    references: [users.id],
+  }),
+}));
+
+// Schemas for external services
+export const insertExternalServiceSchema = createInsertSchema(externalServices)
+  .pick({
+    serviceName: true,
+    rateLimit: true,
+    metadata: true,
+  })
+  .extend({
+    serviceName: z.string().min(1, "Service name is required").max(100, "Service name too long"),
+    rateLimit: z.number().min(1).max(1000).default(100),
+    metadata: z.record(z.any()).optional(),
+  });
+
+export const updateExternalServiceSchema = z.object({
+  serviceName: z.string().min(1).max(100).optional(),
+  isActive: z.boolean().optional(),
+  rateLimit: z.number().min(1).max(1000).optional(),
+  metadata: z.record(z.any()).optional(),
+});
+
+// Types
+export type ExternalService = typeof externalServices.$inferSelect;
+export type InsertExternalService = z.infer<typeof insertExternalServiceSchema>;
+export type UpdateExternalService = z.infer<typeof updateExternalServiceSchema>;
+export type ExternalServiceMessage = typeof externalServiceMessages.$inferSelect;
+// <--- END NEW
