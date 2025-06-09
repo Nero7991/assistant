@@ -3,6 +3,10 @@ logs/
 prompt_logs/
 *.log
 
+# Process files
+*.pid
+server.pid
+
 # Node runtime
 node_modules/
 npm-debug.log*
