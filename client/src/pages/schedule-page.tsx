@@ -1,7 +1,7 @@
 
-import { useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Loader2, Calendar, Clock, Bell, Check, ArrowRight } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Loader2, Calendar, Clock, Bell, Check, ArrowRight, Plus } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Link, useLocation } from "wouter";
 import { Task, Subtask } from "@shared/schema";
 import DailyScheduleComponent from "@/components/daily-schedule-component";
+import EnhancedReminderCard from "@/components/enhanced-reminder-card";
+import ReminderDialog from "@/components/reminder-dialog";
 
 // Define interfaces for the API response
 interface ScheduleData {
@@ -82,10 +84,19 @@ interface MessageHistoryItem {
 export default function SchedulePage() {
   const { toast } = useToast();
   const [location, setLocation] = useLocation();
+  const queryClient = useQueryClient();
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [editingReminder, setEditingReminder] = useState<PendingNotification | null>(null);
 
   // Fetch schedule data
   const { data, isLoading, error, refetch } = useQuery<ScheduleData>({
     queryKey: ['/api/schedule'],
+    retry: 1
+  });
+  
+  // Fetch reminders separately for better control
+  const { data: reminders = [] } = useQuery<PendingNotification[]>({
+    queryKey: ['/api/reminders'],
     retry: 1
   });
   
@@ -97,10 +108,93 @@ export default function SchedulePage() {
   // Handle refresh button click
   const handleRefresh = () => {
     refetch();
+    queryClient.invalidateQueries({ queryKey: ['/api/reminders'] });
     toast({
       title: "Schedule refreshed",
       description: "Your schedule has been updated with the latest information.",
     });
+  };
+  
+  // API mutations for reminder operations
+  const deleteReminderMutation = useMutation({
+    mutationFn: async (reminderId: number) => {
+      const response = await fetch(`/api/reminders/${reminderId}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to delete reminder');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/reminders'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/schedule'] });
+      toast({ title: "Reminder deleted", description: "The reminder has been removed." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete reminder.", variant: "destructive" });
+    }
+  });
+  
+  const snoozeReminderMutation = useMutation({
+    mutationFn: async ({ reminderId, minutes }: { reminderId: number; minutes: number }) => {
+      const response = await fetch(`/api/reminders/${reminderId}/snooze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ minutes })
+      });
+      if (!response.ok) throw new Error('Failed to snooze reminder');
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/reminders'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/schedule'] });
+      toast({ title: "Reminder snoozed", description: data.message });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to snooze reminder.", variant: "destructive" });
+    }
+  });
+  
+  const duplicateReminderMutation = useMutation({
+    mutationFn: async (reminderId: number) => {
+      const response = await fetch(`/api/reminders/${reminderId}/duplicate`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to duplicate reminder');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/reminders'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/schedule'] });
+      toast({ title: "Reminder duplicated", description: "A copy of the reminder has been created." });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to duplicate reminder.", variant: "destructive" });
+    }
+  });
+  
+  // Handler functions for reminder operations
+  const handleEditReminder = (reminder: PendingNotification) => {
+    setEditingReminder(reminder);
+  };
+  
+  const handleDeleteReminder = (reminderId: number) => {
+    deleteReminderMutation.mutate(reminderId);
+  };
+  
+  const handleSnoozeReminder = (reminderId: number, minutes: number) => {
+    snoozeReminderMutation.mutate({ reminderId, minutes });
+  };
+  
+  const handleDuplicateReminder = (reminder: PendingNotification) => {
+    duplicateReminderMutation.mutate(reminder.id);
+  };
+  
+  const handleCloseDialog = () => {
+    setShowAddDialog(false);
+    setEditingReminder(null);
   };
 
   // Handle reschedule day button click  
@@ -137,6 +231,9 @@ export default function SchedulePage() {
     dailySchedule = null,
     scheduleItems = [] 
   } = data || {};
+  
+  // Use the separate reminders query data, fallback to schedule data
+  const displayReminders = reminders.length > 0 ? reminders : pendingNotifications;
   
   // Check if we have a confirmed schedule
   const hasConfirmedSchedule = dailySchedule && dailySchedule.confirmedAt && scheduleItems && scheduleItems.length > 0;
@@ -186,13 +283,23 @@ export default function SchedulePage() {
           <Card>
             <CardHeader>
               <CardTitle>
-                <div className="flex items-center">
-                  Reminders
-                  {pendingNotifications && pendingNotifications.length > 0 && (
-                    <Badge variant="secondary" className="ml-2">
-                      {pendingNotifications.length}
-                    </Badge>
-                  )}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    Reminders
+                    {displayReminders && displayReminders.length > 0 && (
+                      <Badge variant="secondary" className="ml-2">
+                        {displayReminders.length}
+                      </Badge>
+                    )}
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => setShowAddDialog(true)}
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Add
+                  </Button>
                 </div>
               </CardTitle>
               <CardDescription>
@@ -200,101 +307,38 @@ export default function SchedulePage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {!pendingNotifications || pendingNotifications.length === 0 ? (
+              {!displayReminders || displayReminders.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-center">
                   <Bell className="h-8 w-8 text-muted-foreground mb-4" />
                   <p className="text-muted-foreground">No reminders or check-ins scheduled</p>
+                  <Button 
+                    variant="outline" 
+                    className="mt-4"
+                    onClick={() => setShowAddDialog(true)}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add First Reminder
+                  </Button>
                 </div>
               ) : (
                 <ScrollArea className="h-[400px]">
-                  <div>
-                    {pendingNotifications.map((notification: PendingNotification) => {
+                  <div className="space-y-2">
+                    {displayReminders.map((notification: PendingNotification) => {
                       // Find the associated task if it exists
                       const relatedTask = notification.metadata?.taskId ? 
                         scheduledTasks.find(t => t.id === notification.metadata?.taskId) : 
                         undefined;
-                      
-                      // Format timing info
-                      const timing = formatDistanceToNow(new Date(notification.scheduledFor), { addSuffix: true });
-                      const timeStr = format(new Date(notification.scheduledFor), "h:mm a");
                         
                       return (
-                        <div key={notification.id} className="p-4 py-3 border-b last:border-b-0">
-                          <div className="flex items-start justify-between mb-3">
-                            <div className="flex items-center">
-                              <Bell className="h-4 w-4 mr-2 text-muted-foreground" />
-                              <span className="font-medium">
-                                {notification.type?.includes('reminder') ? 'Reminder' : 
-                                 (notification.title?.toLowerCase().includes('check-in') || 
-                                  notification.title?.toLowerCase().includes('mid-task')) ? 'Mid-task Check-in' : 
-                                 notification.type?.includes('follow_up') ? 'Check-in' : 'Notification'}
-                              </span>
-                            </div>
-                            <div className="flex flex-col items-end text-right">
-                              <span className="text-xs text-muted-foreground">
-                                {timing}
-                              </span>
-                              <span className="text-xs mt-0.5">
-                                {timeStr}
-                              </span>
-                            </div>
-                          </div>
-                          
-                          <div className="text-sm text-muted-foreground">
-                            {relatedTask ? (
-                              <div>
-                                {/* For related tasks */}
-                                <div className="font-medium text-foreground">{relatedTask.title}</div>
-                                {relatedTask.description && (
-                                  <p className="text-sm mt-1 line-clamp-2">
-                                    {relatedTask.description}
-                                  </p>
-                                )}
-                                
-                                {/* Show subtasks if available */}
-                                {scheduledSubtasks && scheduledSubtasks[relatedTask.id!] && (
-                                  <div className="mt-2">
-                                    <ul className="pl-4 space-y-1">
-                                      {scheduledSubtasks[relatedTask.id!]
-                                        .filter(st => !st.completedAt)
-                                        .slice(0, 3)
-                                        .map(subtask => (
-                                          <li key={subtask.id} className="list-disc">
-                                            {subtask.title}
-                                          </li>
-                                        ))}
-                                      {scheduledSubtasks[relatedTask.id!].filter(st => !st.completedAt).length > 3 && (
-                                        <li>
-                                          +{scheduledSubtasks[relatedTask.id!].filter(st => !st.completedAt).length - 3} more
-                                        </li>
-                                      )}
-                                    </ul>
-                                  </div>
-                                )}
-                              </div>
-                            ) : (
-                              // For general follow-ups
-                              <div>
-                                {notification.title ? (
-                                  <div className="font-medium text-foreground">{notification.title}</div>
-                                ) : (
-                                  <div className="font-medium text-foreground">
-                                    {notification.type === 'morning_message' ? 
-                                      'Daily morning schedule check-in' : 
-                                      notification.type === 'reminder' ? 'Reminder' :
-                                      notification.type === 'follow_up' ? 'Follow-up check-in' :
-                                      'General notification'}
-                                  </div>
-                                )}
-                                {notification.content && (
-                                  <p className="text-sm mt-1 line-clamp-3">
-                                    {notification.content}
-                                  </p>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </div>
+                        <EnhancedReminderCard
+                          key={notification.id}
+                          notification={notification}
+                          relatedTask={relatedTask}
+                          onEdit={handleEditReminder}
+                          onDelete={handleDeleteReminder}
+                          onSnooze={handleSnoozeReminder}
+                          onDuplicate={handleDuplicateReminder}
+                        />
                       );
                     })}
                   </div>
@@ -304,6 +348,14 @@ export default function SchedulePage() {
           </Card>
         </div>
       </div>
+      
+      {/* Add/Edit Reminder Dialog */}
+      <ReminderDialog
+        isOpen={showAddDialog || editingReminder !== null}
+        onClose={handleCloseDialog}
+        reminder={editingReminder}
+        mode={editingReminder ? 'edit' : 'add'}
+      />
     </div>
   );
 }
