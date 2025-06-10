@@ -128,6 +128,20 @@ export const messageHistory = pgTable("message_history", {
   type: text("type").notNull(), // 'morning_message', 'follow_up', 'response'
   status: text("status").notNull(), // 'sent', 'delivered', 'failed'
   metadata: jsonb("metadata"), // Store additional context like tasks mentioned
+  sequenceId: text("sequence_id"), // Shared sequence ID for linking with function calls
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const functionCallHistory = pgTable("function_call_history", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  sequenceId: text("sequence_id").notNull(), // Links to message_history.sequence_id
+  interactionId: text("interaction_id").notNull(),
+  stepNumber: integer("step_number").notNull(), // Order within the interaction
+  type: text("type").notNull(), // 'function_call' or 'function_result'
+  functionName: text("function_name").notNull(),
+  content: text("content").notNull(), // Function args or result JSON
+  metadata: jsonb("metadata"), // Additional context
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

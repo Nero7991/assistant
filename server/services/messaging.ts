@@ -6,7 +6,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { eq, sql, and, or, lte, gte, not, isNull, asc, desc, lt, inArray, ne } from 'drizzle-orm'; // Added lt, inArray, and neq
 import { db } from '../db.js'; // Correct path
 import * as schema from '../../shared/schema.js';
-const { users, tasks, TaskType, messageSchedules, messageHistory, taskEvents, knownUserFacts } = schema;
+const { users, tasks, TaskType, messageSchedules, messageHistory, functionCallHistory, taskEvents, knownUserFacts } = schema;
 import { Pool } from 'pg';
 import OpenAI from 'openai';
 import schedule from 'node-schedule';
@@ -52,6 +52,13 @@ import type { User as StorageUser, Goal, CheckIn, KnownUserFact, Task, Messaging
 import type { StandardizedChatCompletionMessage } from './llm/provider.js'; // Corrected import for StandardizedChatCompletionMessage
 
 // Import storage service if needed, or use db directly
+
+// Helper function to generate sequence IDs
+function generateSequenceId(): string {
+  const timestamp = Date.now().toString(36);
+  const random = Math.random().toString(36).substring(2, 8);
+  return `seq_${timestamp}_${random}`;
+}
 import { storage } from '../storage.js'; // Corrected path
 
 // Import LLM related components
@@ -392,6 +399,7 @@ Your response MUST be JSON.`;
     initialHistory: StandardizedChatCompletionMessage[],
     user: StorageUser,
     interactionId: string,
+    sequenceId: string,
     shouldLogPrompts: boolean,
     messageContext: MessageContext // Pass initial context
   ): Promise<{ finalAssistantMessage: string | null; lastProcessedResult: any | null }> { // Update return type
@@ -456,12 +464,30 @@ Your response MUST be JSON.`;
             functionName = lastProcessedResult.function_call.name;
             functionArgs = lastProcessedResult.function_call.arguments || {};
             console.log(`LLM requested function call via JSON content: ${functionName}`);
+            
     } else {
             console.log("No function_call found in processed LLM response content.");
         }
 
         if (functionName && functionArgs !== undefined) {
-            // G. Log Function Call
+            // G. Save Function Call to History & Log
+            try {
+                await db.insert(functionCallHistory).values({
+                    userId,
+                    sequenceId,
+                    interactionId,
+                    stepNumber: loopCount,
+                    type: "function_call",
+                    functionName,
+                    content: JSON.stringify(functionArgs),
+                    metadata: { loopCount, interactionId },
+                    createdAt: new Date(),
+                });
+            } catch (dbError) {
+                console.error(`Failed to save function call to function_call_history:`, dbError);
+            }
+            
+            // H. Log Function Call (if enabled)
             if (shouldLogPrompts) {
                 const funcCallLog = JSON.stringify({ name: functionName, arguments: functionArgs }, null, 2);
                 // Create context just for logging this step
@@ -477,7 +503,7 @@ Your response MUST be JSON.`;
                 await logPromptToFile(logContext, `Function Call: ${funcCallLog}`, 'function_call');
             }
 
-            // H. Execute Function
+            // I. Execute Function
             let executionResult: any;
             let functionResultMessageContent = "";
             try {
@@ -496,7 +522,27 @@ Your response MUST be JSON.`;
                 functionResultMessageContent = JSON.stringify(executionResult);
             }
 
-            // I. Log Function Result
+            // J. Save Function Result to History & Log
+            try {
+                await db.insert(functionCallHistory).values({
+                    userId,
+                    sequenceId,
+                    interactionId,
+                    stepNumber: loopCount,
+                    type: "function_result",
+                    functionName,
+                    content: functionResultMessageContent,
+                    metadata: { 
+                        loopCount, 
+                        interactionId, 
+                        executionResult: typeof executionResult === 'object' ? executionResult : { result: executionResult }
+                    },
+                    createdAt: new Date(),
+                });
+            } catch (dbError) {
+                console.error(`Failed to save function result to function_call_history:`, dbError);
+            }
+            
             if (shouldLogPrompts && executionResult) {
                 const funcResultLog = JSON.stringify(executionResult, null, 2);
                 // Create context just for logging this step
@@ -512,14 +558,14 @@ Your response MUST be JSON.`;
                 await logPromptToFile(logContext, `Function Result: ${funcResultLog}`, 'function_result');
             }
 
-            // J. Add Function Result to History for next LLM call
+            // K. Add Function Result to History for next LLM call
             currentHistory.push({
                 role: "function",
                 name: functionName,
                 content: functionResultMessageContent,
             });
 
-            // K. Store results for next prompt context & Continue loop
+            // L. Store results for next prompt context & Continue loop
             currentFunctionResults = { [functionName]: executionResult };
             continue;
       } else {
@@ -544,13 +590,21 @@ Your response MUST be JSON.`;
   // --- Refactored handleUserResponse (Main Orchestrator) ---
   async handleUserResponse(userId: number, userMessageContent: string): Promise<string | null> {
     const interactionId = uuidv4();
+    const sequenceId = generateSequenceId();
     const logSetting = await storage.getSetting('log_llm_prompts');
     const shouldLogPrompts = logSetting === 'true';
     const triggerTypeForLogs = "handle_response"; 
-    console.log(`Processing response from user ${userId}: "${userMessageContent.substring(0, 50)}..." (Interaction: ${interactionId})`);
+    console.log(`Processing response from user ${userId}: "${userMessageContent.substring(0, 50)}..." (Interaction: ${interactionId}, Sequence: ${sequenceId})`);
 
     const now = new Date();
-    await db.insert(messageHistory).values({ userId, content: userMessageContent, type: "user_message", status: "received", createdAt: now });
+    await db.insert(messageHistory).values({ 
+      userId, 
+      content: userMessageContent, 
+      type: "user_message", 
+      status: "received", 
+      sequenceId, 
+      createdAt: now 
+    });
     await db.update(users).set({ last_user_initiated_message_at: now }).where(eq(users.id, userId));
 
     const user = await storage.getUser(userId);
@@ -582,6 +636,7 @@ Your response MUST be JSON.`;
         conversationHistory, 
         user, 
         interactionId, 
+        sequenceId,
         shouldLogPrompts,
         messageContext // Pass context for function execution
     );
@@ -601,6 +656,7 @@ Your response MUST be JSON.`;
             content: contentToSave,
                    type: "coach_response",
             status: "sent", // Assuming it will be sent
+            sequenceId,
             metadata: {}, // Reset metadata for final save?
                    createdAt: new Date(),
         });
@@ -627,6 +683,7 @@ Your response MUST be JSON.`;
     contextData: Record<string, any> = {}
   ): Promise<string> { 
     const interactionId = uuidv4(); // Generate ONCE here
+    const sequenceId = generateSequenceId(); // Generate sequence for system messages too
     const logSetting = await storage.getSetting('log_llm_prompts');
     const shouldLogPrompts = logSetting === 'true';
     const triggerTypeForLogs = `system_request:${systemRequestType}`; // Define once
@@ -682,6 +739,7 @@ Your response MUST be JSON.`;
           conversationHistory,
           user,
           interactionId,
+          sequenceId,
           shouldLogPrompts,
           messageContext
       );
@@ -1977,7 +2035,7 @@ async function logPromptToFile(
     try {
         await fs.mkdir(PROMPT_LOG_DIR, { recursive: true }); 
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-'); 
-        const filename = `${context.triggerType}_user-${context.userId}_interaction-${context.interactionId}.log`; 
+        const filename = `${timestamp}_${context.triggerType}_user-${context.userId}_interaction-${context.interactionId}.log`; 
         const filePath = path.join(PROMPT_LOG_DIR, filename);
         
         let logEntry = "";
