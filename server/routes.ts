@@ -634,7 +634,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 
   // Start the message scheduler
-  messageScheduler.start();
+  // messageScheduler.start(); // DISABLED - Duplicate scheduler causing double messages - using node-schedule in index.ts instead
 
   // User Settings Endpoint
   app.patch("/api/user", async (req, res) => {
