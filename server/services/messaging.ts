@@ -139,6 +139,10 @@ export class MessagingService {
        // reschedule_request: { sid: 'TEMPLATE_SID_HERE', variables: X },
   };
   // <--- End Template Mapping
+  
+  // Mutex to prevent concurrent scheduling runs
+  private isSchedulingRecurringTasks: boolean = false;
+  private schedulingMutex: Map<string, boolean> = new Map();
 
   // --- Helper: Get User's Preferred Model ---
   private async getUserPreferredModel(userId: number): Promise<string> {
@@ -1334,45 +1338,94 @@ Your response MUST be JSON.`;
 
         const metadata = { taskId: task.id, taskTitle: task.title, taskScheduledTime: task.scheduledTime };
 
-        // Schedule Pre-Reminder (15 mins before)
-        const preReminderTime = subMinutes(taskTimeLocal, 15);
-        // --- BEGIN DEBUG LOGGING ---
-        console.log(`[_scheduleRemindersForTask DEBUG taskId=${task.id}] Calculated preReminderTime='${preReminderTime.toISOString()}'`);
-        // --- END DEBUG LOGGING ---
-            await db.insert(messageSchedules).values({
-                userId: user.id, type: 'pre_reminder', title: `Pre-Reminder: ${task.title}`,
-            scheduledFor: preReminderTime, status: 'pending', metadata, createdAt: new Date(), updatedAt: new Date(), // Use new Date() for creation time
-            });
-            scheduledCount++;
-            logger.debug({ userId: user.id, taskId: task.id, type: 'pre_reminder', scheduledFor: preReminderTime }, `Attempting to schedule pre_reminder`);
-            logger.info({ userId: user.id, taskId: task.id, type: 'pre_reminder', scheduledFor: preReminderTime }, `Scheduled pre_reminder`);
-        
-
-        // Schedule On-Time Reminder
-        const onTimeReminderTime = taskTimeLocal;
-        // --- BEGIN DEBUG LOGGING ---
-        console.log(`[_scheduleRemindersForTask DEBUG taskId=${task.id}] Calculated onTimeReminderTime='${onTimeReminderTime.toISOString()}'`);
-        // --- END DEBUG LOGGING ---
-            await db.insert(messageSchedules).values({
-                userId: user.id, type: 'reminder', title: `Reminder: ${task.title}`,
-            scheduledFor: onTimeReminderTime, status: 'pending', metadata, createdAt: new Date(), updatedAt: new Date(), // Use new Date() for creation time
-            });
-            scheduledCount++;
-            logger.debug({ userId: user.id, taskId: task.id, type: 'reminder', scheduledFor: onTimeReminderTime }, `Attempting to schedule reminder`);
-            logger.info({ userId: user.id, taskId: task.id, type: 'reminder', scheduledFor: onTimeReminderTime }, `Scheduled reminder`);
-        
-
-        // Schedule Post-Reminder Follow-up (15 mins after)
-        const postReminderTime = addMinutes(taskTimeLocal, 15);
-        // --- BEGIN DEBUG LOGGING ---
-        console.log(`[_scheduleRemindersForTask DEBUG taskId=${task.id}] Calculated postReminderTime='${postReminderTime.toISOString()}'`);
-        // --- END DEBUG LOGGING ---
-            await db.insert(messageSchedules).values({
-                userId: user.id, type: 'post_reminder_follow_up', title: `Check-in: ${task.title}`,
-            scheduledFor: postReminderTime, status: 'pending', metadata, createdAt: new Date(), updatedAt: new Date(), // Use new Date() for creation time
-            });
-            scheduledCount++;
-            logger.debug({ userId: user.id, taskId: task.id, type: 'post_reminder_follow_up', scheduledFor: postReminderTime }, `Attempting to schedule post_reminder_follow_up`);
+        // Enhanced scheduling with transaction-based duplicate prevention
+        await db.transaction(async (tx) => {
+            // Re-check for existing reminders within the transaction to prevent race conditions
+            const existingReminders = await tx.select({ 
+                id: messageSchedules.id, 
+                type: messageSchedules.type, 
+                scheduledFor: messageSchedules.scheduledFor 
+            }).from(messageSchedules).where(
+                and(
+                    eq(messageSchedules.userId, user.id),
+                    sql`(${messageSchedules.metadata} ->> 'taskId')::integer = ${task.id}`,
+                    or(
+                        eq(messageSchedules.type, 'pre_reminder'),
+                        eq(messageSchedules.type, 'reminder'),
+                        eq(messageSchedules.type, 'post_reminder_follow_up')
+                    ),
+                    gte(messageSchedules.scheduledFor, todayStartLocal),
+                    lt(messageSchedules.scheduledFor, tomorrowStartLocal),
+                    eq(messageSchedules.status, 'pending')
+                )
+            ).for('update'); // Lock rows to prevent concurrent modifications
+            
+            if (existingReminders.length > 0) {
+                logger.warn({ 
+                    userId: user.id, 
+                    taskId: task.id, 
+                    existingCount: existingReminders.length,
+                    existing: existingReminders.map(r => `${r.type}@${r.scheduledFor.toISOString()}`)
+                }, `[_scheduleRemindersForTask] Reminders already exist in transaction. Skipping scheduling.`);
+                return; // Exit without scheduling
+            }
+            
+            // Schedule all three reminders atomically
+            const remindersToSchedule = [
+                {
+                    type: 'pre_reminder' as const,
+                    title: `Pre-Reminder: ${task.title}`,
+                    scheduledFor: subMinutes(taskTimeLocal, 15),
+                    debugName: 'preReminderTime'
+                },
+                {
+                    type: 'reminder' as const,
+                    title: `Reminder: ${task.title}`,
+                    scheduledFor: taskTimeLocal,
+                    debugName: 'onTimeReminderTime'
+                },
+                {
+                    type: 'post_reminder_follow_up' as const,
+                    title: `Check-in: ${task.title}`,
+                    scheduledFor: addMinutes(taskTimeLocal, 15),
+                    debugName: 'postReminderTime'
+                }
+            ];
+            
+            for (const reminder of remindersToSchedule) {
+                logger.debug({ 
+                    userId: user.id, 
+                    taskId: task.id, 
+                    type: reminder.type, 
+                    scheduledFor: reminder.scheduledFor.toISOString() 
+                }, `[_scheduleRemindersForTask] Calculated ${reminder.debugName}`);
+                
+                const result = await tx.insert(messageSchedules).values({
+                    userId: user.id,
+                    type: reminder.type,
+                    title: reminder.title,
+                    scheduledFor: reminder.scheduledFor,
+                    status: 'pending',
+                    metadata: {
+                        ...metadata,
+                        scheduledBy: '_scheduleRemindersForTask',
+                        scheduledAt: new Date().toISOString(),
+                        transactionId: `task-${task.id}-${user.id}-${Date.now()}`
+                    },
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                }).returning({ id: messageSchedules.id });
+                
+                scheduledCount++;
+                logger.info({ 
+                    userId: user.id, 
+                    taskId: task.id, 
+                    type: reminder.type, 
+                    scheduledFor: reminder.scheduledFor.toISOString(),
+                    messageId: result[0].id
+                }, `[_scheduleRemindersForTask] Successfully scheduled ${reminder.type}`);
+            }
+        });
             logger.info({ userId: user.id, taskId: task.id, type: 'post_reminder_follow_up', scheduledFor: postReminderTime }, `Scheduled post_reminder_follow_up`);
 
     } catch (taskError) {
@@ -1631,21 +1684,41 @@ Your response MUST be JSON.`;
 
   async processPendingSchedules(): Promise<void> {
     const now = new Date();
-    logger.info(`[Scheduler - ${now.toISOString()}] Running processPendingSchedules...`); // Use logger
+    const processId = Math.random().toString(36).substring(7); // Unique ID for this process run
+    logger.info({ processId, timestamp: now.toISOString() }, `[processPendingSchedules] Starting process run.`);
 
     try {
       // Call scheduleDailyReminders without scheduling morning messages
       // Morning messages are now exclusively handled by scheduleRecurringTasks
       await this.scheduleDailyReminders(false); 
     } catch (error) {
-      logger.error({ error }, "[Scheduler] Error during scheduleDailyReminders call within processPendingSchedules:"); // Use logger
+      logger.error({ processId, error }, "[processPendingSchedules] Error during scheduleDailyReminders call:");
     }
     
     const pendingSchedules = await db.select().from(messageSchedules).where(and(eq(messageSchedules.status, "pending"), lte(messageSchedules.scheduledFor, now)));
-    logger.info({ count: pendingSchedules.length }, `[processPendingSchedules] Found pending messages to process.`); // Use logger
+    logger.info({ 
+      processId, 
+      count: pendingSchedules.length,
+      types: pendingSchedules.reduce((acc, s) => {
+        acc[s.type] = (acc[s.type] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>)
+    }, `[processPendingSchedules] Found pending messages to process.`);
 
+    // Process each schedule with enhanced logging
     for (const schedule of pendingSchedules) {
-      logger.debug({ scheduleId: schedule.id, type: schedule.type, userId: schedule.userId }, `[processPendingSchedules] Processing schedule.`);
+      const scheduleProcessId = `${processId}-${schedule.id}`;
+      logger.info({ 
+        processId,
+        scheduleProcessId,
+        scheduleId: schedule.id, 
+        type: schedule.type, 
+        userId: schedule.userId,
+        scheduledFor: schedule.scheduledFor.toISOString(),
+        createdAt: schedule.createdAt.toISOString(),
+        metadata: schedule.metadata
+      }, `[processPendingSchedules] Starting to process schedule.`);
+      
       try {
         const [user] = await db.select().from(users).where(eq(users.id, schedule.userId)).limit(1); // Fetch user correctly
         if (!user || !user.phoneNumber) {
@@ -1673,13 +1746,40 @@ Your response MUST be JSON.`;
          );
 
          if (messageContent && !messageContent.startsWith("Sorry")) {
-             await db.update(messageSchedules).set({ status: "sent", sentAt: now }).where(eq(messageSchedules.id, schedule.id));
-             logger.info({ scheduleId: schedule.id }, `[processPendingSchedules] Successfully processed and sent schedule.`); // Use logger
+             await db.update(messageSchedules).set({ 
+               status: "sent", 
+               sentAt: now,
+               metadata: {
+                 ...(schedule.metadata as any || {}),
+                 processedBy: processId,
+                 processedAt: now.toISOString()
+               }
+             }).where(eq(messageSchedules.id, schedule.id));
+             logger.info({ 
+               processId,
+               scheduleProcessId,
+               scheduleId: schedule.id,
+               messageLength: messageContent.length 
+             }, `[processPendingSchedules] Successfully processed and sent schedule.`);
         } else {
-             logger.error({ scheduleId: schedule.id, messageContent }, `[processPendingSchedules] Failed to generate/send message for schedule.`); // Use logger
+             logger.error({ 
+               processId,
+               scheduleProcessId,
+               scheduleId: schedule.id, 
+               messageContent 
+             }, `[processPendingSchedules] Failed to generate/send message for schedule.`);
              await db
                .update(messageSchedules)
-               .set({ status: "failed", updatedAt: new Date() })
+               .set({ 
+                 status: "failed", 
+                 updatedAt: new Date(),
+                 metadata: {
+                   ...(schedule.metadata as any || {}),
+                   failedBy: processId,
+                   failedAt: new Date().toISOString(),
+                   failureReason: messageContent || 'No message generated'
+                 }
+               })
                .where(eq(messageSchedules.id, schedule.id));
         }
       } catch (error) {
@@ -1691,12 +1791,23 @@ Your response MUST be JSON.`;
       }
     }
 
-    logger.info("[Scheduler] Finished processPendingSchedules."); // Use logger
+    logger.info({ processId }, "[processPendingSchedules] Finished process run.");
   }
 
   // New function for scheduling recurring tasks' next instances (runs daily)
   async scheduleRecurringTasks() {
-      logger.info("[Scheduler] Starting scheduleRecurringTasks check...");
+      // Prevent concurrent runs
+      if (this.isSchedulingRecurringTasks) {
+          logger.warn("[scheduleRecurringTasks] Another scheduling run is already in progress. Skipping.");
+          return;
+      }
+      
+      this.isSchedulingRecurringTasks = true;
+      const schedulingStartTime = new Date();
+      const schedulingId = Math.random().toString(36).substring(7);
+      
+      try {
+          logger.info({ schedulingId, startTime: schedulingStartTime.toISOString() }, "[scheduleRecurringTasks] Starting scheduling run...");
       const systemStartOfToday = startOfToday(); 
       const activeUsers = await db.select().from(users).where(and(eq(users.isActive, true), not(isNull(users.timeZone))));
 
@@ -1796,39 +1907,57 @@ Your response MUST be JSON.`;
                       // Convert to UTC for storage in DB
                       const scheduleDateUTC = toDate(morningMessageDate, { timeZone });
                       
-                      // Enhanced duplicate detection - check for any pending or scheduled morning messages
-                      // This checks both the target day and also any other days (in case of timezone issues)
-                      const existingMorningMessages = await db.select({id: messageSchedules.id}).from(messageSchedules).where(
-                          and(
-                              eq(messageSchedules.userId, user.id),
-                              eq(messageSchedules.type, 'morning_message'),
-                              or(
-                                  eq(messageSchedules.status, 'pending'),
-                                  eq(messageSchedules.status, 'scheduled')
+                      // Enhanced duplicate detection with transaction-based approach
+                      // Use a transaction to ensure atomic check-and-insert
+                      await db.transaction(async (tx) => {
+                          // Check for any pending or scheduled morning messages within the transaction
+                          const existingMorningMessages = await tx.select({id: messageSchedules.id, scheduledFor: messageSchedules.scheduledFor}).from(messageSchedules).where(
+                              and(
+                                  eq(messageSchedules.userId, user.id),
+                                  eq(messageSchedules.type, 'morning_message'),
+                                  or(
+                                      eq(messageSchedules.status, 'pending'),
+                                      eq(messageSchedules.status, 'scheduled')
+                                  )
                               )
-                          )
-                      );
+                          ).for('update'); // Lock rows to prevent concurrent modifications
 
-                      logger.debug({ 
-                          userId: user.id, 
-                          found: existingMorningMessages.length, 
-                          scheduledFor: scheduleDateUTC.toISOString() 
-                      }, `[scheduleRecurringTasks] Found ${existingMorningMessages.length} pending morning messages.`);
+                          logger.debug({ 
+                              userId: user.id, 
+                              found: existingMorningMessages.length, 
+                              existing: existingMorningMessages.map(m => m.scheduledFor.toISOString()),
+                              newSchedule: scheduleDateUTC.toISOString() 
+                          }, `[scheduleRecurringTasks] Checking for existing morning messages.`);
 
-                      if (existingMorningMessages.length === 0) {
-                          // No morning messages found, safe to schedule one
-                          await db.insert(messageSchedules).values({
-                              userId: user.id,
-                              type: 'morning_message',
-                              scheduledFor: scheduleDateUTC, // Store UTC time
-                              status: 'pending',
-                              createdAt: new Date(),
-                              updatedAt: new Date(),
-                          });
-                          logger.info({ userId: user.id, scheduledFor: scheduleDateUTC.toISOString() }, `[scheduleRecurringTasks] Scheduled morning message.`);
-                      } else {
-                           logger.debug({ userId: user.id, count: existingMorningMessages.length }, `[scheduleRecurringTasks] Morning message(s) already scheduled. Skipping.`);
-                      }
+                          if (existingMorningMessages.length === 0) {
+                              // No morning messages found, safe to schedule one
+                              const result = await tx.insert(messageSchedules).values({
+                                  userId: user.id,
+                                  type: 'morning_message',
+                                  scheduledFor: scheduleDateUTC, // Store UTC time
+                                  status: 'pending',
+                                  createdAt: new Date(),
+                                  updatedAt: new Date(),
+                                  metadata: {
+                                      scheduledBy: 'scheduleRecurringTasks',
+                                      scheduledAt: new Date().toISOString(),
+                                      timeZone: timeZone,
+                                      preferredTime: preferredTimeStr
+                                  }
+                              }).returning({ id: messageSchedules.id });
+                              logger.info({ 
+                                  userId: user.id, 
+                                  scheduledFor: scheduleDateUTC.toISOString(), 
+                                  messageId: result[0].id 
+                              }, `[scheduleRecurringTasks] Successfully scheduled morning message.`);
+                          } else {
+                              logger.warn({ 
+                                  userId: user.id, 
+                                  count: existingMorningMessages.length,
+                                  existingSchedules: existingMorningMessages.map(m => m.scheduledFor.toISOString())
+                              }, `[scheduleRecurringTasks] Morning message(s) already exist. Skipping duplicate scheduling.`);
+                          }
+                      });
                   } else {
                        logger.warn({ userId: user.id, time: preferredTimeStr }, `[scheduleRecurringTasks] Invalid preferred time format for morning message. Skipping.`);
                   }
@@ -1841,7 +1970,19 @@ Your response MUST be JSON.`;
               logger.error({ userId: user.id, error }, `[scheduleRecurringTasks] Error processing user.`); 
           }
       } // end for user
-      logger.info("[Scheduler] Finished scheduleRecurringTasks check.");
+      
+      const schedulingEndTime = new Date();
+      const duration = schedulingEndTime.getTime() - schedulingStartTime.getTime();
+      logger.info({ 
+          schedulingId, 
+          startTime: schedulingStartTime.toISOString(),
+          endTime: schedulingEndTime.toISOString(),
+          durationMs: duration
+      }, "[scheduleRecurringTasks] Finished scheduling run.");
+      
+      } finally {
+          this.isSchedulingRecurringTasks = false;
+      }
   }
 
   // Restore the correct logic for doesTaskRecurOnDate

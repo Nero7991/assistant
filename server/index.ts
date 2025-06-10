@@ -150,16 +150,22 @@ app.use((req, res, next) => {
     });
     console.log('Scheduled: processPendingSchedules (every minute)');
 
-    // 2. Schedule Recurring Task Reminders (e.g., for daily tasks due today) - Runs once daily at 00:01 UTC
+    // 2. Schedule Recurring Task Reminders AND Morning Messages - Runs once daily at 00:01 UTC
     const recurringJob = schedule.scheduleJob('1 0 * * *', async () => { // 1 minute past midnight UTC
-       console.log(`[Scheduler Tick - ${new Date().toISOString()}] Running scheduleRecurringTasks...`);
+       console.log(`[Scheduler Tick - ${new Date().toISOString()}] Running scheduleRecurringTasks (includes morning messages)...`);
        try {
          await messagingService.scheduleRecurringTasks();
        } catch (error) {
          console.error('[Scheduler Tick Error] Error in scheduleRecurringTasks:', error);
        }
     });
-     console.log('Scheduled: scheduleRecurringTasks (daily at 00:01 UTC)');
+     console.log('Scheduled: scheduleRecurringTasks (daily at 00:01 UTC - includes morning messages)');
+     
+     // Also schedule morning messages on startup to ensure they're scheduled
+     console.log('[Startup] Scheduling initial morning messages...');
+     messagingService.scheduleRecurringTasks().catch(error => {
+       console.error('[Startup Error] Error scheduling initial morning messages:', error);
+     });
 
      // 3. Schedule Overdue Task Follow-ups Check - Runs every 15 minutes
      const followupJob = schedule.scheduleJob('*/15 * * * *', async () => {

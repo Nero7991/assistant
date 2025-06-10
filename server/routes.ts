@@ -29,6 +29,7 @@ import { eq, desc, and, gte, lt } from "drizzle-orm";
 import { registerScheduleManagementAPI } from "./api/schedule-management";
 import { registerPeopleManagementAPI } from "./api/people-management";
 import { registerExternalServicesAPI } from "./api/external-services";
+import { registerRemindersAPI } from "./api/reminders";
 import OpenAI from "openai";
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import path, { dirname } from 'path'; 
@@ -77,10 +78,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // WhatsApp Webhook endpoint
   app.post("/api/webhook/whatsapp", handleWhatsAppWebhook);
   
+  // Health check endpoint
+  app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+  
   // Register API endpoints
   registerScheduleManagementAPI(app);
   registerPeopleManagementAPI(app);
   registerExternalServicesAPI(app);
+  registerRemindersAPI(app);
 
   // DevLM Session CRUD Endpoints
   app.post('/api/devlm/sessions', async (req, res) => {
