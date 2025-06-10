@@ -94,20 +94,86 @@ const regenerateToken = async (id: number) => {
   return await res.json();
 };
 
+// Access Token Dialog Component
+function AccessTokenDialog({ 
+  isOpen, 
+  onClose, 
+  token, 
+  serviceName, 
+  isNewService = false 
+}: { 
+  isOpen: boolean; 
+  onClose: () => void; 
+  token: string; 
+  serviceName: string;
+  isNewService?: boolean;
+}) {
+  const { toast } = useToast();
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(token);
+    toast({ title: 'Copied!', description: 'Access token copied to clipboard.' });
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>
+            {isNewService ? 'Service Created Successfully!' : 'New Access Token Generated'}
+          </DialogTitle>
+          <DialogDescription>
+            {isNewService 
+              ? `Your new service "${serviceName}" has been created. Here's your access token:`
+              : `A new access token has been generated for "${serviceName}".`
+            }
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div>
+            <Label className="text-sm font-medium">Access Token</Label>
+            <div className="flex gap-2 mt-2">
+              <code className="flex-1 p-3 bg-muted rounded text-sm break-all font-mono">
+                {token}
+              </code>
+              <Button size="sm" onClick={copyToClipboard}>
+                <Copy className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+            <p className="text-sm text-yellow-800">
+              <strong>Important:</strong> This access token will only be shown once. Make sure to copy and store it securely.
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button onClick={onClose} className="w-full">
+            I've copied the token
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // Create Service Dialog Component
 function CreateServiceDialog({ onSuccess }: { onSuccess: () => void }) {
   const [isOpen, setIsOpen] = useState(false);
   const [serviceName, setServiceName] = useState('');
   const [rateLimit, setRateLimit] = useState('100');
+  const [showTokenDialog, setShowTokenDialog] = useState(false);
+  const [newServiceData, setNewServiceData] = useState<{ serviceName: string; accessToken: string } | null>(null);
   const { toast } = useToast();
 
   const createMutation = useMutation({
     mutationFn: createExternalService,
     onSuccess: (data) => {
-      toast({ title: 'Success', description: `Service "${data.serviceName}" created successfully!` });
       setIsOpen(false);
       setServiceName('');
       setRateLimit('100');
+      setNewServiceData({ serviceName: data.serviceName, accessToken: data.accessToken });
+      setShowTokenDialog(true);
       onSuccess();
     },
     onError: (error) => {
@@ -130,60 +196,72 @@ function CreateServiceDialog({ onSuccess }: { onSuccess: () => void }) {
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
-      <DialogTrigger asChild>
-        <Button>
-          <Plus className="h-4 w-4 mr-2" />
-          Add Integration
-        </Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Create External Service Integration</DialogTitle>
-          <DialogDescription>
-            Create a new external service integration to send messages to your Kona account.
-          </DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit}>
-          <div className="grid gap-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="service-name">Service Name</Label>
-              <Input
-                id="service-name"
-                placeholder="e.g., My App, GitHub Actions, etc."
-                value={serviceName}
-                onChange={(e) => setServiceName(e.target.value)}
-                disabled={createMutation.isPending}
-              />
+    <>
+      <Dialog open={isOpen} onOpenChange={setIsOpen}>
+        <DialogTrigger asChild>
+          <Button>
+            <Plus className="h-4 w-4 mr-2" />
+            Add Integration
+          </Button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Create External Service Integration</DialogTitle>
+            <DialogDescription>
+              Create a new external service integration to send messages to your Kona account.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSubmit}>
+            <div className="grid gap-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="service-name">Service Name</Label>
+                <Input
+                  id="service-name"
+                  placeholder="e.g., My App, GitHub Actions, etc."
+                  value={serviceName}
+                  onChange={(e) => setServiceName(e.target.value)}
+                  disabled={createMutation.isPending}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="rate-limit">Rate Limit (requests per hour)</Label>
+                <Input
+                  id="rate-limit"
+                  type="number"
+                  min="1"
+                  placeholder="100"
+                  value={rateLimit}
+                  onChange={(e) => setRateLimit(e.target.value)}
+                  disabled={createMutation.isPending}
+                />
+                <p className="text-sm text-muted-foreground">
+                  Maximum number of messages this service can send per hour.
+                </p>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="rate-limit">Rate Limit (requests per hour)</Label>
-              <Input
-                id="rate-limit"
-                type="number"
-                min="1"
-                placeholder="100"
-                value={rateLimit}
-                onChange={(e) => setRateLimit(e.target.value)}
-                disabled={createMutation.isPending}
-              />
-              <p className="text-sm text-muted-foreground">
-                Maximum number of messages this service can send per hour.
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={createMutation.isPending}>
-              {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Create Service
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={createMutation.isPending}>
+                {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Create Service
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+      
+      {newServiceData && (
+        <AccessTokenDialog
+          isOpen={showTokenDialog}
+          onClose={() => setShowTokenDialog(false)}
+          token={newServiceData.accessToken}
+          serviceName={newServiceData.serviceName}
+          isNewService={true}
+        />
+      )}
+    </>
   );
 }
 
@@ -197,6 +275,8 @@ function ServiceCard({ service, onUpdate, onDelete, onRegenerateToken }: {
   const [isEditing, setIsEditing] = useState(false);
   const [serviceName, setServiceName] = useState(service.serviceName);
   const [rateLimit, setRateLimit] = useState(service.rateLimit.toString());
+  const [showTokenDialog, setShowTokenDialog] = useState(false);
+  const [regeneratedToken, setRegeneratedToken] = useState<string>('');
   const { toast } = useToast();
 
   const updateMutation = useMutation({
@@ -225,10 +305,8 @@ function ServiceCard({ service, onUpdate, onDelete, onRegenerateToken }: {
   const regenerateMutation = useMutation({
     mutationFn: () => regenerateToken(service.id),
     onSuccess: (data) => {
-      toast({ 
-        title: 'Success', 
-        description: `New access token generated! ${data.accessToken.substring(0, 20)}...` 
-      });
+      setRegeneratedToken(data.accessToken);
+      setShowTokenDialog(true);
       onRegenerateToken();
     },
     onError: (error) => {
@@ -373,6 +451,16 @@ function ServiceCard({ service, onUpdate, onDelete, onRegenerateToken }: {
           </p>
         </div>
       </CardContent>
+      
+      {regeneratedToken && (
+        <AccessTokenDialog
+          isOpen={showTokenDialog}
+          onClose={() => setShowTokenDialog(false)}
+          token={regeneratedToken}
+          serviceName={service.serviceName}
+          isNewService={false}
+        />
+      )}
     </Card>
   );
 }
