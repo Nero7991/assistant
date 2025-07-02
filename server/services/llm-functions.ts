@@ -428,6 +428,20 @@ export const llmFunctionDefinitions = [
       required: ["taskId", "remindAt"]
     }
   },
+  {
+    name: 'update_user_timezone',
+    description: 'Update the user\'s timezone setting. Use this when the user tells you their timezone or location.',
+    parameters: {
+      type: 'object',
+      properties: {
+        timezone: {
+          type: 'string',
+          description: 'IANA timezone identifier (e.g., America/New_York, Europe/London, Asia/Tokyo). Must be a valid timezone.'
+        }
+      },
+      required: ['timezone']
+    }
+  },
 ];
 
 // Implementation of LLM functions
@@ -1298,12 +1312,138 @@ export class LLMFunctions {
         return { success: false, error: error instanceof Error ? error.message : "Failed to schedule one-off reminder." };
     }
   }
+
+  /**
+   * Update user's timezone setting
+   */
+  async update_user_timezone(context: LLMFunctionContext, params: { timezone: string }): Promise<any> {
+    try {
+      const { timezone } = params;
+      const { userId } = context;
+      
+      // Validate timezone using Intl API
+      try {
+        new Intl.DateTimeFormat('en-US', { timeZone: timezone });
+      } catch (error) {
+        return { 
+          success: false, 
+          error: `Invalid timezone: ${timezone}. Please provide a valid IANA timezone identifier.` 
+        };
+      }
+      
+      // Update user timezone in database
+      const result = await db.update(users)
+        .set({ timeZone: timezone })
+        .where(eq(users.id, userId))
+        .returning();
+      
+      if (result.length === 0) {
+        return { 
+          success: false, 
+          error: `User with ID ${userId} not found.` 
+        };
+      }
+      
+      console.log(`Updated timezone for user ${userId} to ${timezone}`);
+      
+      return {
+        success: true,
+        message: `Timezone updated to ${timezone}`,
+        timezone: timezone
+      };
+    } catch (error) {
+      console.error('Error updating user timezone:', error);
+      return { 
+        success: false, 
+        error: error instanceof Error ? error.message : 'Failed to update timezone.' 
+      };
+    }
+  }
   // --- END NEW METHODS ---
 }
 
 // --- Create and Export the Function Executor Map ---
 
 const llmFunctionsInstance = new LLMFunctions();
+
+// Creations-specific LLM functions
+export async function generateArchitecturePlan(title: string, description: string): Promise<string> {
+  const prompt = `You are a senior software architect. Create a detailed architecture plan for a web application.
+
+Title: ${title}
+Description: ${description}
+
+Please provide:
+1. High-level architecture overview
+2. Technology stack recommendations
+3. Component breakdown
+4. Data flow and architecture patterns
+5. Key considerations and constraints
+
+Focus on creating a modern, maintainable web application that can be built efficiently. Be specific about the structure and organization.
+
+Return a comprehensive architecture plan in markdown format.`;
+
+  try {
+    const openaiProvider = await import('./llm/openai_provider');
+    const provider = new openaiProvider.OpenAIProvider();
+    
+    const response = await provider.generateCompletion(
+      'gpt-4o',
+      [{ role: 'user', content: prompt }],
+      0.7
+    );
+
+    return response.content || '';
+  } catch (error) {
+    console.error('Error generating architecture plan:', error);
+    throw new Error('Failed to generate architecture plan');
+  }
+}
+
+export async function generateTaskBreakdown(title: string, description: string, architecturePlan: string): Promise<any[]> {
+  const prompt = `You are a project manager breaking down a web application into implementation tasks.
+
+Project: ${title}
+Description: ${description}
+
+Architecture Plan:
+${architecturePlan}
+
+Break this down into 5-8 main implementation tasks, each with 3-5 subtasks. Each task should represent a major area of development (setup, backend, frontend, styling, testing, etc.).
+
+For each task, provide:
+- title: Clear, actionable task name
+- description: What this task accomplishes
+- category: One of 'setup', 'backend', 'frontend', 'styling', 'testing', 'deployment'
+- estimatedDuration: Time estimate like "2h", "4h", "1d"
+- geminiPrompt: A detailed prompt for Gemini CLI to implement this task
+- subtasks: Array of subtasks with:
+  - title: Specific subtask name
+  - description: Detailed implementation instructions
+  - estimatedDuration: Time estimate like "30m", "1h"
+  - filesPaths: Array of file paths this subtask will create/modify
+  - geminiPrompt: Specific Gemini CLI prompt for this subtask
+
+Return valid JSON array format.`;
+
+  try {
+    const openaiProvider = await import('./llm/openai_provider');
+    const provider = new openaiProvider.OpenAIProvider();
+    
+    const response = await provider.generateCompletion(
+      'gpt-4o',
+      [{ role: 'user', content: prompt }],
+      0.3,
+      true // JSON mode
+    );
+
+    return JSON.parse(response.content || '[]');
+  } catch (error) {
+    console.error('Error generating task breakdown:', error);
+    throw new Error('Failed to generate task breakdown');
+  }
+}
 
 // Map function names (matching definitions) to the actual class methods
 export const llmFunctionExecutors: { [key: string]: Function } = {
@@ -1324,4 +1464,5 @@ export const llmFunctionExecutors: { [key: string]: Function } = {
   get_scheduled_messages: llmFunctionsInstance.get_scheduled_messages.bind(llmFunctionsInstance),
   cancel_scheduled_message: llmFunctionsInstance.cancel_scheduled_message.bind(llmFunctionsInstance),
   schedule_one_off_reminder: llmFunctionsInstance.schedule_one_off_reminder.bind(llmFunctionsInstance),
+  update_user_timezone: llmFunctionsInstance.update_user_timezone.bind(llmFunctionsInstance),
 };
