@@ -6,13 +6,17 @@ import { eq, and, desc } from 'drizzle-orm';
 import { sendVerificationMessage, generateVerificationCode } from '../messaging';
 import { hashPassword } from '../auth'; // Corrected path based on search
 import { storage } from '../storage'; // Import storage for verification DB operations
+import { extractCountryCode, getTimezonesForCountry, needsTimezoneSelection, getCountryName, formatTimezoneForDisplay } from '../utils/countryTimezones';
 
 // Remove in-memory state for verification code/expiry
 interface OnboardingState {
-    step: 'start' | 'awaiting_confirmation' | 'awaiting_name' | 'awaiting_email' | 'awaiting_email_verification' | 'completed';
+    step: 'start' | 'awaiting_confirmation' | 'awaiting_name' | 'awaiting_email' | 'awaiting_email_verification' | 'confirming_timezone' | 'selecting_timezone' | 'completed';
     firstName?: string;
     email?: string;
     // Removed verificationCode and verificationExpiresAt from here
+    proposedTimezone?: string;
+    timezoneOptions?: string[];
+    countryCode?: string;
 }
 
 const onboardingSessions: Map<string, OnboardingState> = new Map();
@@ -48,7 +52,7 @@ export async function handleWhatsAppOnboarding(fromPhoneNumber: string, messageB
         state = { step: 'start' };
         onboardingSessions.set(fromPhoneNumber, state);
         state.step = 'awaiting_confirmation';
-        return "Hello! I'm your ADHD Assistant coach. It looks like this number isn't registered yet. Would you like to sign up? (yes/no)";
+        return "Hello! I'm Kona, your kind and encouraging AI personal assistant. It looks like this number isn't registered yet. Would you like to sign up? (yes/no)";
     }
 
     switch (state.step) {
@@ -88,7 +92,7 @@ export async function handleWhatsAppOnboarding(fromPhoneNumber: string, messageB
 
                 // Use storage method to create verification record using phone number as tempId
                 await storage.createContactVerification({
-                    userId: parseInt(tempId),
+                    tempId: tempId, // Use tempId directly as string
                     type: 'email',
                     code: code,
                     expiresAt: expiresAt,
@@ -106,7 +110,7 @@ export async function handleWhatsAppOnboarding(fromPhoneNumber: string, messageB
             const enteredCode = messageBody.trim();
             try {
                  // Fetch the latest verification attempt for this tempId (phone number)
-                const verification = await storage.getLatestContactVerification(parseInt(tempId));
+                const verification = await storage.getLatestContactVerification(tempId);
 
                 if (!verification) {
                     // Should not happen if the flow is correct
@@ -122,44 +126,43 @@ export async function handleWhatsAppOnboarding(fromPhoneNumber: string, messageB
 
                 if (verification.code === enteredCode) {
                     // Mark verified in the DB
-                    await storage.markContactVerified(parseInt(tempId), 'email');
+                    await storage.markContactVerified(tempId, 'email');
 
-                    // Verification successful! Create user.
+                    // Verification successful! Now handle timezone before creating user
                     if (!state.email || !state.firstName) {
                         console.error('Error: Missing email or firstName during final verification step.', state);
                         onboardingSessions.delete(fromPhoneNumber);
                         return "Something went wrong during signup. Please try starting the process again.";
                     }
 
-                    const tempPassword = Math.random().toString(36).slice(-8);
-                    const hashedPassword = await hashPassword(tempPassword); // Hash the password
-
-                    await db.insert(users).values({
-                        username: state.email, // Use email as username
-                        password: hashedPassword, // Store hashed password
-                        email: state.email,
-                        phoneNumber: fromPhoneNumber,
-                        firstName: state.firstName,
-                        contactPreference: 'whatsapp',
-                        isPhoneVerified: true,
-                        isEmailVerified: true, // Email is now verified
-                        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                        // Ensure other non-nullable fields have defaults or are set
-                        allowEmailNotifications: true, // Example default
-                        allowPhoneNotifications: true, // Example default for WhatsApp onboarding
-                        wakeTime: users.wakeTime.default,
-                        routineStartTime: users.routineStartTime.default,
-                        sleepTime: users.sleepTime.default,
-                        preferredModel: users.preferredModel.default,
-                        isActive: users.isActive.default,
-                    });
-
-                    state.step = 'completed';
-                    onboardingSessions.delete(fromPhoneNumber);
-
-                    console.log(`User ${state.firstName} (${state.email}) created successfully via WhatsApp from ${fromPhoneNumber}.`);
-                    // TODO: Consider sending the temporary password or instructing user on next steps
-                    return `Thanks ${state.firstName}! Your email is verified, and your account is set up. You can now start using the ADHD Assistant! We'll primarily contact you via WhatsApp.`;
+                    // Extract country code and determine timezone flow
+                    const countryCode = extractCountryCode(fromPhoneNumber);
+                    if (countryCode) {
+                        state.countryCode = countryCode;
+                        const timezones = getTimezonesForCountry(countryCode);
+                        const countryName = getCountryName(countryCode);
+                        
+                        if (timezones.length === 0) {
+                            // Unknown country, ask directly
+                            state.step = 'selecting_timezone';
+                            return `Thanks ${state.firstName}! Your email is verified. I couldn't detect your timezone from your phone number. What timezone are you in? (e.g., "Eastern Time", "PST", "Europe/London")`;
+                        } else if (timezones.length === 1) {
+                            // Single timezone country - just confirm
+                            state.proposedTimezone = timezones[0];
+                            state.step = 'confirming_timezone';
+                            return `Thanks ${state.firstName}! Your email is verified. I've detected you're in ${countryName}. Should I set your timezone to ${formatTimezoneForDisplay(timezones[0])}? (Yes/No)`;
+                        } else {
+                            // Multiple timezones - ask user to select
+                            state.timezoneOptions = timezones;
+                            state.step = 'selecting_timezone';
+                            const options = timezones.map((tz, idx) => `${idx + 1}. ${formatTimezoneForDisplay(tz)}`).join('\n');
+                            return `Thanks ${state.firstName}! Your email is verified. I see you're in ${countryName} which has multiple timezones.\n\nPlease select your timezone by replying with a number:\n${options}`;
+                        }
+                    } else {
+                        // Fallback - ask directly
+                        state.step = 'selecting_timezone';
+                        return `Thanks ${state.firstName}! Your email is verified. I couldn't detect your timezone from your phone number. What timezone are you in? (e.g., "Eastern Time", "PST", "Europe/London")`;
+                    }
 
                 } else {
                     return "That code doesn't seem right. Please double-check and enter the 6-digit code again.";
@@ -168,6 +171,45 @@ export async function handleWhatsAppOnboarding(fromPhoneNumber: string, messageB
                  console.error(`Failed to verify code or create user for ${state.email} (tempId: ${tempId}):`, error);
                  onboardingSessions.delete(fromPhoneNumber);
                  return "Sorry, there was an error verifying your code or creating your account. Please try signing up again later.";
+            }
+
+        case 'confirming_timezone':
+            const confirmResponse = messageBody.trim().toLowerCase();
+            if (confirmResponse === 'yes' || confirmResponse === 'y') {
+                // User confirmed the timezone
+                if (!state.proposedTimezone || !state.email || !state.firstName) {
+                    console.error('Error: Missing required data during timezone confirmation.', state);
+                    onboardingSessions.delete(fromPhoneNumber);
+                    return "Something went wrong during signup. Please try starting the process again.";
+                }
+                
+                // Create user with confirmed timezone
+                return await createUserWithTimezone(fromPhoneNumber, state, state.proposedTimezone);
+            } else if (confirmResponse === 'no' || confirmResponse === 'n') {
+                // User rejected the proposed timezone, ask them to specify
+                state.step = 'selecting_timezone';
+                return "What timezone are you in? You can tell me the city name or timezone (e.g., 'New York', 'Pacific Time', 'GMT+5:30')";
+            } else {
+                return "Please reply with 'Yes' or 'No' to confirm your timezone.";
+            }
+
+        case 'selecting_timezone':
+            const timezoneInput = messageBody.trim();
+            
+            // Check if user selected from numbered list
+            if (state.timezoneOptions && /^\d+$/.test(timezoneInput)) {
+                const index = parseInt(timezoneInput) - 1;
+                if (index >= 0 && index < state.timezoneOptions.length) {
+                    const selectedTimezone = state.timezoneOptions[index];
+                    return await createUserWithTimezone(fromPhoneNumber, state, selectedTimezone);
+                } else {
+                    return `Please select a number between 1 and ${state.timezoneOptions.length}.`;
+                }
+            } else {
+                // User provided timezone as text - we'll let Kona handle this after user creation
+                // For now, create user with a default timezone and let Kona update it
+                const defaultTimezone = 'UTC'; // Safe default
+                return await createUserWithTimezone(fromPhoneNumber, state, defaultTimezone, timezoneInput);
             }
 
         case 'completed':
@@ -182,6 +224,68 @@ export async function handleWhatsAppOnboarding(fromPhoneNumber: string, messageB
             onboardingSessions.set(fromPhoneNumber, state);
             state.step = 'awaiting_confirmation';
             return "Sorry, something went wrong. Let's start over. Would you like to sign up? (yes/no)";
+    }
+}
+
+// Helper function to create user with timezone and inject message to Kona
+async function createUserWithTimezone(
+    fromPhoneNumber: string, 
+    state: OnboardingState, 
+    timezone: string,
+    userProvidedTimezone?: string
+): Promise<string> {
+    if (!state.email || !state.firstName) {
+        throw new Error('Missing email or firstName when creating user');
+    }
+
+    try {
+        const tempPassword = Math.random().toString(36).slice(-8);
+        const hashedPassword = await hashPassword(tempPassword);
+
+        const [newUser] = await db.insert(users).values({
+            username: state.email,
+            password: hashedPassword,
+            email: state.email,
+            phoneNumber: fromPhoneNumber,
+            firstName: state.firstName,
+            contactPreference: 'whatsapp',
+            isPhoneVerified: true,
+            isEmailVerified: true,
+            timeZone: timezone,
+            allowEmailNotifications: true,
+            allowPhoneNotifications: true,
+            wakeTime: users.wakeTime.default,
+            routineStartTime: users.routineStartTime.default,
+            sleepTime: users.sleepTime.default,
+            preferredModel: users.preferredModel.default,
+            isActive: users.isActive.default,
+        }).returning();
+
+        state.step = 'completed';
+        onboardingSessions.delete(fromPhoneNumber);
+
+        console.log(`User ${state.firstName} (${state.email}) created successfully via WhatsApp from ${fromPhoneNumber} with timezone ${timezone}.`);
+
+        // If user provided a custom timezone string, inject a system message to Kona to update it
+        if (userProvidedTimezone) {
+            // Import messaging service to handle the timezone update
+            const { MessagingService } = await import('./messaging');
+            const messagingService = new MessagingService();
+            
+            // Send a system message to Kona to update the timezone
+            setTimeout(async () => {
+                const systemMessage = `System: The user just told me their timezone is "${userProvidedTimezone}". Please update their timezone setting accordingly.`;
+                await messagingService.handleUserResponse(newUser.id, systemMessage);
+            }, 1000); // Small delay to ensure user is created
+
+            return `Welcome ${state.firstName}! Your account is all set up. I'll update your timezone to ${userProvidedTimezone} and we can start chatting. How can I help you today?`;
+        } else {
+            return `Welcome ${state.firstName}! Your account is all set up with timezone ${formatTimezoneForDisplay(timezone)}. You can start using Kona now! How can I help you today?`;
+        }
+    } catch (error) {
+        console.error(`Failed to create user for ${state.email}:`, error);
+        onboardingSessions.delete(fromPhoneNumber);
+        return "Sorry, there was an error creating your account. Please try signing up again later.";
     }
 }
  
