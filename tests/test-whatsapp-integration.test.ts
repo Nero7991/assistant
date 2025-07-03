@@ -23,8 +23,13 @@ vi.mock('twilio', () => {
     toString: vi.fn().mockReturnValue('<Response></Response>')
   }));
   
+  const twilioMock = vi.fn(() => ({}));
+  twilioMock.twiml = {
+    MessagingResponse
+  };
+  
   return {
-    default: vi.fn(() => ({})),
+    default: twilioMock,
     twiml: {
       MessagingResponse
     }
@@ -32,7 +37,7 @@ vi.mock('twilio', () => {
 });
 
 describe('WhatsApp Integration Tests', () => {
-  const testPhoneNumber = 'whatsapp:+12025551234';
+  const testPhoneNumber = 'whatsapp:+15551234';
   const testEmail = `test_${Date.now()}@example.com`;
   const testFirstName = 'TestUser';
   
@@ -82,7 +87,7 @@ describe('WhatsApp Integration Tests', () => {
     it('should handle complete onboarding flow', async () => {
       // Step 1: Initial contact
       const response1 = await handleWhatsAppOnboarding(testPhoneNumber, 'Hello');
-      expect(response1).toContain("Hello! I'm your ADHD Assistant coach");
+      expect(response1).toContain("Hello! I'm Kona, your kind and encouraging AI personal assistant");
       
       // Step 2: Confirm signup
       const response2 = await handleWhatsAppOnboarding(testPhoneNumber, 'yes');
@@ -264,7 +269,7 @@ describe('WhatsApp Integration Tests', () => {
       
       // Try to continue - should restart
       const response3 = await handleWhatsAppOnboarding(testPhoneNumber, testFirstName);
-      expect(response3).toContain("Hello! I'm your ADHD Assistant coach");
+      expect(response3).toContain("Hello! I'm Kona, your kind and encouraging AI personal assistant");
     });
     
     it('should handle completed state', async () => {
@@ -278,6 +283,194 @@ describe('WhatsApp Integration Tests', () => {
       // Try to interact after completion
       const response = await handleWhatsAppOnboarding(testPhoneNumber, 'Hello again');
       expect(response).toContain("You're already set up!");
+    });
+    
+    it('should restart from appropriate step on unexpected state', async () => {
+      // Start onboarding and provide name
+      await handleWhatsAppOnboarding(testPhoneNumber, 'Hello');
+      await handleWhatsAppOnboarding(testPhoneNumber, 'yes');
+      await handleWhatsAppOnboarding(testPhoneNumber, testFirstName);
+      
+      // Send unexpected input when email is expected
+      const response1 = await handleWhatsAppOnboarding(testPhoneNumber, '');
+      expect(response1).toContain("doesn't look like a valid email address");
+      
+      // Should still be expecting email
+      const response2 = await handleWhatsAppOnboarding(testPhoneNumber, 'still not an email');
+      expect(response2).toContain("doesn't look like a valid email address");
+    });
+  });
+  
+  describe('Edge Cases and Error Handling', () => {
+    it('should handle empty name input', async () => {
+      await handleWhatsAppOnboarding(testPhoneNumber, 'Start');
+      await handleWhatsAppOnboarding(testPhoneNumber, 'yes');
+      
+      const response = await handleWhatsAppOnboarding(testPhoneNumber, '   ');
+      expect(response).toContain('Please enter a valid first name');
+    });
+    
+    it('should handle various email formats', async () => {
+      await handleWhatsAppOnboarding(testPhoneNumber, 'Start');
+      await handleWhatsAppOnboarding(testPhoneNumber, 'yes');
+      await handleWhatsAppOnboarding(testPhoneNumber, testFirstName);
+      
+      // Test various invalid formats
+      const invalidEmails = [
+        'notanemail',
+        '@example.com',
+        'user@',
+        'user@.com',
+        'user..name@example.com',
+        'user name@example.com'
+      ];
+      
+      for (const invalidEmail of invalidEmails) {
+        const response = await handleWhatsAppOnboarding(testPhoneNumber, invalidEmail);
+        expect(response).toContain("doesn't look like a valid email address");
+      }
+      
+      // Test valid format
+      const response = await handleWhatsAppOnboarding(testPhoneNumber, 'valid.email+tag@example.com');
+      expect(response).toContain("I've sent a 6-digit verification code");
+    });
+    
+    it('should handle wrong verification code', async () => {
+      await handleWhatsAppOnboarding(testPhoneNumber, 'Start');
+      await handleWhatsAppOnboarding(testPhoneNumber, 'yes');
+      await handleWhatsAppOnboarding(testPhoneNumber, testFirstName);
+      await handleWhatsAppOnboarding(testPhoneNumber, testEmail);
+      
+      // Try wrong code
+      const response1 = await handleWhatsAppOnboarding(testPhoneNumber, '999999');
+      expect(response1).toContain("code doesn't seem right");
+      
+      // Try correct code after wrong attempt
+      const response2 = await handleWhatsAppOnboarding(testPhoneNumber, '123456');
+      expect(response2).toContain('Your email is verified');
+    });
+    
+    it('should handle various phone number formats', async () => {
+      const phoneFormats = [
+        'whatsapp:+15551234567',
+        'whatsapp:+1 555 123 4567',
+        'whatsapp:+1-555-123-4567',
+        'whatsapp:+1(555)123-4567'
+      ];
+      
+      for (const phone of phoneFormats) {
+        const response = await handleWhatsAppOnboarding(phone, 'Hello');
+        expect(response).toContain("Hello! I'm Kona");
+        
+        // Clean up session for next iteration
+        const cleanupResponse = await handleWhatsAppOnboarding(phone, 'no');
+        expect(cleanupResponse).toContain('Okay, no problem');
+      }
+    });
+    
+    it('should handle case-insensitive responses', async () => {
+      await handleWhatsAppOnboarding(testPhoneNumber, 'Start');
+      
+      // Test various cases for 'yes'
+      const yesVariants = ['YES', 'Yes', 'YeS', ' yes ', '  YES  '];
+      
+      for (const variant of yesVariants) {
+        const response = await handleWhatsAppOnboarding(testPhoneNumber, variant);
+        expect(response).toBe("Great! What's your first name?");
+        
+        // Reset for next test
+        await handleWhatsAppOnboarding(testPhoneNumber, 'Stop');
+        await handleWhatsAppOnboarding(testPhoneNumber, 'Start');
+      }
+    });
+  });
+  
+  describe('Concurrent Session Tests', () => {
+    it('should handle multiple users onboarding simultaneously', async () => {
+      const phone1 = 'whatsapp:+15551111';
+      const phone2 = 'whatsapp:+15552222';
+      const email1 = `user1_${Date.now()}@example.com`;
+      const email2 = `user2_${Date.now()}@example.com`;
+      
+      // Start both onboardings
+      const res1_1 = await handleWhatsAppOnboarding(phone1, 'Hello');
+      const res2_1 = await handleWhatsAppOnboarding(phone2, 'Hi');
+      
+      expect(res1_1).toContain("Hello! I'm Kona");
+      expect(res2_1).toContain("Hello! I'm Kona");
+      
+      // Continue both flows
+      await handleWhatsAppOnboarding(phone1, 'yes');
+      await handleWhatsAppOnboarding(phone2, 'yes');
+      
+      await handleWhatsAppOnboarding(phone1, 'User1');
+      await handleWhatsAppOnboarding(phone2, 'User2');
+      
+      await handleWhatsAppOnboarding(phone1, email1);
+      await handleWhatsAppOnboarding(phone2, email2);
+      
+      // Complete both
+      const final1 = await handleWhatsAppOnboarding(phone1, '123456');
+      const final2 = await handleWhatsAppOnboarding(phone2, '123456');
+      
+      expect(final1).toContain('User1');
+      expect(final2).toContain('User2');
+      
+      // Clean up
+      await db.delete(users).where(eq(users.phoneNumber, phone1));
+      await db.delete(users).where(eq(users.phoneNumber, phone2));
+    });
+  });
+  
+  describe('Database Integration Tests', () => {
+    it('should properly set all user fields on successful onboarding', async () => {
+      // Complete onboarding
+      await handleWhatsAppOnboarding(testPhoneNumber, 'Start');
+      await handleWhatsAppOnboarding(testPhoneNumber, 'yes');
+      await handleWhatsAppOnboarding(testPhoneNumber, testFirstName);
+      await handleWhatsAppOnboarding(testPhoneNumber, testEmail);
+      await handleWhatsAppOnboarding(testPhoneNumber, '123456');
+      
+      // Check user record
+      const user = await db.query.users.findFirst({
+        where: eq(users.phoneNumber, testPhoneNumber)
+      });
+      
+      expect(user).toBeDefined();
+      expect(user?.username).toBe(testEmail);
+      expect(user?.email).toBe(testEmail);
+      expect(user?.firstName).toBe(testFirstName);
+      expect(user?.phoneNumber).toBe(testPhoneNumber);
+      expect(user?.contactPreference).toBe('whatsapp');
+      expect(user?.isPhoneVerified).toBe(true);
+      expect(user?.isEmailVerified).toBe(true);
+      expect(user?.allowPhoneNotifications).toBe(true);
+      expect(user?.allowEmailNotifications).toBe(true);
+      expect(user?.isActive).toBe(true);
+      expect(user?.timeZone).toBeDefined();
+      expect(user?.password).toBeDefined();
+      expect(user?.password).not.toBe(''); // Should be hashed
+    });
+    
+    it('should handle database errors gracefully', async () => {
+      // Mock a database error
+      const originalInsert = db.insert;
+      db.insert = vi.fn().mockImplementation(() => {
+        throw new Error('Database connection error');
+      });
+      
+      try {
+        await handleWhatsAppOnboarding(testPhoneNumber, 'Start');
+        await handleWhatsAppOnboarding(testPhoneNumber, 'yes');
+        await handleWhatsAppOnboarding(testPhoneNumber, testFirstName);
+        await handleWhatsAppOnboarding(testPhoneNumber, testEmail);
+        
+        const response = await handleWhatsAppOnboarding(testPhoneNumber, '123456');
+        expect(response).toContain('error');
+      } finally {
+        // Restore original function
+        db.insert = originalInsert;
+      }
     });
   });
 });

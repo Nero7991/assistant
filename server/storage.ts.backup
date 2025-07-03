@@ -1,0 +1,1615 @@
+// Correctly import session types
+import session from "express-session";
+// Use any to avoid type errors since Store is not exported as a named export
+import * as sessionTypes from "express-session";
+// Define Store interface as a fallback
+interface SessionStore {
+  all: (callback: (err: any, sessions?: any) => void) => void;
+  destroy: (sid: string, callback?: (err?: any) => void) => void;
+  clear: (callback?: (err?: any) => void) => void;
+  length: (callback: (err: any, length?: number) => void) => void;
+  get: (sid: string, callback: (err: any, session?: sessionTypes.SessionData | null) => void) => void;
+  set: (sid: string, session: sessionTypes.SessionData, callback?: (err?: any) => void) => void;
+  touch: (sid: string, session: sessionTypes.SessionData, callback?: (err?: any) => void) => void;
+}
+// Use `any` type for createMemoryStore to avoid TypeScript errors
+import createMemoryStore from "memorystore";
+import { 
+  User, Goal, CheckIn, Task, KnownUserFact, InsertKnownUserFact, InsertTask, Subtask, InsertSubtask,
+  DailySchedule, ScheduleItem, ScheduleRevision, MessageSchedule,
+  InsertDailySchedule, InsertScheduleItem, InsertScheduleRevision,
+  taskEvents, waitlistEntries, appSettings, passwordResetTokens,
+  TaskType
+} from "@shared/schema";
+import { db } from "./db";
+import { eq, and, desc, gte, lte, inArray, isNull, not, lt } from "drizzle-orm";
+import { 
+  users, goals, checkIns, contactVerifications, knownUserFacts, tasks, subtasks, messageSchedules,
+  dailySchedules, scheduleItems, scheduleRevisions 
+} from "@shared/schema";
+import connectPg from "connect-pg-simple";
+import { pool } from "./db";
+import { toZonedTime, formatInTimeZone } from 'date-fns-tz'; 
+import { addDays, formatISO, parseISO, addMonths, setDate, isBefore, parse as parseTime, format } from 'date-fns';
+import { sql } from 'drizzle-orm';
+import { or } from 'drizzle-orm';
+import { getDay, set as setTime } from 'date-fns';
+
+export type TaskWithSubtasks = Task & { subtasks: Subtask[] };
+export type { User };
+
+// Use type assertions to make TypeScript happy
+const MemoryStore = createMemoryStore(session as any);
+const PostgresSessionStore = connectPg(session as any);
+
+export interface IStorage {
+  sessionStore: any; // Use any to avoid typing issues with session Store
+  
+  // Add indexer to allow any additional methods/properties
+  [key: string]: any;
+  getUser(id: number): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
+  getUserByPhone(phoneNumber: string): Promise<User | undefined>;
+  createUser(user: { username: string; password: string; phoneNumber?: string; email: string; contactPreference?: string; isEmailVerified?: boolean; isPhoneVerified?: boolean; }): Promise<User>;
+  updateUser(user: User): Promise<User>;
+  deactivateUser(userId: number): Promise<void>;
+
+  // Known User Facts methods
+  getKnownUserFacts(userId: number): Promise<KnownUserFact[]>;
+  addKnownUserFact(fact: InsertKnownUserFact & { userId: number }): Promise<KnownUserFact>;
+  updateKnownUserFact(id: number, fact: Partial<KnownUserFact>): Promise<KnownUserFact>;
+  deleteKnownUserFact(id: number): Promise<void>;
+
+  // Task management methods
+  getTasks(userId: number, type?: string): Promise<Task[]>;
+  getTask(id: number, userId: number): Promise<TaskWithSubtasks | undefined>;
+  createTask(task: InsertTask & { userId: number }): Promise<TaskWithSubtasks>;
+  updateTask(id: number, userId: number, task: Partial<Task>): Promise<TaskWithSubtasks>;
+  deleteTask(id: number, userId: number): Promise<void>;
+  completeTask(id: number, userId: number): Promise<TaskWithSubtasks>;
+
+  // Contact verification methods
+  createContactVerification(verification: {
+    userId: number;
+    type: string;
+    code: string;
+    expiresAt: Date;
+  }): Promise<void>;
+  getLatestContactVerification(userId: number): Promise<{
+    type: string;
+    code: string;
+    expiresAt: Date;
+    verified?: boolean;
+  } | undefined>;
+  markContactVerified(userId: number, type: string): Promise<void>;
+  getVerifications(userId: number): Promise<Array<{
+    type: string;
+    code: string;
+    expiresAt: Date;
+    verified: boolean;
+  }>>;
+
+  getGoals(userId: number): Promise<Goal[]>;
+  createGoal(goal: Omit<Goal, "id">): Promise<Goal>;
+  updateGoal(id: number, goal: Partial<Goal>): Promise<Goal>;
+  deleteGoal(id: number): Promise<void>;
+
+  getCheckIns(userId: number): Promise<CheckIn[]>;
+  createCheckIn(checkIn: Omit<CheckIn, "id">): Promise<CheckIn>;
+  updateCheckIn(id: number, response: string): Promise<CheckIn>;
+  clearPreviousVerifications(tempId: string, type: string): Promise<void>;
+
+  // Subtask management methods
+  createSubtask(taskId: number, subtask: InsertSubtask): Promise<Subtask>;
+  getSubtasks(taskId: number): Promise<Subtask[]>;
+  getAllSubtasks(userId: number): Promise<Subtask[]>;
+  completeSubtask(id: number, userId: number): Promise<Subtask>;
+  updateSubtask(id: number, userId: number, updates: Partial<Subtask>): Promise<Subtask>;
+  deleteSubtask(subtaskId: number, userId: number): Promise<void>;
+  
+  // Schedule management methods
+  getDailySchedule(userId: number, date: Date): Promise<DailySchedule | undefined>;
+  getDailySchedules(userId: number, limit?: number): Promise<DailySchedule[]>;
+  createDailySchedule(schedule: InsertDailySchedule): Promise<DailySchedule>;
+  updateDailySchedule(id: number, updates: Partial<DailySchedule>): Promise<DailySchedule>;
+  confirmDailySchedule(id: number): Promise<boolean>;
+  
+  // Schedule items methods
+  getScheduleItems(scheduleId: number): Promise<ScheduleItem[]>;
+  createScheduleItem(item: InsertScheduleItem): Promise<ScheduleItem>;
+  updateScheduleItem(id: number, updates: Partial<ScheduleItem>): Promise<ScheduleItem>;
+  completeScheduleItem(id: number): Promise<ScheduleItem>;
+  deleteScheduleItem(id: number): Promise<void>;
+  
+  // Schedule revision methods
+  getScheduleRevisions(scheduleId: number): Promise<ScheduleRevision[]>;
+  createScheduleRevision(revision: InsertScheduleRevision): Promise<ScheduleRevision>;
+  
+  // Notification methods for scheduled items
+  scheduleTaskNotification(taskId: number, scheduledTime: Date, context?: Record<string, any>): Promise<MessageSchedule>;
+  scheduleItemNotification(itemId: number, scheduledTime: Date): Promise<MessageSchedule>;
+  getUpcomingNotifications(userId: number): Promise<MessageSchedule[]>;
+
+  // Waitlist method
+  addWaitlistEntry(entry: { firstName: string; email: string }): Promise<void>;
+  
+  // ---> NEW: App Settings Methods
+  getSetting(key: string): Promise<string | null>;
+  setSetting(key: string, value: string): Promise<void>;
+  // <--- END NEW
+
+  // ---> NEW: Password Reset Token Methods
+  createPasswordResetToken(userId: number, tokenHash: string, expiresAt: Date): Promise<void>;
+  findResetTokenByHash(tokenHash: string): Promise<(typeof passwordResetTokens.$inferSelect & { user: User }) | undefined>;
+  deleteResetToken(id: number): Promise<void>;
+  // <--- END NEW
+}
+
+// ---> Implement calculateNextOccurrence
+function calculateNextOccurrence(pattern: string, scheduledTime: string | null, lastOccurrence: Date, timeZone: string): Date | null {
+  try {
+    const baseDate = toZonedTime(lastOccurrence, timeZone);
+    let nextDate = new Date(baseDate); // Start with the last occurrence date in the correct timezone
+
+    // Set the time based on scheduledTime if provided
+    let targetHour = 0;
+    let targetMinute = 0;
+    if (scheduledTime) {
+      const timeParts = scheduledTime.match(/(\d{1,2}):(\d{2})/);
+      if (timeParts) {
+        targetHour = parseInt(timeParts[1], 10);
+        targetMinute = parseInt(timeParts[2], 10);
+        if (isNaN(targetHour) || isNaN(targetMinute) || targetHour < 0 || targetHour > 23 || targetMinute < 0 || targetMinute > 59) {
+          console.error(`[calculateNextOccurrence] Invalid scheduledTime format: ${scheduledTime}`);
+          return null; // Invalid time format
+        }
+      } else {
+         console.error(`[calculateNextOccurrence] Could not parse scheduledTime: ${scheduledTime}`);
+         return null; // Cannot parse time
+      }
+    }
+    // Apply the target time to the base date
+    nextDate = setTime(nextDate, { hours: targetHour, minutes: targetMinute, seconds: 0, milliseconds: 0 });
+
+    // --- Calculate based on pattern --- 
+    if (pattern === 'daily') {
+      // Add 1 day
+      nextDate = addDays(nextDate, 1);
+    } else if (pattern.startsWith('weekly:')) {
+      const daysStr = pattern.split(':')[1];
+      const targetDays = daysStr.split(',').map(d => parseInt(d.trim(), 10)).filter(d => !isNaN(d) && d >= 0 && d <= 6);
+      if (targetDays.length === 0) return null; // No valid days
+      targetDays.sort((a, b) => a - b);
+
+      let currentDay = getDay(baseDate); // Day of the week for last occurrence (0=Sun, 6=Sat)
+      nextDate = addDays(nextDate, 1); // Start checking from the day *after* last occurrence
+
+      // Loop until we find the next valid day
+      while (true) {
+        const nextDayOfWeek = getDay(nextDate);
+        if (targetDays.includes(nextDayOfWeek)) {
+          break; // Found the next valid day
+        }
+        nextDate = addDays(nextDate, 1); // Check the next day
+      }
+    } else if (pattern.startsWith('monthly:')) {
+       const dayOfMonthStr = pattern.split(':')[1];
+       const targetDayOfMonth = parseInt(dayOfMonthStr.trim(), 10);
+       if (isNaN(targetDayOfMonth) || targetDayOfMonth < 1 || targetDayOfMonth > 31) return null; // Invalid day
+
+       // Set to the target day in the current month
+       nextDate = setDate(nextDate, targetDayOfMonth);
+       
+       // If this date is still before or the same as the last occurrence, move to next month
+       if (!isBefore(baseDate, nextDate)) { 
+           nextDate = addMonths(nextDate, 1);
+           nextDate = setDate(nextDate, targetDayOfMonth); // Ensure day is correct after month change
+       }
+       // Note: This doesn't handle cases where targetDayOfMonth > days in month (e.g., 31 in Feb). date-fns setDate handles this reasonably.
+
+    } else {
+      console.error(`[calculateNextOccurrence] Unsupported pattern: ${pattern}`);
+      return null; // Unsupported pattern
+    }
+    
+    // Ensure the final calculated date has the correct time applied again
+    nextDate = setTime(nextDate, { hours: targetHour, minutes: targetMinute, seconds: 0, milliseconds: 0 });
+
+    console.log(`[calculateNextOccurrence] Calculated next for pattern '${pattern}' (last: ${formatISO(baseDate)}): ${formatISO(nextDate)}`);
+    return nextDate; // Return the calculated Date object
+
+  } catch (error) {
+      console.error(`[calculateNextOccurrence] Error calculating next occurrence for pattern '${pattern}':`, error);
+      return null;
+  }
+}
+// <--- End implementation
+
+export class DatabaseStorage implements IStorage {
+  sessionStore: any; // Use any to avoid typing issues with session Store
+  
+  // Implement all methods required by IStorage
+  async createDailySchedule(schedule: InsertDailySchedule): Promise<DailySchedule> {
+    const [result] = await db.insert(dailySchedules).values(schedule).returning();
+    return result;
+  }
+  
+  async updateDailySchedule(id: number, updates: Partial<DailySchedule>): Promise<DailySchedule> {
+    const [result] = await db.update(dailySchedules)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(dailySchedules.id, id))
+      .returning();
+    return result;
+  }
+  
+  async createScheduleItem(item: InsertScheduleItem): Promise<ScheduleItem> {
+    const [result] = await db.insert(scheduleItems).values(item).returning();
+    return result;
+  }
+  
+  async updateScheduleItem(id: number, updates: Partial<ScheduleItem>): Promise<ScheduleItem> {
+    const [result] = await db.update(scheduleItems)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(scheduleItems.id, id))
+      .returning();
+    return result;
+  }
+  
+  async completeScheduleItem(id: number): Promise<ScheduleItem> {
+    const [result] = await db.update(scheduleItems)
+      .set({ status: 'completed', updatedAt: new Date() })
+      .where(eq(scheduleItems.id, id))
+      .returning();
+    return result;
+  }
+  
+  async deleteScheduleItem(id: number): Promise<void> {
+    await db.update(scheduleItems)
+      .set({ deletedAt: new Date() })
+      .where(eq(scheduleItems.id, id));
+  }
+  
+  async getScheduleRevisions(scheduleId: number): Promise<ScheduleRevision[]> {
+    return db.select().from(scheduleRevisions)
+      .where(eq(scheduleRevisions.scheduleId, scheduleId));
+  }
+  
+  async createScheduleRevision(revision: InsertScheduleRevision): Promise<ScheduleRevision> {
+    const [result] = await db.insert(scheduleRevisions).values(revision).returning();
+    return result;
+  }
+  
+  async confirmDailySchedule(id: number): Promise<boolean> {
+    const [result] = await db.update(dailySchedules)
+      .set({ status: 'confirmed', confirmedAt: new Date(), updatedAt: new Date() })
+      .where(eq(dailySchedules.id, id))
+      .returning();
+    return !!result;
+  }
+  
+  // Implement missing methods required by IStorage interface
+  async scheduleTaskNotification(taskId: number, scheduledTime: Date, context?: Record<string, any>): Promise<MessageSchedule> {
+    // Find the task to get the user ID
+    const [task] = await db.select().from(tasks).where(eq(tasks.id, taskId));
+    if (!task) {
+      throw new Error(`Task ${taskId} not found`);
+    }
+    
+    // Create a new message schedule
+    const [messageSchedule] = await db.insert(messageSchedules).values({
+      userId: task.userId,
+      type: 'reminder',
+      title: `Reminder for task: ${task.title}`,
+      scheduledFor: scheduledTime,
+      status: 'pending',
+      metadata: context ? { taskId, ...context } : { taskId },
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }).returning();
+    
+    return messageSchedule;
+  }
+  
+  async scheduleItemNotification(itemId: number, scheduledTime: Date): Promise<MessageSchedule> {
+    // Find the schedule item to get the user ID
+    const [item] = await db.select().from(scheduleItems).where(eq(scheduleItems.id, itemId));
+    if (!item) {
+      throw new Error(`Schedule item ${itemId} not found`);
+    }
+    
+    // Create a new message schedule
+    const [messageSchedule] = await db.insert(messageSchedules).values({
+      userId: item.userId,
+      type: 'reminder',
+      title: `Reminder for scheduled item: ${item.title}`,
+      scheduledFor: scheduledTime,
+      status: 'pending',
+      metadata: { scheduleItemId: itemId },
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }).returning();
+    
+    return messageSchedule;
+  }
+  
+  async getUpcomingNotifications(userId: number): Promise<MessageSchedule[]> {
+    // Get message schedules that are pending and scheduled for the future
+    const now = new Date();
+    return db.select()
+      .from(messageSchedules)
+      .where(and(
+        eq(messageSchedules.userId, userId),
+        eq(messageSchedules.status, 'pending'),
+        gte(messageSchedules.scheduledFor, now),
+        isNull(messageSchedules.deletedAt)
+      ))
+      .orderBy(messageSchedules.scheduledFor);
+  }
+
+  constructor() {
+    this.sessionStore = new PostgresSessionStore({
+      pool,
+      createTableIfMissing: true,
+    });
+  }
+
+  async getUser(id: number): Promise<User | undefined> {
+    try {
+      const [user] = await db.select().from(users).where(eq(users.id, id));
+      return user;
+    } catch (error) {
+      // Handle case where isActive column might not exist yet
+      if (error instanceof Error && error.message.includes('column "is_active" does not exist')) {
+        console.warn("is_active column doesn't exist yet. Using simplified select query.");
+        
+        // Build a partial user object
+        const result = await db.select({
+          id: users.id,
+          username: users.username,
+          password: users.password,
+          email: users.email,
+          phoneNumber: users.phoneNumber,
+          contactPreference: users.contactPreference,
+          isEmailVerified: users.isEmailVerified,
+          isPhoneVerified: users.isPhoneVerified,
+        }).from(users).where(eq(users.id, id));
+        
+        if (result.length === 0) return undefined;
+        
+        // Create a more complete User object with default values for missing fields
+        const user: User = {
+          ...result[0],
+          firstName: null,
+          allowEmailNotifications: true,
+          allowPhoneNotifications: false,
+          wakeTime: "08:00",
+          routineStartTime: "09:30",
+          sleepTime: "23:00",
+          preferredMessageTime: null,
+          timeZone: null,
+          preferredModel: "o1-mini",
+          customOpenaiServerUrl: null,
+          customOpenaiModelName: null,
+          devlmPreferredModel: "claude-3-5-sonnet-20241022",
+          devlmCustomOpenaiServerUrl: null,
+          devlmCustomOpenaiModelName: null,
+          isActive: true,
+          deactivatedAt: null,
+          last_user_initiated_message_at: null
+        };
+        
+        return user;
+      }
+      throw error;
+    }
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    try {
+      const [user] = await db.select().from(users).where(eq(users.username, username));
+      return user;
+    } catch (error) {
+      // Handle case where isActive column might not exist yet
+      if (error instanceof Error && error.message.includes('column "is_active" does not exist')) {
+        console.warn("is_active column doesn't exist yet. Using simplified select query.");
+        
+        // Build a partial user object
+        const result = await db.select({
+          id: users.id,
+          username: users.username,
+          password: users.password,
+          email: users.email,
+          phoneNumber: users.phoneNumber,
+          contactPreference: users.contactPreference,
+          isEmailVerified: users.isEmailVerified,
+          isPhoneVerified: users.isPhoneVerified,
+        }).from(users).where(eq(users.username, username));
+        
+        if (result.length === 0) return undefined;
+        
+        // Create a more complete User object with default values for missing fields
+        const user: User = {
+          ...result[0],
+          firstName: null,
+          allowEmailNotifications: true,
+          allowPhoneNotifications: false,
+          wakeTime: "08:00",
+          routineStartTime: "09:30",
+          sleepTime: "23:00",
+          preferredMessageTime: null,
+          timeZone: null,
+          preferredModel: "o1-mini",
+          customOpenaiServerUrl: null,
+          customOpenaiModelName: null,
+          devlmPreferredModel: "claude-3-5-sonnet-20241022",
+          devlmCustomOpenaiServerUrl: null,
+          devlmCustomOpenaiModelName: null,
+          isActive: true,
+          deactivatedAt: null,
+          last_user_initiated_message_at: null
+        };
+        
+        return user;
+      }
+      throw error;
+    }
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    try {
+      const [user] = await db.select().from(users).where(eq(users.email, email));
+      return user;
+    } catch (error) {
+      // Handle potential errors like missing columns during development/migration
+      console.error(`Error fetching user by email ${email}:`, error);
+      // Depending on error type, you might want to re-throw or handle differently
+      // For now, we'll return undefined on error like other getUser methods
+      return undefined; 
+    }
+  }
+
+  async getUserByPhone(phoneNumber: string): Promise<User | undefined> {
+    // Ensure phone number is not null or empty before querying
+    if (!phoneNumber) {
+        return undefined;
+    }
+    try {
+      // Query where phoneNumber matches and is not null
+      const [user] = await db.select().from(users).where(
+          and(
+              eq(users.phoneNumber, phoneNumber),
+              not(isNull(users.phoneNumber)) // Explicitly check for non-null
+          )
+      );
+      return user;
+    } catch (error) {
+      console.error(`Error fetching user by phone ${phoneNumber}:`, error);
+      return undefined;
+    }
+  }
+
+  async createUser(insertUser: { username: string; password: string; phoneNumber?: string; email: string; contactPreference?: string; isEmailVerified?: boolean; isPhoneVerified?: boolean; }): Promise<User> {
+    const [user] = await db.insert(users).values({
+      ...insertUser,
+      isPhoneVerified: insertUser.isPhoneVerified || false,
+      isEmailVerified: insertUser.isEmailVerified || false,
+      contactPreference: insertUser.contactPreference || 'email',
+      phoneNumber: insertUser.phoneNumber || null,
+      allowEmailNotifications: true,
+      allowPhoneNotifications: false,
+    }).returning();
+    return user;
+  }
+
+  async updateUser(user: User): Promise<User> {
+    const [updated] = await db
+      .update(users)
+      .set(user)
+      .where(eq(users.id, user.id))
+      .returning();
+    return updated;
+  }
+  
+  async deactivateUser(userId: number): Promise<void> {
+    try {
+      // First, set the user as inactive
+      await db
+        .update(users)
+        .set({
+          isActive: false,
+          deactivatedAt: new Date()
+        })
+        .where(eq(users.id, userId));
+    } catch (error) {
+      // Handle case where isActive column doesn't exist yet
+      if (error instanceof Error && error.message.includes('column "is_active" does not exist')) {
+        console.warn("is_active column doesn't exist yet. Using raw SQL update instead.");
+        // Need to run a database migration, but for now we'll just cancel the messages
+        console.log(`User ${userId} cannot be marked as inactive due to missing column 'is_active'. Only cancelling messages.`);
+      } else {
+        throw error;
+      }
+    }
+    
+    // Cancel all pending message schedules regardless
+    try {
+      await db
+        .update(messageSchedules)
+        .set({
+          status: 'cancelled'
+        })
+        .where(
+          and(
+            eq(messageSchedules.userId, userId),
+            eq(messageSchedules.status, 'pending')
+          )
+        );
+      
+      console.log(`Pending message schedules for user ${userId} cancelled.`);
+    } catch (error) {
+      console.error("Failed to cancel message schedules:", error);
+      throw new Error("Failed to cancel message schedules");
+    }
+    
+    console.log(`User ${userId} deactivation process completed.`);
+  }
+
+  // Known User Facts methods
+  async getKnownUserFacts(userId: number): Promise<KnownUserFact[]> {
+    return db
+      .select()
+      .from(knownUserFacts)
+      .where(eq(knownUserFacts.userId, userId))
+      .orderBy(knownUserFacts.createdAt);
+  }
+
+  async addKnownUserFact(fact: InsertKnownUserFact & { userId: number }): Promise<KnownUserFact> {
+    const now = new Date();
+    const [newFact] = await db
+      .insert(knownUserFacts)
+      .values({
+        ...fact,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+    return newFact;
+  }
+
+  async updateKnownUserFact(id: number, update: Partial<KnownUserFact>): Promise<KnownUserFact> {
+    const [updated] = await db
+      .update(knownUserFacts)
+      .set({
+        ...update,
+        updatedAt: new Date(),
+      })
+      .where(eq(knownUserFacts.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteKnownUserFact(id: number): Promise<void> {
+    await db.delete(knownUserFacts).where(eq(knownUserFacts.id, id));
+  }
+
+  // Task management methods
+  async getTasks(userId: number, type?: string): Promise<Task[]> {
+    let conditions = [
+      eq(tasks.userId, userId),
+      isNull(tasks.deletedAt) // Only return non-deleted tasks
+    ];
+    
+    if (type) {
+      conditions.push(eq(tasks.taskType, type));
+    }
+    
+    return db
+      .select()
+      .from(tasks)
+      .where(and(...conditions))
+      .orderBy(tasks.createdAt);
+  }
+
+  async getTask(id: number, userId: number): Promise<TaskWithSubtasks | undefined> {
+    const [task] = await db.select().from(tasks).where(and(eq(tasks.id, id), eq(tasks.userId, userId)));
+    if (!task) return undefined;
+    const taskSubtasks = await this.getSubtasks(id);
+    return { ...task, subtasks: taskSubtasks };
+  }
+
+  async createTask(taskData: InsertTask & { userId: number }): Promise<TaskWithSubtasks> {
+    const defaults = {
+      description: null,
+      priority: null,
+      estimatedDuration: null,
+      deadline: null,
+      scheduledTime: null,
+      recurrencePattern: null,
+      completedAt: null,
+      metadata: null,
+      deletedAt: null,
+      // Regular tasks were previously called daily tasks
+      isDaily: taskData.taskType === TaskType.REGULAR ? true : false
+    };
+
+    const finalTaskData = { ...defaults, ...taskData, createdAt: new Date(), updatedAt: new Date() };
+
+    const [newTask] = await db.insert(tasks).values(finalTaskData).returning();
+    return { ...newTask, subtasks: [] };
+  }
+
+  async updateTask(id: number, userId: number, update: Partial<Task>): Promise<TaskWithSubtasks> {
+    const [existingTask] = await db.select({ id: tasks.id, userId: tasks.userId }).from(tasks).where(eq(tasks.id, id));
+    if (!existingTask) { throw new Error(`Task with ID ${id} not found.`); }
+    if (existingTask.userId !== userId) { throw new Error(`User ${userId} does not have permission to update task ${id}.`); }
+
+    // Regular tasks were previously called daily tasks
+    if (update.taskType !== undefined) { 
+      // Using type assertion to tell TypeScript that this property can be added
+      (update as any).isDaily = update.taskType === TaskType.REGULAR; 
+    }
+
+    const now = new Date();
+    const isCompleting = update.status === 'completed' || (update.completedAt && update.completedAt <= now);
+    if (isCompleting && !update.completedAt) {
+      update.completedAt = now;
+      update.status = 'completed';
+    }
+
+    const [updatedTask] = await db
+      .update(tasks)
+      .set({...update, updatedAt: now })
+      .where(and(eq(tasks.id, id), eq(tasks.userId, userId)))
+      .returning();
+
+    if (!updatedTask) { throw new Error(`Task with ID ${id} not found or update failed.`); }
+
+    if (isCompleting) {
+      try {
+        await db.insert(taskEvents).values({
+          userId: updatedTask.userId, taskId: updatedTask.id, eventType: 'completed',
+          eventDate: updatedTask.completedAt || now, createdAt: now,
+        });
+        console.log(`[Storage updateTask] Logged 'completed' event for task ${updatedTask.id}.`);
+      } catch (eventError) {
+        console.error(`[Storage updateTask] Failed to log 'completed' event for task ${updatedTask.id}:`, eventError);
+      }
+    }
+
+    const taskSubtasks = await this.getSubtasks(id);
+    return { ...updatedTask, subtasks: taskSubtasks };
+  }
+
+  async deleteTask(id: number, userId: number): Promise<void> {
+    const [existingTask] = await db.select({ id: tasks.id, userId: tasks.userId }).from(tasks).where(eq(tasks.id, id));
+    if (!existingTask) { console.warn(`[Storage deleteTask] Task ${id} not found.`); return; }
+    if (existingTask.userId !== userId) { throw new Error(`User ${userId} does not have permission to delete task ${id}.`); }
+
+    await db.delete(tasks).where(and(eq(tasks.id, id), eq(tasks.userId, userId)));
+    await db.delete(subtasks).where(eq(subtasks.parentTaskId, id));
+    await db.delete(taskEvents).where(eq(taskEvents.taskId, id));
+
+    const now = new Date();
+    const user = await this.getUser(userId);
+    const timeZone = user?.timeZone;
+    if (timeZone) {
+      const dayStartLocal = toZonedTime(now, timeZone);
+      dayStartLocal.setHours(0, 0, 0, 0);
+      const dayEndLocal = addDays(dayStartLocal, 1);
+      const reminderTypes = ['pre_reminder', 'reminder', 'post_reminder_follow_up', 'follow_up'];
+
+      const deletedSchedules = await db.delete(messageSchedules).where(
+        and(
+          eq(messageSchedules.userId, userId),
+          eq(messageSchedules.status, 'pending'),
+          sql`${messageSchedules.metadata}->>'taskId' = ${id}`,
+          inArray(messageSchedules.type, reminderTypes),
+          gte(messageSchedules.scheduledFor, dayStartLocal),
+          lt(messageSchedules.scheduledFor, dayEndLocal)
+        )
+      ).returning({id: messageSchedules.id});
+      console.log(`[Storage deleteTask] Deleted ${deletedSchedules.length} pending schedules for task ${id} today.`);
+    } else {
+      console.warn(`[Storage deleteTask] Cannot delete schedules for task ${id}, user ${userId} timezone unknown.`);
+    }
+    console.log(`[Storage deleteTask] Deleted task ${id} and associated data.`);
+  }
+
+  async completeTask(id: number, userId: number): Promise<TaskWithSubtasks> {
+    // Fetch the existing task first to check status and get recurrence details later
+    const [existingTask] = await db.select().from(tasks).where(eq(tasks.id, id));
+    if (!existingTask) { throw new Error(`Task ${id} not found.`); }
+    if (existingTask.userId !== userId) { throw new Error(`User ${userId} does not have permission to complete task ${id}.`); }
+    if (existingTask.status === 'completed') {
+        console.warn(`Task ${id} is already completed.`);
+        const taskSubtasks = await this.getSubtasks(id);
+        return { ...existingTask, subtasks: taskSubtasks };
+    }
+
+    const completionTime = new Date();
+    
+    // Mark as completed
+    const [updatedTask] = await db
+      .update(tasks)
+      .set({ status: 'completed', completedAt: completionTime, updatedAt: completionTime })
+      .where(and(eq(tasks.id, id), eq(tasks.userId, userId)))
+      .returning(); // Return the full updated task object
+      
+    if (!updatedTask) { throw new Error(`Failed to mark task ${id} as completed.`); }
+
+    // Log the completion event
+    await db.insert(taskEvents).values({
+        taskId: id, userId: userId, eventType: 'completed',
+        eventDate: completionTime
+    });
+    console.log(`[Storage completeTask] Task ${id} marked completed and event logged.`);
+
+    const user = await this.getUser(userId);
+    const timeZone = user?.timeZone;
+
+    // --- Recurrence Handling --- 
+    if (updatedTask.recurrencePattern && updatedTask.recurrencePattern !== 'none' && timeZone) {
+      console.log(`[Storage completeTask] Task ${id} is recurring (${updatedTask.recurrencePattern}). Scheduling next occurrence.`);
+      
+      const nextOccurrenceDate = calculateNextOccurrence(
+          updatedTask.recurrencePattern,
+          updatedTask.scheduledTime,
+          completionTime, // Base calculation on when it was completed
+          timeZone
+      );
+
+      if (nextOccurrenceDate) {
+          console.log(`[Storage completeTask] Calculated next occurrence for task ${id}: ${formatISO(nextOccurrenceDate)}`);
+          try {
+              // Ensure user object is valid before proceeding
+              if (!user) {
+                  throw new Error(`User ${userId} not found, cannot schedule reminders.`);
+              }
+              // Import messagingService singleton instead of instantiating
+              const { messagingService } = await import('./services/messaging');
+              
+              // Replace the TODO log with the actual call
+              console.log(`[Storage completeTask] Calling messagingService.scheduleRemindersForSpecificDate for task ${id} at ${formatISO(nextOccurrenceDate)}`);
+              await messagingService.scheduleRemindersForSpecificDate(updatedTask, user, nextOccurrenceDate, timeZone);
+              
+              // Reset status for the next occurrence
+              await db.update(tasks)
+                  .set({ status: 'pending', completedAt: null, updatedAt: new Date() })
+                  .where(eq(tasks.id, id));
+              console.log(`[Storage completeTask] Task ${id} status reset to 'pending' for next occurrence.`);
+
+          } catch (scheduleError) {
+              console.error(`[Storage completeTask] Failed to schedule next occurrence for task ${id}:`, scheduleError);
+              // Consider reverting the status change if scheduling fails? Maybe not, keep it simple for now.
+          }
+      } else {
+          console.warn(`[Storage completeTask] Could not calculate next occurrence for task ${id} with pattern ${updatedTask.recurrencePattern}. Task remains completed.`);
+          // If next occurrence calculation fails, the task stays completed.
+      }
+    } 
+    // --- End Recurrence Handling ---
+    else {
+         // If not recurring or no timezone, clear today's pending schedules (original logic)
+         if (timeZone) {
+             const dayStartLocal = toZonedTime(completionTime, timeZone);
+             dayStartLocal.setHours(0, 0, 0, 0);
+             const dayEndLocal = addDays(dayStartLocal, 1);
+             const reminderTypes = ['pre_reminder', 'reminder', 'post_reminder_follow_up', 'follow_up'];
+
+             const deletedSchedules = await db.delete(messageSchedules).where(
+                 and(
+                     eq(messageSchedules.userId, userId),
+                     eq(messageSchedules.status, 'pending'),
+                     sql`${messageSchedules.metadata}->>'taskId' = ${id}`,
+                     inArray(messageSchedules.type, reminderTypes),
+                     gte(messageSchedules.scheduledFor, dayStartLocal),
+                     lt(messageSchedules.scheduledFor, dayEndLocal)
+                 )
+             ).returning({id: messageSchedules.id});
+             console.log(`[Storage completeTask] Task ${id} is not recurring or timezone unknown. Deleted ${deletedSchedules.length} pending schedules for today.`);
+         } else {
+              console.warn(`[Storage completeTask] Cannot delete schedules for task ${id}, user ${userId} timezone unknown.`);
+         }
+    }
+
+    // Fetch subtasks and return the (potentially status-reset) task
+    const finalTaskState = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
+    const taskSubtasks = await this.getSubtasks(id);
+    return { ...(finalTaskState[0] || updatedTask), subtasks: taskSubtasks }; // Return the latest state
+  }
+
+  // Contact verification methods
+  async createContactVerification(verification: {
+    userId: number;
+    type: string;
+    code: string;
+    expiresAt: Date;
+  }): Promise<void> {
+    // First get existing verifications for logging
+    const existing = await db
+      .select()
+      .from(contactVerifications)
+      .where(
+        and(
+          eq(contactVerifications.tempId, verification.userId.toString()),
+          eq(contactVerifications.type, verification.type)
+        )
+      );
+
+    console.log("Existing verifications before cleanup:", {
+      tempId: verification.userId.toString(),
+      type: verification.type,
+      count: existing.length,
+      verifications: existing
+    });
+
+    // Delete existing verifications
+    await db
+      .delete(contactVerifications)
+      .where(
+        and(
+          eq(contactVerifications.tempId, verification.userId.toString()),
+          eq(contactVerifications.type, verification.type)
+        )
+      );
+
+    // Verify deletion
+    const remaining = await db
+      .select()
+      .from(contactVerifications)
+      .where(
+        and(
+          eq(contactVerifications.tempId, verification.userId.toString()),
+          eq(contactVerifications.type, verification.type)
+        )
+      );
+
+    console.log("Verifications after cleanup:", {
+      tempId: verification.userId.toString(),
+      type: verification.type,
+      count: remaining.length,
+      verifications: remaining
+    });
+
+    // Create the new verification
+    await db.insert(contactVerifications).values({
+      userId: 0, // Default userId for temporary verifications
+      tempId: verification.userId.toString(), // Store the temporary ID as text
+      type: verification.type,
+      code: verification.code,
+      expiresAt: verification.expiresAt,
+      createdAt: new Date(),
+    });
+
+    // Verify creation
+    const [latest] = await db
+      .select()
+      .from(contactVerifications)
+      .where(
+        and(
+          eq(contactVerifications.tempId, verification.userId.toString()),
+          eq(contactVerifications.type, verification.type)
+        )
+      )
+      .orderBy(desc(contactVerifications.createdAt))
+      .limit(1);
+
+    console.log("New verification created:", {
+      tempId: verification.userId.toString(),
+      type: verification.type,
+      code: latest.code,
+      expiresAt: latest.expiresAt
+    });
+  }
+
+  async getLatestContactVerification(userId: number): Promise<{
+    type: string;
+    code: string;
+    expiresAt: Date;
+    verified?: boolean;
+  } | undefined> {
+    // Get all verifications for this user
+    const allVerifications = await db
+      .select()
+      .from(contactVerifications)
+      .where(eq(contactVerifications.tempId, userId.toString()))
+      .orderBy(desc(contactVerifications.createdAt));
+
+    console.log("All verifications found:", {
+      tempId: userId.toString(),
+      count: allVerifications.length,
+      verifications: allVerifications
+    });
+
+    // Get the latest one
+    const [latest] = allVerifications;
+
+    if (latest) {
+      console.log("Using latest verification:", {
+        tempId: userId.toString(),
+        type: latest.type,
+        code: latest.code,
+        expiresAt: latest.expiresAt
+      });
+    }
+
+    return latest;
+  }
+
+  async markContactVerified(userId: number, type: string): Promise<void> {
+    console.log("Marking contact as verified:", {
+      tempId: userId.toString(),
+      type
+    });
+
+    // Mark the verification as verified in contact_verifications
+    const [updated] = await db
+      .update(contactVerifications)
+      .set({ verified: true })
+      .where(
+        and(
+          eq(contactVerifications.tempId, userId.toString()),
+          eq(contactVerifications.type, type)
+        )
+      )
+      .returning();
+
+    console.log("Verification record updated:", {
+      tempId: userId.toString(),
+      type,
+      updated
+    });
+
+    const user = await this.getUser(userId);
+    if (user) {
+      console.log("Updating user verification status:", {
+        userId,
+        currentEmailVerified: user.isEmailVerified,
+        currentPhoneVerified: user.isPhoneVerified,
+        type
+      });
+
+      const [updatedUser] = await db
+        .update(users)
+        .set({
+          isEmailVerified: type === 'email' ? true : user.isEmailVerified,
+          isPhoneVerified: type === 'phone' || type === 'whatsapp' ? true : user.isPhoneVerified,
+        })
+        .where(eq(users.id, userId))
+        .returning();
+
+      console.log("User verification status updated:", {
+        userId,
+        isEmailVerified: updatedUser.isEmailVerified,
+        isPhoneVerified: updatedUser.isPhoneVerified
+      });
+    }
+  }
+
+  async getVerifications(userId: number): Promise<Array<{
+    type: string;
+    code: string;
+    expiresAt: Date;
+    verified: boolean;
+  }>> {
+    console.log("Getting verifications for user:", userId);
+
+    const verifications = await db
+      .select()
+      .from(contactVerifications)
+      .where(eq(contactVerifications.tempId, userId.toString()));
+
+    console.log("Found verifications:", {
+      tempId: userId.toString(),
+      count: verifications.length,
+      verifications: verifications.map(v => ({
+        type: v.type,
+        verified: v.verified,
+        expiresAt: v.expiresAt
+      }))
+    });
+
+    return verifications.map(v => ({
+      type: v.type,
+      code: v.code,
+      expiresAt: v.expiresAt,
+      verified: v.verified,
+    }));
+  }
+
+  // Goals methods
+  async getGoals(userId: number): Promise<Goal[]> {
+    return db
+      .select()
+      .from(goals)
+      .where(eq(goals.userId, userId));
+  }
+
+  async createGoal(goal: Omit<Goal, "id">): Promise<Goal> {
+    const [newGoal] = await db
+      .insert(goals)
+      .values(goal)
+      .returning();
+    return newGoal;
+  }
+
+  async updateGoal(id: number, update: Partial<Goal>): Promise<Goal> {
+    const [updated] = await db
+      .update(goals)
+      .set(update)
+      .where(eq(goals.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteGoal(id: number): Promise<void> {
+    await db.delete(goals).where(eq(goals.id, id));
+  }
+
+  // Check-ins methods
+  async getCheckIns(userId: number): Promise<CheckIn[]> {
+    return db
+      .select()
+      .from(checkIns)
+      .where(eq(checkIns.userId, userId))
+      .orderBy(checkIns.createdAt);
+  }
+
+  async createCheckIn(checkIn: Omit<CheckIn, "id">): Promise<CheckIn> {
+    const [newCheckIn] = await db
+      .insert(checkIns)
+      .values(checkIn)
+      .returning();
+    return newCheckIn;
+  }
+
+  async updateCheckIn(id: number, response: string): Promise<CheckIn> {
+    const [updated] = await db
+      .update(checkIns)
+      .set({ response })
+      .where(eq(checkIns.id, id))
+      .returning();
+    return updated;
+  }
+  async clearPreviousVerifications(tempId: string, type: string): Promise<void> {
+    // First get existing verifications for logging
+    const existing = await db
+      .select()
+      .from(contactVerifications)
+      .where(
+        and(
+          eq(contactVerifications.tempId, tempId),
+          eq(contactVerifications.type, type)
+        )
+      );
+
+    console.log("Existing verifications before cleanup:", {
+      tempId,
+      type,
+      count: existing.length,
+      verifications: existing
+    });
+
+    // Delete existing verifications
+    await db
+      .delete(contactVerifications)
+      .where(
+        and(
+          eq(contactVerifications.tempId, tempId),
+          eq(contactVerifications.type, type)
+        )
+      );
+
+    // Verify deletion
+    const remaining = await db
+      .select()
+      .from(contactVerifications)
+      .where(
+        and(
+          eq(contactVerifications.tempId, tempId),
+          eq(contactVerifications.type, type)
+        )
+      );
+
+    console.log("Verifications after cleanup:", {
+      tempId,
+      type,
+      count: remaining.length,
+      verifications: remaining
+    });
+  }
+
+  // Subtask management methods
+  async createSubtask(taskId: number, subtask: InsertSubtask): Promise<Subtask> {
+    const now = new Date();
+    const [newSubtask] = await db
+      .insert(subtasks)
+      .values({
+        ...subtask,
+        parentTaskId: taskId,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+    return newSubtask;
+  }
+
+  async getSubtasks(taskId: number): Promise<Subtask[]> {
+    return db
+      .select()
+      .from(subtasks)
+      .where(and(
+        eq(subtasks.parentTaskId, taskId),
+        isNull(subtasks.deletedAt)  // Only return non-deleted subtasks
+      ))
+      .orderBy(subtasks.createdAt);
+  }
+  
+  async getAllSubtasks(userId: number): Promise<Subtask[]> {
+    // First get all tasks for this user
+    const userTasks = await this.getTasks(userId);
+    
+    // Then get all subtasks for these tasks
+    if (userTasks.length === 0) {
+      return [];
+    }
+    
+    const taskIds = userTasks.map(task => task.id);
+    
+    return db
+      .select()
+      .from(subtasks)
+      .where(
+        and(
+          // Use 'inArray' operator to find subtasks with parentTaskId in the array of task IDs
+          inArray(subtasks.parentTaskId, taskIds),
+          // Only return non-deleted subtasks
+          isNull(subtasks.deletedAt)
+        )
+      )
+      .orderBy(subtasks.createdAt);
+  }
+
+  async completeSubtask(id: number, userId: number): Promise<Subtask> {
+    const [subtaskData] = await db.select().from(subtasks).where(eq(subtasks.id, id));
+    if (!subtaskData) { throw new Error(`Subtask ${id} not found.`); }
+    if (subtaskData.status === 'completed') {
+        console.warn(`Subtask ${id} is already completed.`);
+        return subtaskData;
+    }
+    const parentTaskId = subtaskData.parentTaskId;
+    const [parentTask] = await db.select({ userId: tasks.userId }).from(tasks).where(eq(tasks.id, parentTaskId));
+    if (!parentTask || parentTask.userId !== userId) { throw new Error(`User ${userId} cannot modify subtasks for task ${parentTaskId}.`); }
+
+    const completionTime = new Date();
+    const [updatedSubtask] = await db
+      .update(subtasks)
+      .set({ status: 'completed', completedAt: completionTime, updatedAt: completionTime })
+      .where(eq(subtasks.id, id))
+      .returning();
+    if (!updatedSubtask) { throw new Error(`Failed to mark subtask ${id} as completed.`); }
+
+    await db.insert(taskEvents).values({
+        taskId: parentTaskId, subtaskId: id, userId: userId, eventType: 'completed',
+        eventDate: completionTime
+    });
+    console.log(`[Storage completeSubtask] Subtask ${id} (Task ${parentTaskId}) marked completed and event logged.`);
+    return updatedSubtask;
+  }
+
+  async updateSubtask(id: number, userId: number, updates: Partial<Subtask>): Promise<Subtask> {
+    const [subtaskData] = await db.select({ parentTaskId: subtasks.parentTaskId }).from(subtasks).where(eq(subtasks.id, id));
+    if (!subtaskData) { throw new Error(`Subtask ${id} not found.`); }
+    const parentTaskId = subtaskData.parentTaskId;
+    const [parentTask] = await db.select({ userId: tasks.userId }).from(tasks).where(eq(tasks.id, parentTaskId));
+    if (!parentTask || parentTask.userId !== userId) { throw new Error(`User ${userId} cannot modify subtasks for task ${parentTaskId}.`); }
+
+    const now = new Date();
+    const isCompleting = updates.status === 'completed' || (updates.completedAt && updates.completedAt <= now);
+    if (isCompleting && !updates.completedAt) {
+      updates.completedAt = now;
+      updates.status = 'completed';
+    }
+
+    const [updatedSubtask] = await db
+      .update(subtasks)
+      .set({...updates, updatedAt: now})
+      .where(eq(subtasks.id, id))
+      .returning();
+    if (!updatedSubtask) { throw new Error(`Failed to update subtask ${id}.`); }
+
+    if (isCompleting) {
+        await db.insert(taskEvents).values({
+            taskId: parentTaskId, subtaskId: id, userId: userId, eventType: 'completed', 
+            eventDate: updatedSubtask.completedAt || now
+        });
+        console.log(`[Storage updateSubtask] Subtask ${id} (Task ${parentTaskId}) marked completed and event logged.`);
+    }
+    return updatedSubtask;
+  }
+  
+  async deleteSubtask(subtaskId: number, userId: number): Promise<void> {
+    const [subtaskData] = await db.select({ parentTaskId: subtasks.parentTaskId }).from(subtasks).where(eq(subtasks.id, subtaskId));
+    if (!subtaskData) { console.warn(`[Storage deleteSubtask] Subtask ${subtaskId} not found.`); return; }
+    const parentTaskId = subtaskData.parentTaskId;
+    const [parentTask] = await db.select({ userId: tasks.userId }).from(tasks).where(eq(tasks.id, parentTaskId));
+    if (!parentTask || parentTask.userId !== userId) { throw new Error(`User ${userId} cannot modify subtasks for task ${parentTaskId}.`); }
+
+    await db.delete(subtasks).where(eq(subtasks.id, subtaskId));
+    console.log(`[Storage deleteSubtask] Deleted subtask ${subtaskId} (Task ${parentTaskId}).`);
+  }
+
+  // Daily Schedule methods
+  async getDailySchedules(userId: number): Promise<typeof dailySchedules.$inferSelect[]> {
+    try {
+      return await db
+        .select()
+        .from(dailySchedules)
+        .where(eq(dailySchedules.userId, userId))
+        .orderBy(desc(dailySchedules.createdAt));
+    } catch (error) {
+      // If the table doesn't exist, return an empty array
+      if (error instanceof Error && 
+          error.message && 
+          error.message.includes('relation') && 
+          error.message.includes('does not exist')) {
+        console.log("Daily schedules table doesn't exist yet - returning empty array");
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  async getDailySchedule(idOrUserId: number, date?: Date): Promise<typeof dailySchedules.$inferSelect | undefined> {
+    try {
+      // Check if this is a userId + date query or a direct scheduleId query
+      if (date) {
+        // Format the date to match the database storage format (remove time component)
+        const formattedDate = new Date(date);
+        // Start of day
+        formattedDate.setHours(0, 0, 0, 0);
+        
+        // End of day
+        const endDate = new Date(formattedDate);
+        endDate.setHours(23, 59, 59, 999);
+        
+        // Query by userId and date range
+        const [schedule] = await db
+          .select()
+          .from(dailySchedules)
+          .where(
+            and(
+              eq(dailySchedules.userId, idOrUserId),
+              gte(dailySchedules.date, formattedDate),
+              lte(dailySchedules.date, endDate)
+            )
+          )
+          .orderBy(desc(dailySchedules.createdAt));
+        
+        return schedule;
+      } else {
+        // This is a direct scheduleId query
+        const [schedule] = await db
+          .select()
+          .from(dailySchedules)
+          .where(eq(dailySchedules.id, idOrUserId));
+        
+        return schedule;
+      }
+    } catch (error) {
+      // If the table doesn't exist, log and return undefined
+      if (error instanceof Error && 
+          error.message && 
+          error.message.includes('relation') && 
+          error.message.includes('does not exist')) {
+        console.log("Daily schedules table doesn't exist yet - returning undefined");
+        return undefined;
+      }
+      throw error;
+    }
+  }
+
+  async getScheduleItems(scheduleId: number): Promise<typeof scheduleItems.$inferSelect[]> {
+    try {
+      return await db
+        .select()
+        .from(scheduleItems)
+        .where(eq(scheduleItems.scheduleId, scheduleId))
+        .orderBy(scheduleItems.startTime);
+    } catch (error) {
+      // If the table doesn't exist, log and return an empty array
+      if (error instanceof Error && 
+          error.message && 
+          error.message.includes('relation') && 
+          error.message.includes('does not exist')) {
+        console.log("Schedule items table doesn't exist yet - returning empty array");
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  async updateScheduleItemStatus(itemId: number, status: string): Promise<typeof scheduleItems.$inferSelect> {
+    try {
+      const [updatedItem] = await db
+        .update(scheduleItems)
+        .set({
+          status,
+          updatedAt: new Date()
+        })
+        .where(eq(scheduleItems.id, itemId))
+        .returning();
+      return updatedItem;
+    } catch (error) {
+      // If the table doesn't exist, log the error
+      if (error instanceof Error && 
+          error.message && 
+          error.message.includes('relation') && 
+          error.message.includes('does not exist')) {
+        console.error("Schedule items table doesn't exist yet - cannot update status");
+        throw new Error("Cannot update schedule item status: table does not exist");
+      }
+      throw error;
+    }
+  }
+
+  // This method has a simpler implementation above
+  async scheduleDetailedItemNotification(itemId: number, scheduledTime: Date): Promise<typeof messageSchedules.$inferSelect> {
+    try {
+      try {
+        // Get the schedule item to access related information
+        const [item] = await db
+          .select()
+          .from(scheduleItems)
+          .where(eq(scheduleItems.id, itemId));
+        
+        if (!item) {
+          throw new Error(`Schedule item with ID ${itemId} not found`);
+        }
+        
+        // Get the parent schedule to get the user ID
+        const [schedule] = await db
+          .select()
+          .from(dailySchedules)
+          .where(eq(dailySchedules.id, item.scheduleId || 0));
+        
+        if (!schedule) {
+          throw new Error(`Parent schedule with ID ${item.scheduleId} not found`);
+        }
+        
+        // Get the task if this schedule item is linked to a task
+        let taskTitle = item.title;
+        let taskDescription = item.description || '';
+        
+        if (item.taskId) {
+          const [task] = await db
+            .select()
+            .from(tasks)
+            .where(eq(tasks.id, item.taskId));
+          
+          if (task) {
+            taskTitle = task.title;
+            taskDescription = task.description || '';
+          }
+        }
+        
+        // Create metadata for the notification
+        const metadata = {
+          scheduleItemId: item.id,
+          scheduleId: item.scheduleId,
+          taskId: item.taskId,
+          title: taskTitle,
+          description: taskDescription,
+          startTime: item.startTime,
+          endTime: item.endTime
+        };
+        
+        // Schedule the notification
+        const [messageSchedule] = await db
+          .insert(messageSchedules)
+          .values({
+            userId: schedule.userId,
+            scheduledFor: scheduledTime, // Use scheduledFor instead of scheduledTime
+            type: 'schedule_notification',
+            status: 'pending',
+            metadata: metadata, // Change to metadata field without stringify
+            content: `Reminder: ${taskTitle} at ${format(new Date(item.startTime), 'h:mm a')}`
+          })
+          .returning();
+        
+        // Update the schedule item to indicate that a notification has been scheduled
+        await db
+          .update(scheduleItems)
+          .set({
+            notificationSent: true,
+            updatedAt: new Date()
+          })
+          .where(eq(scheduleItems.id, item.id));
+        
+        return messageSchedule;
+      } catch (dbError) {
+        // Check if this is a "table doesn't exist" error
+        if (dbError instanceof Error && 
+            dbError.message && 
+            dbError.message.includes('relation') && 
+            dbError.message.includes('does not exist')) {
+          console.log("One or more schedule-related tables don't exist yet - cannot schedule notification");
+          
+          // Create a mock message schedule to return instead of throwing
+          const mockSchedule = {
+            id: -1, // Use a negative ID to indicate this is a mock
+            userId: -1,
+            title: null,
+            content: "Database tables do not exist yet",
+            type: 'schedule_notification',
+            status: 'error_tables_missing',
+            metadata: {
+              error: 'Database tables do not exist yet',
+              scheduleItemId: itemId
+            },
+            deletedAt: null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            scheduledFor: scheduledTime,
+            sentAt: null
+          };
+          
+          return mockSchedule as typeof messageSchedules.$inferSelect;
+        }
+        throw dbError; // Re-throw if not a table existence error
+      }
+    } catch (error) {
+      console.error("Error scheduling item notification:", error);
+      throw error;
+    }
+  }
+
+  // This method is a duplicate of the one defined above
+  async scheduleConfirmedNotifications(scheduleId: number): Promise<boolean> {
+    try {
+      try {
+        // Get all items in this schedule
+        const items = await db
+          .select()
+          .from(scheduleItems)
+          .where(eq(scheduleItems.scheduleId, scheduleId));
+        
+        // Schedule notifications for each item
+        for (const item of items) {
+          // Parse the start time to a Date object
+          const timeMatch = item.startTime.match(/^(\d{1,2}):(\d{2})$/);
+          if (!timeMatch) continue;
+          
+          const hours = parseInt(timeMatch[1], 10);
+          const minutes = parseInt(timeMatch[2], 10);
+          
+          if (isNaN(hours) || isNaN(minutes) || hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+            continue;
+          }
+          
+          // Create a Date object for today at the specified time
+          const scheduledTime = new Date();
+          scheduledTime.setHours(hours, minutes, 0, 0);
+          
+          // Only schedule notifications for future times
+          if (scheduledTime > new Date()) {
+            await this.scheduleItemNotification(item.id, scheduledTime);
+          }
+        }
+      } catch (dbError) {
+        // Check if the error is due to tables not existing
+        if (dbError instanceof Error && 
+            dbError.message && 
+            dbError.message.includes('relation') && 
+            dbError.message.includes('does not exist')) {
+          console.log("One or more schedule-related tables don't exist yet - performing alternative confirmation");
+          
+          // Alternative approach: Just log that confirmation was attempted but tables don't exist
+          console.log(`Schedule confirmation attempted for ID ${scheduleId} but tables don't exist yet`);
+          
+          // We still return true to indicate the operation was acknowledged
+          return true;
+        }
+        throw dbError; // Re-throw if not a table existence error
+      }
+      
+      return true;
+    } catch (error) {
+      console.error("Error confirming daily schedule:", error);
+      return false;
+    }
+  }
+
+  // ---> NEW: Waitlist method implementation
+  async addWaitlistEntry(entry: { firstName: string; email: string }): Promise<void> {
+    try {
+      await db.insert(waitlistEntries).values({
+        firstName: entry.firstName,
+        email: entry.email,
+      });
+      console.log(`[Storage addWaitlistEntry] Added ${entry.email} to waitlist.`);
+    } catch (error: any) {
+      // Check for unique constraint violation (email already exists)
+      if (error.code === '23505') { // PostgreSQL unique violation error code
+        console.log(`[Storage addWaitlistEntry] Email ${entry.email} already exists on the waitlist.`);
+        // Optionally, you could re-throw a specific error or handle it differently
+        // For now, we just log it and don't throw, acting like an idempotent operation
+      } else {
+        console.error(`[Storage addWaitlistEntry] Error adding ${entry.email} to waitlist:`, error);
+        throw error; // Re-throw other errors
+      }
+    }
+  }
+  // <--- END NEW
+
+  // ---> NEW: App Settings Method Implementations
+  async getSetting(key: string): Promise<string | null> {
+    try {
+      const [setting] = await db.select({ value: appSettings.value })
+        .from(appSettings)
+        .where(eq(appSettings.key, key));
+      return setting?.value ?? null;
+    } catch (error: any) {
+       // If table doesn't exist, return null gracefully
+      if (error.code === '42P01') { // PostgreSQL relation does not exist error code
+        console.warn(`[Storage getSetting] Table 'app_settings' does not exist. Cannot get setting '${key}'.`);
+        return null;
+      } 
+      console.error(`[Storage getSetting] Error fetching setting '${key}':`, error);
+      throw error;
+    }
+  }
+
+  async setSetting(key: string, value: string): Promise<void> {
+    try {
+      await db.insert(appSettings)
+        .values({ key, value })
+        .onConflictDoUpdate({ target: appSettings.key, set: { value } });
+      console.log(`[Storage setSetting] Setting '${key}' updated to '${value}'.`);
+    } catch (error: any) {
+        // If table doesn't exist, log error and rethrow
+      if (error.code === '42P01') { // PostgreSQL relation does not exist error code
+        console.error(`[Storage setSetting] Table 'app_settings' does not exist. Cannot set setting '${key}'.`);
+        throw new Error(`Cannot set setting: app_settings table missing.`);
+      } 
+      console.error(`[Storage setSetting] Error setting '${key}':`, error);
+      throw error;
+    }
+  }
+  // <--- END NEW
+
+  // ---> NEW: Password Reset Token Method Implementations
+  async createPasswordResetToken(userId: number, tokenHash: string, expiresAt: Date): Promise<void> {
+    // Optionally: Delete existing tokens for the user before creating a new one
+    await db.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, userId));
+    await db.insert(passwordResetTokens).values({ userId, tokenHash, expiresAt });
+    console.log(`[Storage] Created password reset token entry for user ${userId}`);
+  }
+
+  async findResetTokenByHash(tokenHash: string): Promise<(typeof passwordResetTokens.$inferSelect & { user: User }) | undefined> {
+    // Find the token and join with the user table to get user info simultaneously
+    const result = await db
+      .select({
+        token: passwordResetTokens,
+        user: users
+      })
+      .from(passwordResetTokens)
+      .innerJoin(users, eq(passwordResetTokens.userId, users.id))
+      .where(eq(passwordResetTokens.tokenHash, tokenHash));
+
+    if (result.length === 0) {
+      return undefined;
+    }
+    // Combine token and user data into the desired structure
+    return { ...result[0].token, user: result[0].user }; 
+  }
+
+  async deleteResetToken(id: number): Promise<void> {
+    await db.delete(passwordResetTokens).where(eq(passwordResetTokens.id, id));
+    console.log(`[Storage] Deleted password reset token entry ID ${id}`);
+  }
+  // <--- END NEW
+}
+
+export const storage = new DatabaseStorage();
