@@ -80,7 +80,7 @@ export default function FactsPage() {
         <div>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Facts About You</h1>
           <p className="text-muted-foreground">
-            Track your preferences, experiences, and ADHD insights
+            Track your preferences, experiences, and personal insights
           </p>
         </div>
         <AddFactDialog />

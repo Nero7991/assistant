@@ -1,5 +1,5 @@
 /**
- * Integrated Health Check for ADHD Coach Notification System
+ * Integrated Health Check for Kona Notification System
  * 
  * This script performs a quick health check of the notification system:
  * 1. Checks that notifications are correctly saved to the message_schedules table
@@ -161,7 +161,7 @@ async function checkNotificationFormatting(userId) {
 
 async function runHealthCheck() {
   try {
-    console.log('===== ADHD Coach Notification System Health Check =====');
+    console.log('===== Kona Notification System Health Check =====');
     console.log(`Starting health check at ${new Date().toLocaleString()}`);
     
     // Step 1: Login

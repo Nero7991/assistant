@@ -10,15 +10,22 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Link, useLocation } from "wouter";
-import { Task, Subtask } from "@shared/schema";
+import { Task as DbTask, Subtask } from "@shared/schema";
 import DailyScheduleComponent from "@/components/daily-schedule-component";
 import EnhancedReminderCard from "@/components/enhanced-reminder-card";
+
+// Local Task interface for UI components
+interface Task {
+  id: number;
+  title: string;
+  description?: string;
+}
 import ReminderDialog from "@/components/reminder-dialog";
 
 // Define interfaces for the API response
 interface ScheduleData {
   pendingNotifications: PendingNotification[];
-  scheduledTasks: Task[];
+  scheduledTasks: DbTask[];
   scheduledSubtasks: Record<number, Subtask[]>;
   lastScheduleUpdate: MessageHistoryItem | null;
   dailySchedule?: DailySchedule;
@@ -325,9 +332,16 @@ export default function SchedulePage() {
                   <div className="space-y-2">
                     {displayReminders.map((notification: PendingNotification) => {
                       // Find the associated task if it exists
-                      const relatedTask = notification.metadata?.taskId ? 
+                      const foundTask = notification.metadata?.taskId ? 
                         scheduledTasks.find(t => t.id === notification.metadata?.taskId) : 
                         undefined;
+                      
+                      // Convert database task to UI Task type
+                      const relatedTask: Task | undefined = foundTask ? {
+                        id: foundTask.id,
+                        title: foundTask.title,
+                        description: foundTask.description ?? undefined
+                      } : undefined;
                         
                       return (
                         <EnhancedReminderCard

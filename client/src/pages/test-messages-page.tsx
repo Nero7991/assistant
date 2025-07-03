@@ -103,7 +103,7 @@ export default function TestMessagesPage() {
         <div>
           <h1 className="text-3xl font-bold">Message Testing Chat</h1>
           <p className="text-muted-foreground">
-            Test the ADHD Coach messaging system with a simulated conversation.
+            Test the Kona messaging system with a simulated conversation.
           </p>
         </div>
         <Button variant="outline" onClick={clearChat}>

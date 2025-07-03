@@ -15,10 +15,13 @@ import SchedulePage from "@/pages/schedule-page";
 import PeoplePage from "@/pages/people-page";
 import TestMessagesPage from "@/pages/test-messages-page";
 import IntegrationsPage from "@/pages/integrations-page";
+import CreationsPage from "@/pages/creations-page";
 import View from "@/pages/View";
 import NotFound from "@/pages/not-found";
 import AdminPage from "@/pages/admin-page";
 import ResetPasswordPage from "@/pages/reset-password-page";
+import AgentPage from "@/pages/agent-page";
+import { DevlmRunnerProvider } from "@/context/devlm-runner-context";
 
 function Router() {
   return (
@@ -69,6 +72,14 @@ function Router() {
         )} 
       />
       <ProtectedRoute 
+        path="/creations" 
+        component={() => (
+          <AppLayout>
+            <CreationsPage />
+          </AppLayout>
+        )} 
+      />
+      <ProtectedRoute 
         path="/account" 
         component={() => (
           <AppLayout>
@@ -97,6 +108,16 @@ function Router() {
         component={() => (
           <AppLayout>
             <View />
+          </AppLayout>
+        )}
+      />
+      <ProtectedRoute
+        path="/agent"
+        component={() => (
+          <AppLayout>
+            <DevlmRunnerProvider>
+              <AgentPage />
+            </DevlmRunnerProvider>
           </AppLayout>
         )}
       />

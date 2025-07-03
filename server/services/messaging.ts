@@ -1222,7 +1222,7 @@ Your response MUST be JSON.`;
 
     const isMiniModel = ["o1-mini", "o3-mini"].includes(preferredModel);
     let completionParams: any = { model: preferredModel };
-    const instruction = `Analyze sentiment/urgency of this ADHD coaching response. Return JSON: {"type": "positive|negative|neutral", "needsFollowUp": true|false, "urgency": 1-5}. Response: ${text}`;
+    const instruction = `Analyze sentiment/urgency of this personal assistant response. Return JSON: {"type": "positive|negative|neutral", "needsFollowUp": true|false, "urgency": 1-5}. Response: ${text}`;
 
     if (isMiniModel) {
         completionParams.messages = [{ role: "user", content: instruction }];
@@ -1426,7 +1426,6 @@ Your response MUST be JSON.`;
                 }, `[_scheduleRemindersForTask] Successfully scheduled ${reminder.type}`);
             }
         });
-            logger.info({ userId: user.id, taskId: task.id, type: 'post_reminder_follow_up', scheduledFor: postReminderTime }, `Scheduled post_reminder_follow_up`);
 
     } catch (taskError) {
         logger.error({ userId: user.id, taskId: task.id, error: taskError instanceof Error ? taskError.message : String(taskError) }, `Error scheduling reminder for task`);

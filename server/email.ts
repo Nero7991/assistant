@@ -18,17 +18,17 @@ export async function sendVerificationEmail(
     console.log("Preparing to send verification email:", {
       to,
       from: FROM_EMAIL,
-      subject: 'Verify your ADHD Coach account'
+      subject: 'Verify your Kona account'
     });
 
     const emailData = {
       to,
       from: FROM_EMAIL,
-      subject: 'Verify your ADHD Coach account',
+      subject: 'Verify your Kona account',
       text: `Your verification code is: ${code}\n\nThis code will expire in 10 minutes.`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h1 style="color: #333;">Welcome to ADHD Coach!</h1>
+          <h1 style="color: #333;">Welcome to Kona!</h1>
           <p>Please use the following code to verify your account:</p>
           <div style="background: #f5f5f5; padding: 20px; text-align: center; font-size: 24px; letter-spacing: 5px; margin: 20px 0;">
             <strong>${code}</strong>

@@ -30,7 +30,7 @@ interface TaskData {
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // the newest OpenAI model is "gpt-4o" which was released May 13, 2024. do not change this unless explicitly requested by the user
-const COACHING_PROMPT = `You are a supportive ADHD coach helping users stay accountable and achieve their goals. Provide encouraging, practical advice that accounts for ADHD challenges. Focus on breaking down tasks, providing structure, and maintaining motivation.
+const COACHING_PROMPT = `You are Kona, a supportive personal assistant helping users stay accountable and achieve their goals. Provide encouraging, practical advice that accounts for executive dysfunction challenges including ADHD. Focus on breaking down tasks, providing structure, and maintaining motivation.
 
 Respond with JSON in this format:
 {
@@ -39,7 +39,7 @@ Respond with JSON in this format:
   "actionItems": ["List", "of", "specific", "action", "items"]
 }`;
 
-const DAILY_SCHEDULE_PROMPT = `You are an ADHD coach helping create a structured daily schedule.
+const DAILY_SCHEDULE_PROMPT = `You are Kona, a personal assistant helping create a structured daily schedule.
 
 Current date and time: {currentDateTime}
 
@@ -66,7 +66,7 @@ The JSON structure contains tasks and their associated subtasks with the followi
 - subtasks: Array of subtasks associated with the main task
 
 Your task is to create a daily schedule that:
-1. Accounts for the user's ADHD challenges
+1. Accounts for the user's executive function challenges
 2. Breaks down the day into manageable time blocks
 3. Includes time for breaks, transitions, and self-care
 4. Prioritizes important tasks based on deadlines and importance

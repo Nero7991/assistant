@@ -243,7 +243,7 @@ export function registerRemindersAPI(app: Express) {
       console.error('Error creating reminder:', error);
       
       // Handle unique constraint violations
-      if (error.code === '23505') {
+      if (error instanceof Error && 'code' in error && error.code === '23505') {
         return res.status(409).json({ 
           error: 'A similar reminder already exists',
           code: 'DUPLICATE_REMINDER'

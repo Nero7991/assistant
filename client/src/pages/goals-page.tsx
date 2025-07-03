@@ -87,7 +87,7 @@ export default function GoalsPage() {
         <div>
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Goals</h1>
           <p className="text-muted-foreground">
-            Track and manage your ADHD-friendly goals
+            Track and manage your personal goals
           </p>
         </div>
         <AddGoalButton />

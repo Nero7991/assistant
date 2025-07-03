@@ -239,7 +239,7 @@ export function ChatInterface() {
           </div>
         ) : messages.length === 0 ? (
           <div className="text-center text-muted-foreground pt-10">
-            <p>No messages yet. Say hello to your ADHD coach!</p>
+            <p>No messages yet. Say hello to Kona!</p>
           </div>
         ) : (
           messages.map((msg) => (

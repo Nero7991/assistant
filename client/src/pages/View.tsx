@@ -21,9 +21,9 @@ const MemoizedSwitch = React.memo(Switch);
 const View: React.FC = () => {
   // --- State for Inputs ---
   const [taskInput, setTaskInput] = useState('');
-  const [mode, setMode] = useState('generate');
+  const [mode, setMode] = useState('test');
   const [model, setModel] = useState('claude');
-  const [source, setSource] = useState('anthropic');
+  const [source, setSource] = useState('kona');
   const [publisher, setPublisher] = useState('anthropic');
   const [anthropicApiKey, setAnthropicApiKey] = useState('');
   const [openaiApiKey, setOpenaiApiKey] = useState('');

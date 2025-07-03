@@ -122,7 +122,7 @@ export async function sendVerificationMessage(
   contact: string,
   code: string,
 ): Promise<boolean> {
-  const message = `Your ADHD Coach verification code is: ${code}. This code will expire in 10 minutes.`;
+  const message = `Your Kona verification code is: ${code}. This code will expire in 10 minutes.`;
 
   console.log("Sending verification message:", {
     type,

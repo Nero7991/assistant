@@ -1,5 +1,5 @@
 /**
- * This script initializes the database tables for the ADHD coach application.
+ * This script initializes the database tables for the Kona assistant application.
  * It creates all the necessary tables based on the schema definition.
  */
 
