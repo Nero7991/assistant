@@ -1,0 +1,80 @@
+sequenceDiagram
+    participant User
+    participant UI
+    participant WebSocket
+    participant Backend
+    participant LLM
+    
+    Note over User,LLM: Initial Task Setup
+    User->>UI: Enter task description
+    UI->>WebSocket: user_task event
+    WebSocket->>Backend: Start test_and_debug_mode
+    Backend->>UI: process_start event
+    UI->>UI: Show Agent starting status
+    
+    Note over User,LLM: LLM Action Cycle
+    Backend->>LLM: Generate next action
+    LLM->>Backend: ACTION INSPECT file1.py file2.py
+    Backend->>UI: tool_execution_start
+    UI->>UI: Create ActionBubble running state
+    
+    Backend->>Backend: Execute file inspection
+    Backend->>UI: tool_execution_result
+    UI->>UI: Update ActionBubble success or error
+    
+    Note over User,LLM: File Modification Flow
+    Backend->>LLM: Generate file changes
+    LLM->>Backend: READ file1.py MODIFY file1.py
+    Backend->>UI: file_operation_start
+    UI->>UI: Show file operation indicator
+    
+    Backend->>Backend: Modify file
+    Backend->>UI: file_operation_complete
+    UI->>UI: Show FileChangeNotification
+    
+    Note over User,LLM: Chat Interaction
+    Backend->>LLM: Should we continue
+    LLM->>Backend: CHAT Need clarification on X
+    Backend->>UI: system_log chat type
+    UI->>UI: Display as AgentMessage
+    
+    User->>UI: Type response
+    UI->>WebSocket: user_chat_response
+    WebSocket->>Backend: Continue with user input
+    
+    Note over User,LLM: User Interruption
+    User->>UI: Click Pause button
+    UI->>WebSocket: user_interrupt
+    WebSocket->>Backend: Set interrupt flag
+    
+    Backend->>Backend: Handle interrupt in next iteration
+    Backend->>UI: waiting_for_approval
+    UI->>UI: Show input field for guidance
+    
+    User->>UI: Provide guidance
+    UI->>WebSocket: approval_response_received
+    WebSocket->>Backend: Continue with guidance
+    
+    Note over User,LLM: System Events
+    Backend->>UI: system_log info warn error
+    UI->>UI: Display SystemMessage
+    
+    Backend->>UI: llm_request_start
+    UI->>UI: Show LLM thinking indicator
+    
+    Backend->>UI: llm_request_success
+    UI->>UI: Hide thinking indicator
+    
+    Note over User,LLM: Process Management
+    Backend->>Backend: Start background process
+    Backend->>UI: tool_execution_start INDEF
+    UI->>UI: Show running process indicator
+    
+    Backend->>UI: Regular process output
+    UI->>UI: Update process logs expandable
+    
+    Note over User,LLM: Task Completion
+    Backend->>LLM: All goals achieved
+    LLM->>Backend: FINISH
+    Backend->>UI: process_end
+    UI->>UI: Show completion status

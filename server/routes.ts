@@ -30,6 +30,8 @@ import { registerScheduleManagementAPI } from "./api/schedule-management";
 import { registerPeopleManagementAPI } from "./api/people-management";
 import { registerExternalServicesAPI } from "./api/external-services";
 import { registerRemindersAPI } from "./api/reminders";
+import { registerAgentAPI } from "./api/agent";
+import { registerCreationsAPI } from "./api/creations";
 import OpenAI from "openai";
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import path, { dirname } from 'path'; 
@@ -44,6 +46,12 @@ const __dirname = dirname(__filename);
 
 // Import interface and type definitions needed for chat functionality
 import type { MessageContext, ScheduleUpdate } from "./services/messaging";
+
+// Import LLM providers for devlm LLM routing
+import { LLMProvider } from './services/llm/provider.js';
+import { openAIProvider } from './services/llm/openai_provider.js';
+import { gcloudProvider } from './services/llm/gcloud_provider.js';
+import type { StandardizedChatCompletionMessage } from './services/llm/provider.js';
 
 // --- In-memory store for running DevLM processes & WS Auth Tokens ---
 interface RunningProcessInfo {
@@ -88,6 +96,52 @@ export async function registerRoutes(app: Express): Promise<Server> {
   registerPeopleManagementAPI(app);
   registerExternalServicesAPI(app);
   registerRemindersAPI(app);
+  registerAgentAPI(app);
+  registerCreationsAPI(app);
+
+  // DevLM LLM API endpoint
+  app.post('/api/devlm/llm', async (req, res) => {
+    if (!req.isAuthenticated() || !req.user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    try {
+      const { messages, temperature, model, requestId } = req.body;
+      console.log(`[DevLM API] LLM request from user ${req.user.id}:`, { model, requestId, messageCount: messages?.length });
+
+      if (!messages || !Array.isArray(messages)) {
+        return res.status(400).json({ error: 'Invalid messages array' });
+      }
+
+      // Use OpenAI directly like Kona coaching
+      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      const effectiveModel = 'gpt-4o';
+
+      const response = await openai.chat.completions.create({
+        model: effectiveModel,
+        messages: messages,
+        temperature: temperature || 0.7,
+        max_tokens: 4000,
+      });
+
+      const content = response.choices[0].message.content;
+      console.log(`[DevLM API] LLM response generated for request ${requestId}`);
+
+      res.json({
+        content: content,
+        model: effectiveModel,
+        usage: response.usage,
+        requestId: requestId
+      });
+
+    } catch (error: any) {
+      console.error(`[DevLM API] LLM request error:`, error);
+      res.status(500).json({ 
+        error: error.message || 'LLM request failed',
+        requestId: req.body.requestId 
+      });
+    }
+  });
 
   // DevLM Session CRUD Endpoints
   app.post('/api/devlm/sessions', async (req, res) => {
@@ -313,14 +367,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       child.stdout.on('data', (data: Buffer) => {
         const output = data.toString();
         console.log(`[DevLM stdout PID ${child.pid}]: Chunk received (length ${output.length})`); // LOGGING
-        sendEvent({ type: 'stdout', data: output });
+        
+        // Check for WebSocket events and parse them
+        const lines = output.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('WEBSOCKET_EVENT:')) {
+            try {
+              const eventJson = line.substring('WEBSOCKET_EVENT:'.length);
+              const event = JSON.parse(eventJson);
+              // Forward the parsed event directly to SSE client
+              sendEvent({ type: event.type, ...event.payload });
+              console.log(`[SSE] Forwarded event: ${event.type}`);
+            } catch (err) {
+              console.error(`[SSE] Failed to parse event: ${line}`, err);
+              // Don't send regular print statements to frontend
+              console.log(`[SSE] Non-event stdout (not forwarded): ${line.trim()}`);
+            }
+          } else if (line.trim() !== '') {
+            // Don't send regular print statements to frontend
+            // Only send explicit WebSocket events
+            console.log(`[SSE] Regular stdout (not forwarded): ${line.trim()}`);
+          }
+        }
       });
 
       child.stderr.on('data', (data: Buffer) => {
          const errorOutput = data.toString();
          console.error(`[DevLM stderr PID ${child.pid}]: ${errorOutput}`); 
-         // Send stderr immediately as an error event
-         sendEvent({ type: 'error', message: `Script Error: ${errorOutput}` }); 
+         // Only send actual errors to frontend, not informational stderr
+         if (errorOutput.includes('Error') || errorOutput.includes('Exception') || errorOutput.includes('Traceback')) {
+           sendEvent({ type: 'error', message: `Script Error: ${errorOutput}` }); 
+         }
       });
 
       child.on('error', (error: Error) => {
@@ -664,7 +741,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         sleepTime,
         preferredModel,
         customOpenaiServerUrl, // NEW
-        customOpenaiModelName  // NEW
+        customOpenaiModelName,  // NEW
+        devlmPreferredModel,
+        devlmPreferredProvider,
+        devlmCustomOpenaiServerUrl,
+        devlmCustomOpenaiModelName
       } = req.body;
       
       // Build the update object with only defined values
@@ -685,6 +766,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Add new fields (allow empty string to clear the value)
       if (customOpenaiServerUrl !== undefined) updateData.customOpenaiServerUrl = customOpenaiServerUrl || null;
       if (customOpenaiModelName !== undefined) updateData.customOpenaiModelName = customOpenaiModelName || null;
+      
+      // Add DevLM fields
+      if (devlmPreferredModel !== undefined) updateData.devlmPreferredModel = devlmPreferredModel;
+      if (devlmPreferredProvider !== undefined) updateData.devlmPreferredProvider = devlmPreferredProvider;
+      if (devlmCustomOpenaiServerUrl !== undefined) updateData.devlmCustomOpenaiServerUrl = devlmCustomOpenaiServerUrl || null;
+      if (devlmCustomOpenaiModelName !== undefined) updateData.devlmCustomOpenaiModelName = devlmCustomOpenaiModelName || null;
       
       // Apply the update
       const updatedUser = await storage.updateUser({
@@ -2011,13 +2098,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (modelToTest === "o1-mini") {
         // For o1-mini, just use user role as it doesn't support system or developer roles
         messages = [
-          { role: "user", content: "Act as an ADHD coach helping with task management. Give me a brief response about ADHD coaching." }
+          { role: "user", content: "Act as Kona, a personal assistant helping with task management. Give me a brief response about personal assistant features." }
         ];
       } else {
         // For other models, use developer role
         messages = [
-          { role: "developer", content: "You are an ADHD coach helping with task management." },
-          { role: "user", content: "Give me a brief response about ADHD coaching." }
+          { role: "developer", content: "You are Kona, a personal assistant helping with task management." },
+          { role: "user", content: "Give me a brief response about personal assistant features." }
         ];
       }
       
@@ -2146,6 +2233,133 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // socket.destroy(); 
     }
   });
+
+  // Function to handle LLM requests from DevLM processes
+  async function handleLLMRequestFromDevLM(llmMessage: any, currentUserId: number, ws: WebSocket) {
+    console.log(`[DevLM LLM] Handling LLM request from DevLM for user ${currentUserId}`);
+    console.log(`[DevLM LLM] Request payload:`, JSON.stringify(llmMessage.payload, null, 2));
+    
+    try {
+      const { requestId, messages, temperature } = llmMessage.payload;
+      
+      if (!messages || !Array.isArray(messages)) {
+        console.error(`[DevLM LLM] Invalid messages array provided`);
+        // Send error response back to DevLM via stdin
+        const errorResponse = {
+          type: 'llm_error',
+          payload: {
+            requestId,
+            error: 'Invalid messages array provided'
+          }
+        };
+        // Send error response back via WebSocket
+        ws.send(JSON.stringify(errorResponse));
+        return;
+      }
+
+      // Get user's DevLM settings
+      const user = await storage.getUser(currentUserId);
+      if (!user) {
+        console.error(`[DevLM LLM] User not found: ${currentUserId}`);
+        const errorResponse = {
+          type: 'llm_error',
+          payload: {
+            requestId,
+            error: 'User not found'
+          }
+        };
+        // Send error response back via WebSocket
+        ws.send(JSON.stringify(errorResponse));
+        return;
+      }
+
+      // Determine provider and model based on user's DevLM settings
+      const devlmModel = user.devlmPreferredModel || 'o1-mini';
+      let provider: LLMProvider;
+      let effectiveModel = devlmModel;
+      let detectedProvider = '';
+
+      if (devlmModel === 'custom' && user.devlmCustomOpenaiServerUrl) {
+          provider = openAIProvider;
+          effectiveModel = user.devlmCustomOpenaiModelName || 'model';
+          detectedProvider = 'custom';
+          console.log(`[DevLM LLM] Using custom server: ${user.devlmCustomOpenaiServerUrl}`);
+      } else if (devlmModel.startsWith('claude-')) {
+          // For anthropic, we'll use the gcloud provider which supports Claude models via Vertex AI
+          provider = gcloudProvider;
+          effectiveModel = devlmModel;
+          detectedProvider = 'anthropic';
+          console.log(`[DevLM LLM] Using Anthropic model via GCloud: ${effectiveModel}`);
+      } else if (devlmModel.startsWith('gemini-')) {
+          provider = gcloudProvider;
+          effectiveModel = devlmModel;
+          detectedProvider = 'gcloud';
+          console.log(`[DevLM LLM] Using GCloud provider: ${effectiveModel}`);
+      } else if (devlmModel.startsWith('gpt-') || devlmModel.startsWith('o1-')) {
+          provider = openAIProvider;
+          effectiveModel = devlmModel;
+          detectedProvider = 'openai';
+          console.log(`[DevLM LLM] Using OpenAI provider: ${effectiveModel}`);
+      } else {
+          // Fallback to openai with o1-mini
+          provider = openAIProvider;
+          effectiveModel = 'o1-mini';
+          detectedProvider = 'openai';
+          console.log(`[DevLM LLM] Unknown model, falling back to O1-mini`);
+      }
+
+      try {
+        console.log(`[DevLM LLM] Making request with model: ${effectiveModel}, provider: ${detectedProvider}`);
+        const response = await provider.generateCompletion(
+            effectiveModel,
+            messages as StandardizedChatCompletionMessage[],
+            temperature || 0.7,
+            false, // jsonMode
+            undefined, // functionDefinitions
+            user.devlmCustomOpenaiServerUrl,
+            undefined // customApiKey - we'll use environment variables
+        );
+
+        // Send response back to DevLM via WebSocket
+        const successResponse = {
+          type: 'llm_response',
+          payload: {
+            requestId,
+            content: response.content,
+            model: effectiveModel,
+            provider: detectedProvider
+          }
+        };
+        
+        ws.send(JSON.stringify(successResponse));
+        console.log(`[DevLM LLM] Sent LLM response via WebSocket for request ${requestId}`);
+      } catch (responseError: any) {
+        console.error(`[DevLM LLM] Response error:`, responseError);
+        const errorResponse = {
+          type: 'llm_error',
+          payload: {
+            requestId,
+            error: responseError.message || 'Request failed'
+          }
+        };
+        // Send error response back via WebSocket
+        ws.send(JSON.stringify(errorResponse));
+      }
+    } catch (error: any) {
+      console.error(`[DevLM LLM] Handler error:`, error);
+      const errorResponse = {
+        type: 'llm_response_from_kona',
+        payload: {
+          requestId: llmMessage.payload?.requestId,
+          error: error.message || 'Internal error'
+        }
+      };
+      const child = (ws as any).runningProcess;
+      if (child && child.stdin) {
+        child.stdin.write(JSON.stringify(errorResponse) + '\n');
+      }
+    }
+  }
 
 wss.on('connection', (ws: WebSocket, req) => { 
     console.log('[WebSocket] Client connected, waiting for auth token...');
@@ -2298,6 +2512,11 @@ wss.on('connection', (ws: WebSocket, req) => {
 
                 // --- Environment Variables --- 
                 const env = { ...process.env };
+                
+                // Set WebSocket context flag for DevLM mode enforcement
+                env['WEBSOCKET_CONTEXT'] = 'true';
+                env['PARENT_PROCESS'] = 'kona-agent-websocket';
+                
                 if (apiKey) { /* ... set env[API_KEY_NAME] ... */ 
                     if (source === 'anthropic') env['ANTHROPIC_API_KEY'] = apiKey;
                     else if (source === 'openai') env['OPENAI_API_KEY'] = apiKey;
@@ -2317,16 +2536,72 @@ wss.on('connection', (ws: WebSocket, req) => {
                 runningDevlmProcesses.set(currentUserId, { process: child, ws: ws });
 
                 // --- Stream Output --- 
-                child.stdout.on('data', (data: Buffer) => {
+                child.stdout.on('data', async (data: Buffer) => {
                     const output = data.toString();
                     console.log(`[WebSocket] stdout PID ${child?.pid} (user ${currentUserId}): Chunk received (length ${output.length})`);
-                    sendMessage('stdout', { data: output });
+                    
+                    // Check for WebSocket events and parse them
+                    const lines = output.split('\n');
+                    for (const line of lines) {
+                        if (line.startsWith('WEBSOCKET_EVENT:')) {
+                            try {
+                                const eventJson = line.substring('WEBSOCKET_EVENT:'.length);
+                                const event = JSON.parse(eventJson);
+                                // Forward the parsed event directly to the WebSocket client
+                                sendMessage(event.type, event.payload);
+                                console.log(`[WebSocket] Forwarded event: ${event.type}`);
+                            } catch (err) {
+                                console.error(`[WebSocket] Failed to parse event: ${line}`, err);
+                                // Don't send failed parsing to frontend
+                                console.log(`[WebSocket] Failed WebSocket event (not forwarded): ${line.trim()}`);
+                            }
+                        } else if (line.trim().startsWith('{') && line.trim().endsWith('}')) {
+                            // Check for direct JSON events from KonaLLM
+                            try {
+                                const event = JSON.parse(line.trim());
+                                console.log(`[WebSocket] Received JSON event: ${event.type}`);
+                                
+                                if (event.type === 'llm_request_to_kona') {
+                                    console.log(`[WebSocket] Processing LLM request from DevLM for user ${currentUserId}`);
+                                    console.log(`[WebSocket] LLM request payload:`, JSON.stringify(event.payload, null, 2));
+                                    
+                                    // Handle LLM request from DevLM - route through existing llm_request handler
+                                    const llmMessage = {
+                                        type: 'llm_request',
+                                        payload: {
+                                            requestId: event.payload.requestId,
+                                            messages: event.payload.messages,
+                                            temperature: event.payload.temperature,
+                                            model: 'gpt-4o' // Use same model as Kona
+                                        }
+                                    };
+                                    
+                                    // Process the LLM request using existing handler logic
+                                    await handleLLMRequestFromDevLM(llmMessage, currentUserId, ws);
+                                } else {
+                                    // Forward other events normally
+                                    sendMessage(event.type, event.payload);
+                                }
+                            } catch (error) {
+                                // If JSON parsing fails, log but don't send to frontend
+                                // Keep print statements for server-side logging only
+                                console.log(`[WebSocket] Non-JSON stdout (not forwarded): ${line.trim()}`);
+                            }
+                        } else if (line.trim() !== '') {
+                            // Don't send regular print statements to frontend
+                            // Only send explicit WebSocket events
+                            console.log(`[WebSocket] Regular stdout (not forwarded): ${line.trim()}`);
+                        }
+                    }
                 });
 
                 child.stderr.on('data', (data: Buffer) => {
                     const errorOutput = data.toString();
                     console.error(`[WebSocket] stderr PID ${child?.pid} (user ${currentUserId}): ${errorOutput}`);
-                    sendMessage('error', { message: `Script Error: ${errorOutput}` });
+                    // Only send actual errors to frontend, not informational stderr
+                    if (errorOutput.includes('Error') || errorOutput.includes('Exception') || errorOutput.includes('Traceback')) {
+                        sendMessage('error', { message: `Script Error: ${errorOutput}` });
+                    }
                 });
 
                 child.on('error', (error: Error) => {
@@ -2403,7 +2678,278 @@ wss.on('connection', (ws: WebSocket, req) => {
                  sendMessage('error', { message: 'Cannot send input: No data provided.' });
             }
         }
-        // --- END NEW --- 
+        // --- Handle LLM Requests via WebSocket ---
+        else if (parsedMessage.type === 'llm_request') {
+            console.log(`[WebSocket] Received LLM request for user ${currentUserId}`);
+            console.log(`[WebSocket] LLM request payload:`, JSON.stringify(parsedMessage.payload, null, 2));
+            
+            // Check if this is from DevLM process
+            const processInfo = runningDevlmProcesses.get(currentUserId);
+            if (processInfo) {
+                console.log(`[WebSocket] Processing LLM request from DevLM process`);
+                await handleLLMRequestFromDevLM(parsedMessage, currentUserId, ws);
+            } else {
+                console.log(`[WebSocket] Processing regular LLM request`);
+                // Handle regular LLM requests (not from DevLM)
+            try {
+                const { messages, model, temperature, requestId, stream } = parsedMessage.payload;
+                
+                if (!messages || !Array.isArray(messages)) {
+                    sendMessage('llm_error', { 
+                        requestId, 
+                        error: 'Invalid messages array provided' 
+                    });
+                    return;
+                }
+
+                // Get user's DevLM settings
+                const user = await storage.getUser(currentUserId);
+                if (!user) {
+                    sendMessage('llm_error', { 
+                        requestId, 
+                        error: 'User not found' 
+                    });
+                    return;
+                }
+
+                // Determine provider and model based on user's DevLM settings
+                const devlmModel = user.devlmPreferredModel || 'o1-mini';
+                let provider: LLMProvider;
+                let effectiveModel = devlmModel;
+                let detectedProvider = '';
+
+                if (devlmModel === 'custom' && user.devlmCustomOpenaiServerUrl) {
+                    provider = openAIProvider;
+                    effectiveModel = user.devlmCustomOpenaiModelName || 'model';
+                    detectedProvider = 'custom';
+                    console.log(`[DevLM LLM] Using custom server: ${user.devlmCustomOpenaiServerUrl}`);
+                } else if (devlmModel.startsWith('claude-')) {
+                    // For anthropic, we'll use the gcloud provider which supports Claude models via Vertex AI
+                    provider = gcloudProvider;
+                    effectiveModel = devlmModel;
+                    detectedProvider = 'anthropic';
+                    console.log(`[DevLM LLM] Using Anthropic model via GCloud: ${effectiveModel}`);
+                } else if (devlmModel.startsWith('gemini-')) {
+                    provider = gcloudProvider;
+                    effectiveModel = devlmModel;
+                    detectedProvider = 'gcloud';
+                    console.log(`[DevLM LLM] Using GCloud provider: ${effectiveModel}`);
+                } else if (devlmModel.startsWith('gpt-') || devlmModel.startsWith('o1-')) {
+                    provider = openAIProvider;
+                    effectiveModel = devlmModel;
+                    detectedProvider = 'openai';
+                    console.log(`[DevLM LLM] Using OpenAI provider: ${effectiveModel}`);
+                } else {
+                    // Fallback to openai with o1-mini
+                    provider = openAIProvider;
+                    effectiveModel = 'o1-mini';
+                    detectedProvider = 'openai';
+                    console.log(`[DevLM LLM] Unknown model, falling back to O1-mini`);
+                }
+
+                // Use generateCompletion method (streaming not yet implemented)
+                try {
+                    const response = await provider.generateCompletion(
+                        effectiveModel,
+                        messages as StandardizedChatCompletionMessage[],
+                        temperature || 0.7,
+                        false, // jsonMode
+                        undefined, // functionDefinitions
+                        user.devlmCustomOpenaiServerUrl,
+                        undefined // customApiKey - we'll use environment variables
+                    );
+
+                    sendMessage('llm_response', { 
+                        requestId,
+                        content: response.content,
+                        model: effectiveModel,
+                        provider: detectedProvider
+                    });
+                } catch (responseError: any) {
+                    console.error(`[DevLM LLM] Response error:`, responseError);
+                    sendMessage('llm_error', { 
+                        requestId, 
+                        error: responseError.message || 'Request failed' 
+                    });
+                }
+            } catch (error: any) {
+                console.error(`[DevLM LLM] Handler error:`, error);
+                sendMessage('llm_error', { 
+                    requestId: parsedMessage.payload?.requestId, 
+                    error: error.message || 'Internal error' 
+                });
+            }
+            }
+        }
+        // --- END LLM Request Handler --- 
+        
+        // --- Handle Chat Messages ---
+        else if (parsedMessage.type === 'chat_message') {
+            console.log(`[WebSocket] Received chat message from user ${currentUserId}`);
+            const { message, messageId, parentMessageId, sessionId } = parsedMessage.payload;
+            
+            if (!message || typeof message !== 'string') {
+                sendMessage('chat_error', {
+                    sessionId,
+                    messageId,
+                    error: 'Invalid message content',
+                    code: 'INVALID_PARAMETERS'
+                });
+                return;
+            }
+            
+            // Check if there's an active DevLM process
+            const processInfo = runningDevlmProcesses.get(currentUserId);
+            if (!processInfo) {
+                sendMessage('chat_error', {
+                    sessionId,
+                    messageId,
+                    error: 'No active DevLM session',
+                    code: 'SESSION_NOT_FOUND'
+                });
+                return;
+            }
+            
+            try {
+                // Generate a response message ID
+                const responseMessageId = `resp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                
+                // Get user settings for LLM
+                const user = await storage.getUser(currentUserId);
+                if (!user) {
+                    throw new Error('User not found');
+                }
+                
+                // Send initial response indicating we're processing
+                sendMessage('chat_response', {
+                    sessionId,
+                    messageId: responseMessageId,
+                    parentMessageId: messageId,
+                    message: '',
+                    model: user.devlmPreferredModel || 'o1-mini',
+                    streaming: true
+                });
+                
+                // Prepare LLM request
+                const llmMessages = [
+                    {
+                        role: 'system' as const,
+                        content: 'You are a helpful AI assistant integrated with DevLM. You have access to the current DevLM session context and can help users with their development tasks.'
+                    },
+                    {
+                        role: 'user' as const,
+                        content: message
+                    }
+                ];
+                
+                // Route to appropriate LLM provider based on user settings
+                const devlmModel = user.devlmPreferredModel || 'o1-mini';
+                let provider: LLMProvider;
+                let effectiveModel = devlmModel;
+                
+                if (devlmModel === 'custom' && user.devlmCustomOpenaiServerUrl) {
+                    provider = openAIProvider;
+                    effectiveModel = user.devlmCustomOpenaiModelName || 'model';
+                } else if (devlmModel.startsWith('claude-')) {
+                    provider = gcloudProvider;
+                    effectiveModel = devlmModel;
+                } else if (devlmModel.startsWith('gemini-')) {
+                    provider = gcloudProvider;
+                    effectiveModel = devlmModel;
+                } else if (devlmModel.startsWith('gpt-') || devlmModel.startsWith('o1-')) {
+                    provider = openAIProvider;
+                    effectiveModel = devlmModel;
+                } else {
+                    provider = openAIProvider;
+                    effectiveModel = 'o1-mini';
+                }
+                
+                // Generate LLM response
+                const response = await provider.generateCompletion(
+                    effectiveModel,
+                    llmMessages,
+                    0.7,
+                    false,
+                    undefined,
+                    user.devlmCustomOpenaiServerUrl,
+                    undefined
+                );
+                
+                // Send complete response
+                sendMessage('chat_response_chunk', {
+                    sessionId,
+                    messageId: responseMessageId,
+                    chunk: response.content,
+                    done: true
+                });
+                
+            } catch (error: any) {
+                console.error(`[WebSocket] Chat error:`, error);
+                sendMessage('chat_error', {
+                    sessionId,
+                    messageId,
+                    error: error.message || 'Failed to process chat message',
+                    code: 'INTERNAL_ERROR'
+                });
+            }
+        }
+        // --- Handle LLM Actions ---
+        else if (parsedMessage.type === 'llm_action_request') {
+            console.log(`[WebSocket] Received LLM action request from user ${currentUserId}`);
+            const { sessionId, actionId, parameters, context, requestId } = parsedMessage.payload;
+            
+            // Check if there's an active DevLM process
+            const processInfo = runningDevlmProcesses.get(currentUserId);
+            if (!processInfo) {
+                sendMessage('llm_action_failed', {
+                    sessionId,
+                    actionId,
+                    requestId,
+                    error: 'No active DevLM session',
+                    code: 'SESSION_NOT_FOUND',
+                    recoverable: false
+                });
+                return;
+            }
+            
+            sendMessage('llm_action_started', {
+                sessionId,
+                actionId,
+                requestId
+            });
+            
+            // TODO: Implement actual action handling based on actionId
+            // For now, send a mock completion
+            setTimeout(() => {
+                sendMessage('llm_action_completed', {
+                    sessionId,
+                    actionId,
+                    requestId,
+                    result: { success: true },
+                    summary: `Action ${actionId} completed successfully`
+                });
+            }, 1000);
+        }
+        // --- Handle Approval Response ---
+        else if (parsedMessage.type === 'approval_response') {
+            console.log(`[WebSocket] Received approval response from user ${currentUserId}`);
+            const { approvalId, approved, message } = parsedMessage.payload;
+            
+            // Check if there's an active DevLM process
+            const processInfo = runningDevlmProcesses.get(currentUserId);
+            if (processInfo && processInfo.process.stdin && !processInfo.process.stdin.destroyed) {
+                // Send approval response to bootstrap.py via stdin
+                const approvalMessage = {
+                    type: 'approval_response',
+                    approvalId,
+                    approved,
+                    message
+                };
+                
+                processInfo.process.stdin.write(JSON.stringify(approvalMessage) + '\n');
+                console.log(`[WebSocket] Sent approval response to DevLM process: ${approved ? 'approved' : 'denied'}`);
+            }
+        }
         else {
              sendMessage('error', { message: `Unknown command type: ${parsedMessage.type}` });
         }

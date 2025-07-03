@@ -1,0 +1,89 @@
+graph TD
+    subgraph "Main App Component"
+        A[AgentApp]
+        B[WebSocketProvider]
+        C[StateManager]
+    end
+    
+    subgraph "Chat Interface"
+        D[ChatContainer]
+        E[MessageList]
+        F[ChatInput]
+        G[PauseButton]
+    end
+    
+    subgraph "Message Components"
+        H[UserMessage]
+        I[AgentMessage] 
+        J[ActionBubble]
+        K[SystemMessage]
+        L[FileChangeNotification]
+    end
+    
+    subgraph "ActionBubble Details"
+        M[ActionHeader]
+        N[GoalDisplay]
+        O[ReasonDisplay]
+        P[StatusIndicator]
+        Q[OutputCollapsible]
+    end
+    
+    subgraph "State & Events"
+        R[AgentState]
+        S[EventHandler]
+        T[MessageProcessor]
+    end
+    
+    subgraph "WebSocket Events Map"
+        U["🔄 tool_execution_start → ActionBubble"]
+        V["✅ tool_execution_result → Update Status"]
+        W["💬 system_log(chat) → AgentMessage"]
+        X["📁 file_operation_complete → FileChangeNotification"]
+        Y["⚠️ llm_request_error → SystemMessage"]
+        Z["🎯 process_start → Status Update"]
+    end
+    
+    %% Component Hierarchy
+    A --> B
+    A --> D
+    B --> C
+    C --> S
+    S --> T
+    
+    D --> E
+    D --> F
+    D --> G
+    
+    E --> H
+    E --> I
+    E --> J
+    E --> K
+    E --> L
+    
+    J --> M
+    J --> N
+    J --> O
+    J --> P
+    J --> Q
+    
+    %% Data Flow
+    B -->|WebSocket events| S
+    S -->|parsed events| T
+    T -->|processed messages| R
+    R -->|state updates| E
+    
+    F -->|user input| B
+    G -->|pause signal| B
+    
+    %% Event Mapping
+    S --> U
+    S --> V
+    S --> W
+    S --> X
+    S --> Y
+    S --> Z
+    
+    style A fill:#e3f2fd
+    style J fill:#f1f8e9
+    style S fill:#fff8e1
+    style R fill:#fce4ec

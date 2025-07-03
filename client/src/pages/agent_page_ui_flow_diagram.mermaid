@@ -1,0 +1,87 @@
+graph TB
+    subgraph "Frontend UI"
+        A[User enters task] 
+        B[Chat Interface]
+        C[Action Bubbles]
+        D[System Messages]
+        E[Pause Button]
+        F[User Input Field]
+    end
+    
+    subgraph "WebSocket Communication"
+        G[WebSocket Client]
+        H[Event Router]
+        I[State Manager]
+    end
+    
+    subgraph "Backend (bootstrap.py)"
+        J[test_and_debug_mode loop]
+        K[LLM Response Parser]
+        L[Action Executor]
+        M[Event Emitter System]
+        N[Signal Handlers]
+    end
+    
+    subgraph "Action Types"
+        O[RUN/INDEF Commands]
+        P[INSPECT Files]
+        Q[READ/MODIFY Files] 
+        R[CHAT Action]
+        S[File Operations]
+    end
+    
+    %% Initial Flow
+    A -->|task description| G
+    G -->|user_task event| J
+    J -->|LLM generates action| K
+    
+    %% Action Processing
+    K -->|parse action type| L
+    L --> O
+    L --> P
+    L --> Q
+    L --> R
+    L --> S
+    
+    %% Event Emissions
+    O -->|emit_tool_execution_start| M
+    P -->|emit_tool_execution_start| M  
+    Q -->|emit_file_operation_start| M
+    R -->|emit_system_log| M
+    S -->|emit_file_operation_complete| M
+    
+    %% UI Updates
+    M -->|WebSocket events| G
+    G --> H
+    H -->|route events| I
+    I -->|update UI state| B
+    I -->|show action cards| C
+    I -->|show system logs| D
+    
+    %% Chat Flow
+    R -->|CHAT action detected| B
+    B -->|display agent message| F
+    F -->|user response| G
+    G -->|user_chat_response| J
+    
+    %% Interruption Flow
+    E -->|pause clicked| G
+    G -->|user_interrupt| N
+    N -->|set interrupt flag| J
+    J -->|prompt for guidance| R
+    
+    %% Completion Loop
+    O -->|action complete| J
+    P -->|analysis complete| J
+    Q -->|files modified| J
+    
+    %% Error Handling
+    L -->|execution error| M
+    M -->|error events| G
+    G -->|display errors| D
+    
+    style A fill:#e1f5fe
+    style B fill:#f3e5f5
+    style J fill:#fff3e0
+    style M fill:#e8f5e8
+    style E fill:#ffebee
