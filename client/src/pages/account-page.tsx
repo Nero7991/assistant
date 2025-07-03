@@ -13,11 +13,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
 
-// Available AI models
+// Available AI models (unified for both Kona and DevLM)
 const AVAILABLE_MODELS = [
   { value: "o1-mini", label: "O1-mini (Default reasoning model)" },
   { value: "gpt-4o", label: "GPT-4o (OpenAI Latest)" },
   { value: "gpt-4o-mini", label: "GPT-4o-mini (OpenAI Reasoning)" },
+  { value: "claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet (Anthropic Latest)" },
+  { value: "claude-3-5-haiku-20241022", label: "Claude 3.5 Haiku (Anthropic Faster)" },
+  { value: "claude-3-opus-20240229", label: "Claude 3 Opus (Anthropic Most Capable)" },
   { value: "gemini-1.5-pro-latest", label: "Gemini 1.5 Pro (Google Latest)" },
   { value: "gemini-1.5-flash-latest", label: "Gemini 1.5 Flash (Google Faster)" },
   { value: "gemini-2.5-flash-preview-04-17", label: "Gemini 2.5 Flash Preview (Audio/Video/Text)" },
@@ -66,8 +69,14 @@ export default function AccountPage() {
   const [customUrl, setCustomUrl] = useState<string>("");
   const [customModel, setCustomModel] = useState<string>("");
   
+  // DevLM settings state
+  const [devlmPreferredModel, setDevlmPreferredModel] = useState<string>("o1-mini");
+  const [devlmCustomUrl, setDevlmCustomUrl] = useState<string>("");
+  const [devlmCustomModel, setDevlmCustomModel] = useState<string>("");
+  
   // Derived state to check if custom URL is active
   const isCustomUrlActive = customUrl && customUrl.trim() !== '';
+  const isDevlmCustomActive = devlmCustomUrl && devlmCustomUrl.trim() !== '';
   
   // Get browser timezone on component mount
   useEffect(() => {
@@ -94,6 +103,11 @@ export default function AccountPage() {
       setAllowPhone(user.allowPhoneNotifications || false);
       setCustomUrl(user.customOpenaiServerUrl || "");
       setCustomModel(user.customOpenaiModelName || "");
+      
+      // Load DevLM settings
+      setDevlmPreferredModel(user.devlmPreferredModel || "o1-mini");
+      setDevlmCustomUrl(user.devlmCustomOpenaiServerUrl || "");
+      setDevlmCustomModel(user.devlmCustomOpenaiModelName || "");
     }
   }, [user]);
 
@@ -144,6 +158,24 @@ export default function AccountPage() {
           finalCustomUrl = null;
           finalCustomModel = null;
       }
+      
+      // DevLM settings logic
+      let finalDevlmPreferredModel = devlmPreferredModel;
+      let finalDevlmCustomUrl = devlmCustomUrl.trim() || null;
+      let finalDevlmCustomModel = devlmCustomModel.trim() || null;
+
+      if (devlmPreferredModel === "custom") {
+        if (!finalDevlmCustomUrl) {
+          throw new Error("DevLM Custom URL cannot be empty when 'Custom' model is selected.");
+        }
+        if (!finalDevlmCustomModel) {
+          finalDevlmCustomModel = "model";
+        }
+      } else {
+        // Clear custom fields if not using custom model
+        finalDevlmCustomUrl = null;
+        finalDevlmCustomModel = null;
+      }
       // <--- End Logic
       
       // Call the API to update the user settings
@@ -155,7 +187,10 @@ export default function AccountPage() {
         sleepTime,
         preferredModel: finalPreferredModel,
         customOpenaiServerUrl: finalCustomUrl,
-        customOpenaiModelName: finalCustomModel
+        customOpenaiModelName: finalCustomModel,
+        devlmPreferredModel: finalDevlmPreferredModel,
+        devlmCustomOpenaiServerUrl: finalDevlmCustomUrl,
+        devlmCustomOpenaiModelName: finalDevlmCustomModel
       });
       
       if (response.ok) {
@@ -172,6 +207,11 @@ export default function AccountPage() {
         setPreferredModel(finalPreferredModel);
         setCustomUrl(finalCustomUrl || ""); 
         setCustomModel(finalCustomModel || "");
+        
+        // Update DevLM local state
+        setDevlmPreferredModel(finalDevlmPreferredModel);
+        setDevlmCustomUrl(finalDevlmCustomUrl || "");
+        setDevlmCustomModel(finalDevlmCustomModel || "");
         // <--- End Update
       } else {
         const error = await response.json();
@@ -517,6 +557,99 @@ export default function AccountPage() {
                 </>
               ) : (
                 "Save AI Settings"
+              )}
+            </Button>
+          </CardFooter>
+        </Card>
+
+        {/* DevLM AI Settings */}
+        <Card>
+          <CardHeader>
+            <CardTitle>DevLM AI Settings</CardTitle>
+            <CardDescription>Configure AI model settings for DevLM code assistance</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+
+            <div className="grid gap-2">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="devlm-model" className="flex items-center gap-2">
+                  AI Model
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info size={16} className="text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="w-96">Choose which AI model to use for DevLM code assistance:
+                        <br />• Claude 3.5 Sonnet: Best for complex coding tasks (recommended)
+                        <br />• Claude 3.5 Haiku: Faster, good for simple tasks
+                        <br />• Claude 3 Opus: Most capable but slower
+                        <br />• GPT models: OpenAI's various capabilities
+                        <br />• Gemini models: Google's latest models
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </Label>
+              </div>
+              <Select
+                value={devlmPreferredModel}
+                onValueChange={setDevlmPreferredModel}
+              >
+                <SelectTrigger id="devlm-model" className="w-full">
+                  <SelectValue placeholder="Select AI model" />
+                </SelectTrigger>
+                <SelectContent>
+                  {AVAILABLE_MODELS.map((model) => (
+                    <SelectItem key={model.value} value={model.value}>{model.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Custom DevLM Server Settings */}
+            {devlmPreferredModel === 'custom' && (
+              <>
+                <div className="grid gap-2 pt-4 border-t">
+                  <Label htmlFor="devlm-custom-url">Custom OpenAI-Compatible URL *</Label>
+                  <Input 
+                    id="devlm-custom-url"
+                    value={devlmCustomUrl}
+                    onChange={(e) => setDevlmCustomUrl(e.target.value)}
+                    placeholder="e.g., http://localhost:1234/v1"
+                    required
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Required when "Custom" provider is selected. DevLM requests will be sent here.
+                  </p>
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="devlm-custom-model">Custom Model Name (Defaults to "model")</Label>
+                  <Input 
+                    id="devlm-custom-model"
+                    value={devlmCustomModel}
+                    onChange={(e) => setDevlmCustomModel(e.target.value)}
+                    placeholder="model"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Specify the exact model name available on your custom server. If left blank, defaults to "model".
+                  </p>
+                </div>
+              </>
+            )}
+          </CardContent>
+          <CardFooter>
+            <Button 
+              onClick={handleSaveSettings}
+              disabled={isSaving}
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                "Save DevLM Settings"
               )}
             </Button>
           </CardFooter>

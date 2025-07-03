@@ -71,19 +71,20 @@ export interface IStorage {
 
   // Contact verification methods
   createContactVerification(verification: {
-    userId: number;
+    userId?: number;
+    tempId?: string;
     type: string;
     code: string;
     expiresAt: Date;
   }): Promise<void>;
-  getLatestContactVerification(userId: number): Promise<{
+  getLatestContactVerification(userIdOrTempId: number | string): Promise<{
     type: string;
     code: string;
     expiresAt: Date;
     verified?: boolean;
   } | undefined>;
-  markContactVerified(userId: number, type: string): Promise<void>;
-  getVerifications(userId: number): Promise<Array<{
+  markContactVerified(userIdOrTempId: number | string, type: string): Promise<void>;
+  getVerifications(userIdOrTempId: number | string): Promise<Array<{
     type: string;
     code: string;
     expiresAt: Date;
@@ -391,6 +392,9 @@ export class DatabaseStorage implements IStorage {
           preferredModel: "o1-mini",
           customOpenaiServerUrl: null,
           customOpenaiModelName: null,
+          devlmPreferredModel: "claude-3-5-sonnet-20241022",
+          devlmCustomOpenaiServerUrl: null,
+          devlmCustomOpenaiModelName: null,
           isActive: true,
           deactivatedAt: null,
           last_user_initiated_message_at: null
@@ -439,6 +443,9 @@ export class DatabaseStorage implements IStorage {
           preferredModel: "o1-mini",
           customOpenaiServerUrl: null,
           customOpenaiModelName: null,
+          devlmPreferredModel: "claude-3-5-sonnet-20241022",
+          devlmCustomOpenaiServerUrl: null,
+          devlmCustomOpenaiModelName: null,
           isActive: true,
           deactivatedAt: null,
           last_user_initiated_message_at: null
@@ -815,24 +822,46 @@ export class DatabaseStorage implements IStorage {
 
   // Contact verification methods
   async createContactVerification(verification: {
-    userId: number;
+    userId?: number;
+    tempId?: string;
     type: string;
     code: string;
     expiresAt: Date;
   }): Promise<void> {
+    // Determine which ID to use
+    const isTemp = !verification.userId && verification.tempId;
+    const identifier = isTemp ? verification.tempId : verification.userId?.toString();
+    
+    console.log("Creating contact verification:", {
+      userId: verification.userId,
+      tempId: verification.tempId,
+      type: verification.type,
+      isTemp,
+      identifier
+    });
+
+    if (!identifier) {
+      throw new Error("Either userId or tempId must be provided");
+    }
+
     // First get existing verifications for logging
+    const whereClause = isTemp 
+      ? and(
+          eq(contactVerifications.tempId, identifier),
+          eq(contactVerifications.type, verification.type)
+        )
+      : and(
+          eq(contactVerifications.userId, verification.userId!),
+          eq(contactVerifications.type, verification.type)
+        );
+
     const existing = await db
       .select()
       .from(contactVerifications)
-      .where(
-        and(
-          eq(contactVerifications.tempId, verification.userId.toString()),
-          eq(contactVerifications.type, verification.type)
-        )
-      );
+      .where(whereClause);
 
     console.log("Existing verifications before cleanup:", {
-      tempId: verification.userId.toString(),
+      identifier,
       type: verification.type,
       count: existing.length,
       verifications: existing
@@ -841,26 +870,16 @@ export class DatabaseStorage implements IStorage {
     // Delete existing verifications
     await db
       .delete(contactVerifications)
-      .where(
-        and(
-          eq(contactVerifications.tempId, verification.userId.toString()),
-          eq(contactVerifications.type, verification.type)
-        )
-      );
+      .where(whereClause);
 
     // Verify deletion
     const remaining = await db
       .select()
       .from(contactVerifications)
-      .where(
-        and(
-          eq(contactVerifications.tempId, verification.userId.toString()),
-          eq(contactVerifications.type, verification.type)
-        )
-      );
+      .where(whereClause);
 
     console.log("Verifications after cleanup:", {
-      tempId: verification.userId.toString(),
+      identifier,
       type: verification.type,
       count: remaining.length,
       verifications: remaining
@@ -868,50 +887,60 @@ export class DatabaseStorage implements IStorage {
 
     // Create the new verification
     await db.insert(contactVerifications).values({
-      userId: 0, // Default userId for temporary verifications
-      tempId: verification.userId.toString(), // Store the temporary ID as text
+      userId: verification.userId || 0, // Use provided userId or 0 for temp verifications
+      tempId: isTemp ? verification.tempId : null, // Only set tempId for temporary verifications
       type: verification.type,
       code: verification.code,
       expiresAt: verification.expiresAt,
       createdAt: new Date(),
+      verified: false,
     });
 
     // Verify creation
     const [latest] = await db
       .select()
       .from(contactVerifications)
-      .where(
-        and(
-          eq(contactVerifications.tempId, verification.userId.toString()),
-          eq(contactVerifications.type, verification.type)
-        )
-      )
+      .where(whereClause)
       .orderBy(desc(contactVerifications.createdAt))
       .limit(1);
 
     console.log("New verification created:", {
-      tempId: verification.userId.toString(),
+      identifier,
       type: verification.type,
       code: latest.code,
       expiresAt: latest.expiresAt
     });
   }
 
-  async getLatestContactVerification(userId: number): Promise<{
+  async getLatestContactVerification(userIdOrTempId: number | string): Promise<{
     type: string;
     code: string;
     expiresAt: Date;
     verified?: boolean;
   } | undefined> {
+    // Determine if this is a userId or tempId
+    const isTemp = typeof userIdOrTempId === 'string';
+    const identifier = userIdOrTempId.toString();
+    
+    console.log("Getting latest contact verification:", {
+      userIdOrTempId,
+      isTemp,
+      identifier
+    });
+
     // Get all verifications for this user
+    const whereClause = isTemp
+      ? eq(contactVerifications.tempId, identifier)
+      : eq(contactVerifications.userId, userIdOrTempId as number);
+      
     const allVerifications = await db
       .select()
       .from(contactVerifications)
-      .where(eq(contactVerifications.tempId, userId.toString()))
+      .where(whereClause)
       .orderBy(desc(contactVerifications.createdAt));
 
     console.log("All verifications found:", {
-      tempId: userId.toString(),
+      identifier,
       count: allVerifications.length,
       verifications: allVerifications
     });
@@ -921,7 +950,7 @@ export class DatabaseStorage implements IStorage {
 
     if (latest) {
       console.log("Using latest verification:", {
-        tempId: userId.toString(),
+        identifier,
         type: latest.type,
         code: latest.code,
         expiresAt: latest.expiresAt
@@ -931,38 +960,51 @@ export class DatabaseStorage implements IStorage {
     return latest;
   }
 
-  async markContactVerified(userId: number, type: string): Promise<void> {
+  async markContactVerified(userIdOrTempId: number | string, type: string): Promise<void> {
+    // Determine if this is a userId or tempId
+    const isTemp = typeof userIdOrTempId === 'string';
+    const identifier = userIdOrTempId.toString();
+    
     console.log("Marking contact as verified:", {
-      tempId: userId.toString(),
+      userIdOrTempId,
+      isTemp,
+      identifier,
       type
     });
 
     // Mark the verification as verified in contact_verifications
+    const whereClause = isTemp
+      ? and(
+          eq(contactVerifications.tempId, identifier),
+          eq(contactVerifications.type, type)
+        )
+      : and(
+          eq(contactVerifications.userId, userIdOrTempId as number),
+          eq(contactVerifications.type, type)
+        );
+        
     const [updated] = await db
       .update(contactVerifications)
       .set({ verified: true })
-      .where(
-        and(
-          eq(contactVerifications.tempId, userId.toString()),
-          eq(contactVerifications.type, type)
-        )
-      )
+      .where(whereClause)
       .returning();
 
     console.log("Verification record updated:", {
-      tempId: userId.toString(),
+      identifier,
       type,
       updated
     });
 
-    const user = await this.getUser(userId);
-    if (user) {
+    // Only update user if this is a real userId (not a temp verification)
+    if (!isTemp) {
+      const user = await this.getUser(userIdOrTempId as number);
+      if (user) {
       console.log("Updating user verification status:", {
-        userId,
-        currentEmailVerified: user.isEmailVerified,
-        currentPhoneVerified: user.isPhoneVerified,
-        type
-      });
+          userId: userIdOrTempId,
+          currentEmailVerified: user.isEmailVerified,
+          currentPhoneVerified: user.isPhoneVerified,
+          type
+        });
 
       const [updatedUser] = await db
         .update(users)
@@ -970,32 +1012,47 @@ export class DatabaseStorage implements IStorage {
           isEmailVerified: type === 'email' ? true : user.isEmailVerified,
           isPhoneVerified: type === 'phone' || type === 'whatsapp' ? true : user.isPhoneVerified,
         })
-        .where(eq(users.id, userId))
-        .returning();
+          .where(eq(users.id, userIdOrTempId as number))
+          .returning();
 
-      console.log("User verification status updated:", {
-        userId,
-        isEmailVerified: updatedUser.isEmailVerified,
-        isPhoneVerified: updatedUser.isPhoneVerified
-      });
+        console.log("User verification status updated:", {
+          userId: userIdOrTempId,
+          isEmailVerified: updatedUser.isEmailVerified,
+          isPhoneVerified: updatedUser.isPhoneVerified
+        });
+      }
+    } else {
+      console.log("Skipping user update for temporary verification");
     }
   }
 
-  async getVerifications(userId: number): Promise<Array<{
+  async getVerifications(userIdOrTempId: number | string): Promise<Array<{
     type: string;
     code: string;
     expiresAt: Date;
     verified: boolean;
   }>> {
-    console.log("Getting verifications for user:", userId);
+    // Determine if this is a userId or tempId
+    const isTemp = typeof userIdOrTempId === 'string';
+    const identifier = userIdOrTempId.toString();
+    
+    console.log("Getting verifications for user:", {
+      userIdOrTempId,
+      isTemp,
+      identifier
+    });
 
+    const whereClause = isTemp
+      ? eq(contactVerifications.tempId, identifier)
+      : eq(contactVerifications.userId, userIdOrTempId as number);
+      
     const verifications = await db
       .select()
       .from(contactVerifications)
-      .where(eq(contactVerifications.tempId, userId.toString()));
+      .where(whereClause);
 
     console.log("Found verifications:", {
-      tempId: userId.toString(),
+      identifier,
       count: verifications.length,
       verifications: verifications.map(v => ({
         type: v.type,
