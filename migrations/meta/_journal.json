@@ -78,6 +78,20 @@
       "when": 1747755162127,
       "tag": "0010_tough_virginia_dare",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1749737540104,
+      "tag": "0011_majestic_sasquatch",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1751143289036,
+      "tag": "0012_public_butterfly",
+      "breakpoints": true
     }
   ]
 }

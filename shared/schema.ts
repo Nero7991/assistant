@@ -23,6 +23,10 @@ export const users = pgTable("users", {
   preferredModel: text("preferred_model").default("o1-mini"), // Default to o1-mini, alternatives: gpt-4o, gpt-4o-mini, etc.
   customOpenaiServerUrl: text("custom_openai_server_url"), // e.g., http://localhost:8080/v1
   customOpenaiModelName: text("custom_openai_model_name"), // Specific model name for the custom server
+  // DevLM LLM Settings
+  devlmPreferredModel: text("devlm_preferred_model").default("o1-mini"), // Default devlm model - same as Kona
+  devlmCustomOpenaiServerUrl: text("devlm_custom_openai_server_url"), // Custom server URL for devlm
+  devlmCustomOpenaiModelName: text("devlm_custom_openai_model_name"), // Custom model name for devlm
   isActive: boolean("is_active").notNull().default(true),
   deactivatedAt: timestamp("deactivated_at"),
   last_user_initiated_message_at: timestamp("last_user_initiated_message_at"), // New field to track last user text
@@ -321,6 +325,28 @@ export const insertUserSchema = createInsertSchema(users).extend({
     "gemini-2.0-flash-lite",
     "custom"
   ]).default("o1-mini"),
+  devlmPreferredModel: z.enum([
+    "claude-3-5-sonnet-20241022",
+    "claude-3-5-haiku-20241022", 
+    "claude-3-opus-20240229",
+    "gpt-4o",
+    "gpt-4o-mini",
+    "gpt-4-turbo",
+    "gpt-4",
+    "gpt-3.5-turbo",
+    "gemini-1.5-pro-latest",
+    "gemini-1.5-flash-latest",
+    "gemini-2.0-flash",
+    "custom"
+  ]).default("claude-3-5-sonnet-20241022"),
+  devlmPreferredProvider: z.enum([
+    "anthropic",
+    "gcloud", 
+    "openai",
+    "custom"
+  ]).default("anthropic"),
+  devlmCustomOpenaiServerUrl: z.string().url().optional().nullable(),
+  devlmCustomOpenaiModelName: z.string().optional().nullable(),
 });
 
 export const insertGoalSchema = createInsertSchema(goals).pick({
@@ -749,6 +775,209 @@ export type Person = typeof people.$inferSelect;
 export type InsertPerson = z.infer<typeof insertPersonSchema>;
 export type PeopleVerification = typeof peopleVerifications.$inferSelect;
 // <--- END NEW
+
+// ---> NEW: Creations Tables
+export const CreationStatus = {
+  BRAINSTORMING: 'brainstorming',
+  PLANNING: 'planning',
+  APPROVED: 'approved', 
+  BUILDING: 'building',
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  ARCHIVED: 'archived',
+} as const;
+
+export const TaskStatus = {
+  PENDING: 'pending',
+  IN_PROGRESS: 'in_progress', 
+  COMPLETED: 'completed',
+  FAILED: 'failed',
+  SKIPPED: 'skipped',
+} as const;
+
+export const creations = pgTable("creations", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: 'cascade' }),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  status: text("status").notNull().default(CreationStatus.BRAINSTORMING),
+  
+  // Planning phase data
+  planningPrompt: text("planning_prompt"),
+  architecturePlan: text("architecture_plan"),
+  techStack: jsonb("tech_stack"), // Array of technologies
+  
+  // Building phase data
+  currentTaskId: integer("current_task_id"),
+  currentSubtaskId: integer("current_subtask_id"),
+  
+  // Deployment data
+  pageName: text("page_name").unique(), // URL slug: https://pages.orenslab.com/{page_name}
+  deploymentUrl: text("deployment_url"), // Full URL
+  
+  // Progress tracking
+  totalTasks: integer("total_tasks").default(0),
+  completedTasks: integer("completed_tasks").default(0),
+  totalSubtasks: integer("total_subtasks").default(0),
+  completedSubtasks: integer("completed_subtasks").default(0),
+  
+  // Metadata
+  estimatedDuration: text("estimated_duration"), // e.g., "2h", "1d"
+  actualDuration: integer("actual_duration_minutes"),
+  
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+  deletedAt: timestamp("deleted_at"),
+});
+
+export const creationTasks = pgTable("creation_tasks", {
+  id: serial("id").primaryKey(),
+  creationId: integer("creation_id").notNull().references(() => creations.id, { onDelete: 'cascade' }),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  status: text("status").notNull().default(TaskStatus.PENDING),
+  orderIndex: integer("order_index").notNull(), // For task ordering
+  
+  // Task details
+  category: text("category").notNull(), // e.g., 'setup', 'frontend', 'backend', 'styling', 'testing'
+  estimatedDuration: text("estimated_duration"), // e.g., "30m", "2h"
+  actualDuration: integer("actual_duration_minutes"),
+  
+  // Progress tracking
+  totalSubtasks: integer("total_subtasks").default(0),
+  completedSubtasks: integer("completed_subtasks").default(0),
+  
+  // Gemini execution data
+  geminiPrompt: text("gemini_prompt"),
+  geminiResponse: text("gemini_response"),
+  errorMessage: text("error_message"),
+  
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+});
+
+export const creationSubtasks = pgTable("creation_subtasks", {
+  id: serial("id").primaryKey(),
+  creationId: integer("creation_id").notNull().references(() => creations.id, { onDelete: 'cascade' }),
+  taskId: integer("task_id").notNull().references(() => creationTasks.id, { onDelete: 'cascade' }),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  status: text("status").notNull().default(TaskStatus.PENDING),
+  orderIndex: integer("order_index").notNull(), // For subtask ordering within task
+  
+  // Subtask details
+  filesPaths: jsonb("files_paths"), // Array of file paths this subtask will modify/create
+  estimatedDuration: text("estimated_duration"), // e.g., "15m", "45m"
+  actualDuration: integer("actual_duration_minutes"),
+  
+  // Gemini execution data
+  geminiPrompt: text("gemini_prompt"),
+  geminiResponse: text("gemini_response"),
+  filesModified: jsonb("files_modified"), // Array of actual files modified
+  errorMessage: text("error_message"),
+  retryCount: integer("retry_count").default(0),
+  
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+});
+
+// Relations for creations
+export const creationsRelations = relations(creations, ({ one, many }) => ({
+  user: one(users, {
+    fields: [creations.userId],
+    references: [users.id],
+  }),
+  tasks: many(creationTasks),
+  currentTask: one(creationTasks, {
+    fields: [creations.currentTaskId],
+    references: [creationTasks.id],
+  }),
+}));
+
+export const creationTasksRelations = relations(creationTasks, ({ one, many }) => ({
+  creation: one(creations, {
+    fields: [creationTasks.creationId],
+    references: [creations.id],
+  }),
+  subtasks: many(creationSubtasks),
+}));
+
+export const creationSubtasksRelations = relations(creationSubtasks, ({ one }) => ({
+  creation: one(creations, {
+    fields: [creationSubtasks.creationId],
+    references: [creations.id],
+  }),
+  task: one(creationTasks, {
+    fields: [creationSubtasks.taskId],
+    references: [creationTasks.id],
+  }),
+}));
+
+// Schemas for creations
+export const insertCreationSchema = createInsertSchema(creations)
+  .pick({
+    title: true,
+    description: true,
+    pageName: true,
+    techStack: true,
+    estimatedDuration: true,
+  })
+  .extend({
+    title: z.string().min(1, "Title is required").max(100, "Title too long"),
+    description: z.string().min(10, "Please provide a detailed description").max(2000, "Description too long"),
+    pageName: z.string()
+      .min(3, "Page name must be at least 3 characters")
+      .max(50, "Page name too long")
+      .regex(/^[a-z0-9-]+$/, "Page name can only contain lowercase letters, numbers, and hyphens")
+      .optional(),
+    techStack: z.array(z.string()).optional(),
+    estimatedDuration: z.string().optional(),
+  });
+
+export const insertCreationTaskSchema = createInsertSchema(creationTasks)
+  .pick({
+    title: true,
+    description: true,
+    category: true,
+    orderIndex: true,
+    estimatedDuration: true,
+  })
+  .extend({
+    title: z.string().min(1, "Task title is required"),
+    description: z.string().min(1, "Task description is required"),
+    category: z.string().min(1, "Category is required"),
+    orderIndex: z.number().min(0),
+    estimatedDuration: z.string().optional(),
+  });
+
+export const insertCreationSubtaskSchema = createInsertSchema(creationSubtasks)
+  .pick({
+    title: true,
+    description: true,
+    orderIndex: true,
+    filesPaths: true,
+    estimatedDuration: true,
+  })
+  .extend({
+    title: z.string().min(1, "Subtask title is required"),
+    description: z.string().min(1, "Subtask description is required"),
+    orderIndex: z.number().min(0),
+    filesPaths: z.array(z.string()).optional(),
+    estimatedDuration: z.string().optional(),
+  });
+
+// Types
+export type Creation = typeof creations.$inferSelect;
+export type InsertCreation = z.infer<typeof insertCreationSchema>;
+export type CreationTask = typeof creationTasks.$inferSelect;
+export type InsertCreationTask = z.infer<typeof insertCreationTaskSchema>;
+export type CreationSubtask = typeof creationSubtasks.$inferSelect;
+export type InsertCreationSubtask = z.infer<typeof insertCreationSubtaskSchema>;
 
 // ---> NEW: External Services Tables
 export const externalServices = pgTable("external_services", {
