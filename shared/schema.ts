@@ -20,11 +20,11 @@ export const users = pgTable("users", {
   sleepTime: text("sleep_time").default("23:00"), // Format: "HH:mm", Default: 11pm
   preferredMessageTime: text("preferred_message_time"), // Format: "HH:mm", Will be phased out in favor of routineStartTime
   timeZone: text("time_zone"),
-  preferredModel: text("preferred_model").default("o1-mini"), // Default to o1-mini, alternatives: gpt-4o, gpt-4o-mini, etc.
+  preferredModel: text("preferred_model").default("gemini-2.5-flash"), // Default to gemini-2.5-flash, alternatives: gpt-4o, claude-4-opus, etc.
   customOpenaiServerUrl: text("custom_openai_server_url"), // e.g., http://localhost:8080/v1
   customOpenaiModelName: text("custom_openai_model_name"), // Specific model name for the custom server
   // DevLM LLM Settings
-  devlmPreferredModel: text("devlm_preferred_model").default("o1-mini"), // Default devlm model - same as Kona
+  devlmPreferredModel: text("devlm_preferred_model").default("gemini-2.5-flash"), // Default devlm model - same as Kona
   devlmCustomOpenaiServerUrl: text("devlm_custom_openai_server_url"), // Custom server URL for devlm
   devlmCustomOpenaiModelName: text("devlm_custom_openai_model_name"), // Custom model name for devlm
   isActive: boolean("is_active").notNull().default(true),

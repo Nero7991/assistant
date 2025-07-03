@@ -65,6 +65,7 @@ import { storage } from '../storage.js'; // Corrected path
 import { LLMProvider } from './llm/provider.js'; // Added import
 import { openAIProvider } from './llm/openai_provider.js'; // Added import
 import { gcloudProvider } from './llm/gcloud_provider.js'; // Added import
+import { anthropicProvider } from './llm/anthropic_provider.js'; // Added import
 import { llmFunctionExecutors, llmFunctionDefinitions } from './llm-functions.js'; // Added import
 import logger from '../logger.js'; // Import the configured logger
 
@@ -309,6 +310,10 @@ Your response MUST be JSON.`;
         provider = gcloudProvider;
       effectiveModel = preferredModel;
         console.log("[generateUnifiedResponse] Using GCloudProvider.");
+    } else if (preferredModel.startsWith("claude-")) {
+        provider = anthropicProvider;
+        effectiveModel = preferredModel;
+        console.log("[generateUnifiedResponse] Using AnthropicProvider.");
     } else if (preferredModel.startsWith("gpt-") || preferredModel.startsWith("o1-") || preferredModel.startsWith("o3-")) {
         provider = openAIProvider;
         effectiveModel = preferredModel;

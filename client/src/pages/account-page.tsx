@@ -15,21 +15,13 @@ import { Badge } from "@/components/ui/badge";
 
 // Available AI models (unified for both Kona and DevLM)
 const AVAILABLE_MODELS = [
-  { value: "o1-mini", label: "O1-mini (Default reasoning model)" },
+  { value: "o3-mini", label: "O3-mini (OpenAI Reasoning)" },
+  { value: "o1-mini", label: "O1-mini (OpenAI Previous)" },
   { value: "gpt-4o", label: "GPT-4o (OpenAI Latest)" },
-  { value: "gpt-4o-mini", label: "GPT-4o-mini (OpenAI Reasoning)" },
-  { value: "claude-3-5-sonnet-20241022", label: "Claude 3.5 Sonnet (Anthropic Latest)" },
-  { value: "claude-3-5-haiku-20241022", label: "Claude 3.5 Haiku (Anthropic Faster)" },
-  { value: "claude-3-opus-20240229", label: "Claude 3 Opus (Anthropic Most Capable)" },
-  { value: "gemini-1.5-pro-latest", label: "Gemini 1.5 Pro (Google Latest)" },
-  { value: "gemini-1.5-flash-latest", label: "Gemini 1.5 Flash (Google Faster)" },
-  { value: "gemini-2.5-flash-preview-04-17", label: "Gemini 2.5 Flash Preview (Audio/Video/Text)" },
-  { value: "gemini-2.5-pro-preview-03-25", label: "Gemini 2.5 Pro Preview (Enhanced Reasoning)" },
-  { value: "gemini-2.0-flash", label: "Gemini 2.0 Flash (Next Gen Speed)" },
-  { value: "gemini-2.0-flash-lite", label: "Gemini 2.0 Flash-Lite (Cost Efficient)" },
-  { value: "gpt-4-turbo", label: "GPT-4 Turbo (OpenAI Previous)" },
-  { value: "gpt-4", label: "GPT-4 (OpenAI Previous)" },
-  { value: "gpt-3.5-turbo", label: "GPT-3.5 Turbo (OpenAI Faster)" },
+  { value: "claude-4-opus", label: "Claude 4 Opus (Anthropic Most Capable)" },
+  { value: "claude-4-sonnet", label: "Claude 4 Sonnet (Anthropic Latest)" },
+  { value: "gemini-2.5-pro", label: "Gemini 2.5 Pro (Google Latest)" },
+  { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash (Google Faster)" },
   { value: "custom", label: "Custom (Specify Below)" },
 ];
 
@@ -63,14 +55,14 @@ export default function AccountPage() {
   const [wakeTime, setWakeTime] = useState<string>("08:00");
   const [routineStartTime, setRoutineStartTime] = useState<string>("09:30");
   const [sleepTime, setSleepTime] = useState<string>("23:00");
-  const [preferredModel, setPreferredModel] = useState<string>("o1-mini");
+  const [preferredModel, setPreferredModel] = useState<string>("gemini-2.5-flash");
   const [allowEmail, setAllowEmail] = useState(false);
   const [allowPhone, setAllowPhone] = useState(false);
   const [customUrl, setCustomUrl] = useState<string>("");
   const [customModel, setCustomModel] = useState<string>("");
   
   // DevLM settings state
-  const [devlmPreferredModel, setDevlmPreferredModel] = useState<string>("o1-mini");
+  const [devlmPreferredModel, setDevlmPreferredModel] = useState<string>("gemini-2.5-flash");
   const [devlmCustomUrl, setDevlmCustomUrl] = useState<string>("");
   const [devlmCustomModel, setDevlmCustomModel] = useState<string>("");
   
