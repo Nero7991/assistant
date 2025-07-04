@@ -29,41 +29,71 @@ console.log('Initializing Twilio client with:', {
  */
 async function findUserByPhoneNumber(phoneNumber: string): Promise<number | null> {
   try {
+    console.log(`[DEBUG] Looking up phone number: ${phoneNumber}`);
+    
     // Normalize phone number format
     // Remove any non-digit characters to ensure consistent matching
     const normalizedPhone = phoneNumber.replace(/\D/g, '');
+    console.log(`[DEBUG] Normalized phone: ${normalizedPhone}`);
     
     // Check both formats - with and without country code
     const possibleFormats = [
       normalizedPhone,                   // Full format with country code
       normalizedPhone.replace(/^1/, '')  // US number without the leading 1
     ];
+    console.log(`[DEBUG] Possible formats: ${possibleFormats.join(', ')}`);
     
-    // Find users with matching phone numbers
+    // Get all phone-verified users (we need to do manual filtering because of phone number normalization)
     const matchedUsers = await db
       .select()
       .from(users)
       .where(
-        // Check if any of the possible formats match by stripping non-digits from DB values too
         eq(users.isPhoneVerified, true)
       );
       
+    console.log(`[DEBUG] Found ${matchedUsers.length} phone-verified users in database`);
+    
     // Manual filter since we need to normalize the stored numbers for comparison too
     const user = matchedUsers.find(user => {
       if (!user.phoneNumber) return false;
       const userPhone = user.phoneNumber.replace(/\D/g, '');
-      return possibleFormats.some(format => userPhone.includes(format) || format.includes(userPhone));
+      console.log(`[DEBUG] Checking user ${user.id} (${user.email}) with phone: ${user.phoneNumber} -> normalized: ${userPhone}`);
+      
+      // Also handle the case where the DB might have 'whatsapp:' prefix (legacy data)
+      const userPhoneWithoutPrefix = user.phoneNumber.replace('whatsapp:', '').replace(/\D/g, '');
+      
+      // Check for exact match first
+      const exactMatch = possibleFormats.some(format => 
+        userPhone === format || userPhoneWithoutPrefix === format
+      );
+      if (exactMatch) {
+        console.log(`[DEBUG] Found exact match for user ${user.id}`);
+        return true;
+      }
+      
+      // Check for partial match (includes)
+      const partialMatch = possibleFormats.some(format => 
+        userPhone.includes(format) || format.includes(userPhone) ||
+        userPhoneWithoutPrefix.includes(format) || format.includes(userPhoneWithoutPrefix)
+      );
+      if (partialMatch) {
+        console.log(`[DEBUG] Found partial match for user ${user.id}`);
+        return true;
+      }
+      
+      console.log(`[DEBUG] No match for user ${user.id}`);
+      return false;
     });
     
     if (user) {
-      console.log(`Found user ${user.id} (${user.username}) with matching phone number: ${phoneNumber}`);
+      console.log(`[DEBUG] Successfully found user ${user.id} (${user.email}) with matching phone number: ${phoneNumber}`);
       return user.id;
     }
     
-    console.log(`No user found with phone number: ${phoneNumber}`);
+    console.log(`[DEBUG] No user found with phone number: ${phoneNumber}`);
     return null;
   } catch (error) {
-    console.error(`Error finding user by phone number:`, error);
+    console.error(`[ERROR] Error finding user by phone number:`, error);
     return null;
   }
 }
@@ -119,19 +149,22 @@ export async function handleWhatsAppWebhook(req: Request, res: Response) {
         }
       }
       
-      console.log(`Processing WhatsApp message from user ${userId} (${userPhone}): ${messageBody.substring(0, 50)}${messageBody.length > 50 ? '...' : ''}`);
+      console.log(`[DEBUG] Processing WhatsApp message from user ${userId} (${userPhone}): ${messageBody.substring(0, 50)}${messageBody.length > 50 ? '...' : ''}`);
 
       // Respond to Twilio IMMEDIATELY with empty TwiML to acknowledge receipt
       const twimlAck = new twilio.twiml.MessagingResponse();
       res.type("text/xml").send(twimlAck.toString());
+      console.log(`[DEBUG] Sent TwiML acknowledgment to Twilio for user ${userId}`);
 
       // Process the message ASYNCHRONOUSLY in the background
       (async () => {
           try {
+              console.log(`[DEBUG] Starting async message processing for user ${userId}`);
               await messagingService.handleUserResponse(userId, messageBody);
-              console.log(`[Webhook Async] Successfully processed message from user ${userId}`);
+              console.log(`[DEBUG] Successfully processed message from user ${userId}`);
           } catch (asyncError) {
-              console.error(`[Webhook Async] Error processing message from user ${userId}:`, asyncError);
+              console.error(`[ERROR] Error processing message from user ${userId}:`, asyncError);
+              console.error(`[ERROR] Stack trace:`, asyncError.stack);
           }
       })();
 

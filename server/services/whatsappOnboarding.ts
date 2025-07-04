@@ -35,12 +35,17 @@ function cleanPhoneNumberForTempId(phoneNumber: string): string {
 export async function handleWhatsAppOnboarding(fromPhoneNumber: string, messageBody: string): Promise<string | null> {
     console.log(`Handling WhatsApp message from ${fromPhoneNumber}: \"${messageBody}\"`);
 
+    // Clean the phone number for database lookup
+    const cleanPhoneNumber = fromPhoneNumber.startsWith('whatsapp:') 
+        ? fromPhoneNumber.replace('whatsapp:', '') 
+        : fromPhoneNumber;
+
     const existingUser = await db.query.users.findFirst({
-        where: eq(users.phoneNumber, fromPhoneNumber),
+        where: eq(users.phoneNumber, cleanPhoneNumber),
     });
 
     if (existingUser) {
-        console.log(`Phone number ${fromPhoneNumber} already associated with user ID ${existingUser.id}. No onboarding needed.`);
+        console.log(`Phone number ${cleanPhoneNumber} already associated with user ID ${existingUser.id}. No onboarding needed.`);
         onboardingSessions.delete(fromPhoneNumber); // Clean up any stale state
         return null;
     }
@@ -242,11 +247,16 @@ async function createUserWithTimezone(
         const tempPassword = Math.random().toString(36).slice(-8);
         const hashedPassword = await hashPassword(tempPassword);
 
+        // Clean the phone number - remove 'whatsapp:' prefix if present
+        const cleanPhoneNumber = fromPhoneNumber.startsWith('whatsapp:') 
+            ? fromPhoneNumber.replace('whatsapp:', '') 
+            : fromPhoneNumber;
+
         const [newUser] = await db.insert(users).values({
             username: state.email,
             password: hashedPassword,
             email: state.email,
-            phoneNumber: fromPhoneNumber,
+            phoneNumber: cleanPhoneNumber,
             firstName: state.firstName,
             contactPreference: 'whatsapp',
             isPhoneVerified: true,
