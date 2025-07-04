@@ -1367,7 +1367,7 @@ export class LLMFunctions {
 const llmFunctionsInstance = new LLMFunctions();
 
 // Creations-specific LLM functions
-export async function generateArchitecturePlan(title: string, description: string): Promise<string> {
+export async function generateArchitecturePlan(userId: number, title: string, description: string): Promise<string> {
   const prompt = `You are a senior software architect. Create a detailed architecture plan for a web application.
 
 Title: ${title}
@@ -1385,11 +1385,10 @@ Focus on creating a modern, maintainable web application that can be built effic
 Return a comprehensive architecture plan in markdown format.`;
 
   try {
-    const openaiProvider = await import('./llm/openai_provider');
-    const provider = new openaiProvider.OpenAIProvider();
+    const { llmRouter } = await import('./llm-router');
     
-    const response = await provider.generateCompletion(
-      'gpt-4o',
+    const response = await llmRouter.generateCompletion(
+      userId,
       [{ role: 'user', content: prompt }],
       0.7
     );
@@ -1401,7 +1400,7 @@ Return a comprehensive architecture plan in markdown format.`;
   }
 }
 
-export async function generateTaskBreakdown(title: string, description: string, architecturePlan: string): Promise<any[]> {
+export async function generateTaskBreakdown(userId: number, title: string, description: string, architecturePlan: string): Promise<any[]> {
   const prompt = `You are a project manager breaking down a web application into implementation tasks.
 
 Project: ${title}
@@ -1428,11 +1427,10 @@ For each task, provide:
 Return valid JSON array format.`;
 
   try {
-    const openaiProvider = await import('./llm/openai_provider');
-    const provider = new openaiProvider.OpenAIProvider();
+    const { llmRouter } = await import('./llm-router');
     
-    const response = await provider.generateCompletion(
-      'gpt-4o',
+    const response = await llmRouter.generateCompletion(
+      userId,
       [{ role: 'user', content: prompt }],
       0.3,
       true // JSON mode

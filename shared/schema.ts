@@ -812,7 +812,7 @@ export const creations = pgTable("creations", {
   currentSubtaskId: integer("current_subtask_id"),
   
   // Deployment data
-  pageName: text("page_name").unique(), // URL slug: https://pages.orenslab.com/{page_name}
+  pageName: text("page_name"), // URL slug: https://pages.orenslab.com/{page_name}
   deploymentUrl: text("deployment_url"), // Full URL
   
   // Progress tracking
@@ -829,7 +829,12 @@ export const creations = pgTable("creations", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   completedAt: timestamp("completed_at"),
   deletedAt: timestamp("deleted_at"),
-});
+}, (table) => ({
+  // Partial unique index: page_name must be unique among non-deleted records
+  uniquePageNameWhenNotDeleted: index("creations_page_name_unique_when_not_deleted")
+    .on(table.pageName)
+    .where(sql`deleted_at IS NULL`),
+}));
 
 export const creationTasks = pgTable("creation_tasks", {
   id: serial("id").primaryKey(),

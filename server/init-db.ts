@@ -183,6 +183,73 @@ const tableCreationQueries = [
     "changes" JSONB NOT NULL,
     "created_at" TIMESTAMP NOT NULL DEFAULT NOW(),
     CONSTRAINT "schedule_revisions_schedule_id_fkey" FOREIGN KEY ("schedule_id") REFERENCES "daily_schedules"("id") ON DELETE CASCADE
+  )`,
+
+  // Creations table
+  `CREATE TABLE IF NOT EXISTS "creations" (
+    "id" SERIAL PRIMARY KEY,
+    "user_id" INTEGER NOT NULL,
+    "title" TEXT NOT NULL,
+    "description" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'brainstorming',
+    "planning_prompt" TEXT,
+    "architecture_plan" TEXT,
+    "tech_stack" JSONB,
+    "current_task_id" INTEGER,
+    "current_subtask_id" INTEGER,
+    "page_name" TEXT,
+    "deployment_url" TEXT,
+    "total_tasks" INTEGER DEFAULT 0,
+    "completed_tasks" INTEGER DEFAULT 0,
+    "total_subtasks" INTEGER DEFAULT 0,
+    "completed_subtasks" INTEGER DEFAULT 0,
+    "estimated_duration" TEXT,
+    "actual_duration_minutes" INTEGER,
+    "created_at" TIMESTAMP NOT NULL DEFAULT NOW(),
+    "updated_at" TIMESTAMP NOT NULL DEFAULT NOW(),
+    "completed_at" TIMESTAMP,
+    "deleted_at" TIMESTAMP,
+    CONSTRAINT "creations_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE
+  )`,
+
+  // Creation Tasks table
+  `CREATE TABLE IF NOT EXISTS "creation_tasks" (
+    "id" SERIAL PRIMARY KEY,
+    "creation_id" INTEGER NOT NULL,
+    "title" TEXT NOT NULL,
+    "description" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "category" TEXT NOT NULL,
+    "order_index" INTEGER NOT NULL,
+    "estimated_duration" TEXT,
+    "total_subtasks" INTEGER DEFAULT 0,
+    "completed_subtasks" INTEGER DEFAULT 0,
+    "gemini_prompt" TEXT,
+    "started_at" TIMESTAMP,
+    "completed_at" TIMESTAMP,
+    "created_at" TIMESTAMP NOT NULL DEFAULT NOW(),
+    "updated_at" TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT "creation_tasks_creation_id_fkey" FOREIGN KEY ("creation_id") REFERENCES "creations"("id") ON DELETE CASCADE
+  )`,
+
+  // Creation Subtasks table
+  `CREATE TABLE IF NOT EXISTS "creation_subtasks" (
+    "id" SERIAL PRIMARY KEY,
+    "creation_id" INTEGER NOT NULL,
+    "task_id" INTEGER NOT NULL,
+    "title" TEXT NOT NULL,
+    "description" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'pending',
+    "order_index" INTEGER NOT NULL,
+    "estimated_duration" TEXT,
+    "files_paths" JSONB,
+    "gemini_prompt" TEXT,
+    "started_at" TIMESTAMP,
+    "completed_at" TIMESTAMP,
+    "created_at" TIMESTAMP NOT NULL DEFAULT NOW(),
+    "updated_at" TIMESTAMP NOT NULL DEFAULT NOW(),
+    CONSTRAINT "creation_subtasks_creation_id_fkey" FOREIGN KEY ("creation_id") REFERENCES "creations"("id") ON DELETE CASCADE,
+    CONSTRAINT "creation_subtasks_task_id_fkey" FOREIGN KEY ("task_id") REFERENCES "creation_tasks"("id") ON DELETE CASCADE
   )`
 ];
 
@@ -210,13 +277,36 @@ export async function initDatabase() {
         SELECT table_name 
         FROM information_schema.tables 
         WHERE table_schema = 'public' 
-        AND table_name IN ('daily_schedules', 'schedule_items', 'schedule_revisions')
+        AND table_name IN ('daily_schedules', 'schedule_items', 'schedule_revisions', 'creations', 'creation_tasks', 'creation_subtasks')
       `;
       
       const result = await db.execute(sql.raw(tablesQuery));
       const tables = result.rows.map((row: any) => row.table_name);
       
       console.log("Verified existing tables:", tables);
+      
+      // Handle schema migrations for creations table
+      if (tables.includes('creations')) {
+        try {
+          console.log("Applying creations table schema migrations...");
+          
+          // Drop old unique constraint if it exists
+          await db.execute(sql.raw(`
+            ALTER TABLE creations DROP CONSTRAINT IF EXISTS creations_page_name_unique;
+          `));
+          
+          // Create partial unique index for page names (only on non-deleted records)
+          await db.execute(sql.raw(`
+            CREATE UNIQUE INDEX IF NOT EXISTS creations_page_name_unique_when_not_deleted 
+            ON creations (page_name) 
+            WHERE deleted_at IS NULL;
+          `));
+          
+          console.log("Creations table migrations completed successfully");
+        } catch (migrationError) {
+          console.error("Error applying creations table migrations:", migrationError);
+        }
+      }
       
       if (!tables.includes('daily_schedules')) {
         console.error("WARNING: daily_schedules table was not successfully created!");
@@ -228,6 +318,18 @@ export async function initDatabase() {
       
       if (!tables.includes('schedule_revisions')) {
         console.error("WARNING: schedule_revisions table was not successfully created!");
+      }
+      
+      if (!tables.includes('creations')) {
+        console.error("WARNING: creations table was not successfully created!");
+      }
+      
+      if (!tables.includes('creation_tasks')) {
+        console.error("WARNING: creation_tasks table was not successfully created!");
+      }
+      
+      if (!tables.includes('creation_subtasks')) {
+        console.error("WARNING: creation_subtasks table was not successfully created!");
       }
     } catch (error) {
       console.error("Error verifying tables:", error);

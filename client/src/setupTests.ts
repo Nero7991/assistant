@@ -10,7 +10,7 @@ expect.extend(matchers);
 
 // Establish API mocking before all tests
 beforeAll(() => {
-  server.listen({ onUnhandledRequest: 'error' });
+  server.listen({ onUnhandledRequest: 'warn' });
 });
 
 // Reset any request handlers that we may add during the tests

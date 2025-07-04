@@ -88,6 +88,57 @@ export const handlers = [
   http.post('/api/devlm/ws-token', () => {
     return HttpResponse.json({ token: 'test-token-123' });
   }),
+
+  // Creations endpoints (default empty responses)
+  http.get('/api/creations', () => {
+    return HttpResponse.json([]);
+  }),
+
+  http.get('/api/creations/:id', () => {
+    return HttpResponse.json({ 
+      creation: null,
+      tasks: [],
+      subtasks: []
+    }, { status: 404 });
+  }),
+
+  http.post('/api/creations', () => {
+    return HttpResponse.json({
+      id: 1,
+      title: 'Test Creation',
+      description: 'Test description',
+      status: 'brainstorming',
+      pageName: 'test-creation',
+      deploymentUrl: 'https://pages.orenslab.com/test-creation',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }, { status: 201 });
+  }),
+
+  http.post('/api/creations/:id/plan', () => {
+    return HttpResponse.json({ 
+      message: 'Architecture plan generated successfully',
+      architecturePlan: '# Test Plan',
+      totalTasks: 1,
+      totalSubtasks: 1
+    });
+  }),
+
+  http.post('/api/creations/:id/build', () => {
+    return HttpResponse.json({ 
+      message: 'Building started successfully',
+      currentTask: { id: 1, title: 'Test Task' },
+      currentSubtask: { id: 1, title: 'Test Subtask' }
+    });
+  }),
+
+  http.put('/api/creations/:id', () => {
+    return HttpResponse.json({ message: 'Creation updated successfully' });
+  }),
+
+  http.delete('/api/creations/:id', () => {
+    return HttpResponse.json({ message: 'Creation deleted successfully' });
+  }),
 ];
 
 export const server = setupServer(...handlers);

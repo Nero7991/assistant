@@ -110,12 +110,24 @@ export default function CreationsPage() {
     try {
       setIsLoading(true);
       const response = await fetch('/api/creations');
-      if (!response.ok) throw new Error('Failed to fetch creations');
+      if (!response.ok) {
+        // Parse backend error for fetching creations
+        let errorMessage = 'Failed to load creations';
+        try {
+          const errorData = await response.json();
+          if (errorData.error) {
+            errorMessage = errorData.error;
+          }
+        } catch (parseError) {
+          console.error('Error parsing fetch creations response:', parseError);
+        }
+        throw new Error(errorMessage);
+      }
       const data = await response.json();
       setCreations(data);
     } catch (error) {
       console.error('Error fetching creations:', error);
-      setError('Failed to load creations');
+      setError(error instanceof Error ? error.message : 'Failed to load creations');
     } finally {
       setIsLoading(false);
     }
@@ -125,42 +137,167 @@ export default function CreationsPage() {
   const fetchCreationDetails = async (id: number) => {
     try {
       const response = await fetch(`/api/creations/${id}`);
-      if (!response.ok) throw new Error('Failed to fetch creation details');
+      if (!response.ok) {
+        // Parse backend error for fetching creation details
+        let errorMessage = 'Failed to load creation details';
+        try {
+          const errorData = await response.json();
+          if (errorData.error) {
+            errorMessage = errorData.error;
+          }
+        } catch (parseError) {
+          console.error('Error parsing fetch details response:', parseError);
+        }
+        throw new Error(errorMessage);
+      }
       const data = await response.json();
       setCreationDetails(data);
     } catch (error) {
       console.error('Error fetching creation details:', error);
-      setError('Failed to load creation details');
+      setError(error instanceof Error ? error.message : 'Failed to load creation details');
     }
   };
 
   // Create new creation
   const handleCreateCreation = async () => {
-    if (!newCreation.title.trim() || !newCreation.description.trim()) {
-      setError('Title and description are required');
+    console.log('🚀 [DEBUG] Starting creation process...');
+    console.log('🚀 [DEBUG] Raw form data:', newCreation);
+    
+    // Enhanced client-side validation matching backend schema
+    const title = newCreation.title.trim();
+    const description = newCreation.description.trim();
+    const pageName = newCreation.pageName.trim();
+
+    console.log('🚀 [DEBUG] Trimmed data:', { title, description, pageName });
+
+    // Title validation
+    if (!title) {
+      console.log('❌ [DEBUG] Title validation failed: empty');
+      setError('Title is required');
+      return;
+    }
+    if (title.length > 100) {
+      console.log('❌ [DEBUG] Title validation failed: too long', title.length);
+      setError('Title must be 100 characters or less');
       return;
     }
 
+    // Description validation  
+    if (!description) {
+      console.log('❌ [DEBUG] Description validation failed: empty');
+      setError('Description is required');
+      return;
+    }
+    if (description.length < 10) {
+      console.log('❌ [DEBUG] Description validation failed: too short', description.length);
+      setError('Description must be at least 10 characters long');
+      return;
+    }
+    if (description.length > 2000) {
+      console.log('❌ [DEBUG] Description validation failed: too long', description.length);
+      setError('Description must be 2000 characters or less');
+      return;
+    }
+
+    // Page name validation (if provided)
+    if (pageName) {
+      if (pageName.length < 3) {
+        console.log('❌ [DEBUG] Page name validation failed: too short', pageName.length);
+        setError('Page name must be at least 3 characters long');
+        return;
+      }
+      if (pageName.length > 50) {
+        console.log('❌ [DEBUG] Page name validation failed: too long', pageName.length);
+        setError('Page name must be 50 characters or less');
+        return;
+      }
+      if (!/^[a-z0-9-]+$/.test(pageName)) {
+        console.log('❌ [DEBUG] Page name validation failed: invalid characters', pageName);
+        setError('Page name can only contain lowercase letters, numbers, and hyphens');
+        return;
+      }
+    }
+
+    console.log('✅ [DEBUG] All client-side validation passed');
+
+    const requestBody = {
+      title,
+      description,
+      ...(pageName && { pageName })
+    };
+
+    console.log('🚀 [DEBUG] Request body:', requestBody);
+
     try {
       setIsCreating(true);
+      console.log('🚀 [DEBUG] Making API request to /api/creations...');
+      
       const response = await fetch('/api/creations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newCreation),
+        body: JSON.stringify(requestBody),
       });
 
-      if (!response.ok) throw new Error('Failed to create creation');
+      console.log('🚀 [DEBUG] Response status:', response.status);
+      console.log('🚀 [DEBUG] Response headers:', Object.fromEntries(response.headers.entries()));
+
+      if (!response.ok) {
+        console.log('❌ [DEBUG] Response not OK, parsing error...');
+        
+        // Handle authentication errors
+        if (response.status === 401) {
+          console.log('❌ [DEBUG] Authentication error (401)');
+          setError('Please log in to create a new application');
+          return;
+        }
+
+        // Parse backend validation errors
+        let errorMessage = 'Failed to create creation';
+        let responseText = '';
+        try {
+          responseText = await response.text();
+          console.log('🚀 [DEBUG] Raw response text:', responseText);
+          
+          const errorData = JSON.parse(responseText);
+          console.log('🚀 [DEBUG] Parsed error data:', errorData);
+          
+          if (errorData.error) {
+            errorMessage = errorData.error;
+            
+            // Handle specific validation error format
+            if (errorData.details && Array.isArray(errorData.details)) {
+              const validationErrors = errorData.details.map((detail: any) => 
+                `${detail.field}: ${detail.message}`
+              ).join(', ');
+              errorMessage = `Validation errors: ${validationErrors}`;
+              console.log('🚀 [DEBUG] Validation errors:', validationErrors);
+            }
+          }
+        } catch (parseError) {
+          // If JSON parsing fails, use the original error
+          console.error('❌ [DEBUG] Error parsing backend response:', parseError);
+          console.log('❌ [DEBUG] Response text that failed to parse:', responseText);
+          errorMessage = `Server error (${response.status}): ${responseText}`;
+        }
+        throw new Error(errorMessage);
+      }
       
+      console.log('✅ [DEBUG] Response OK, parsing creation data...');
       const creation = await response.json();
+      console.log('✅ [DEBUG] Creation successful:', creation);
+      
       setCreations(prev => [creation, ...prev]);
       setIsCreateDialogOpen(false);
       setNewCreation({ title: '', description: '', pageName: '' });
       setError(null);
     } catch (error) {
-      console.error('Error creating creation:', error);
-      setError('Failed to create creation');
+      console.error('❌ [DEBUG] Caught error in handleCreateCreation:', error);
+      console.error('❌ [DEBUG] Error type:', typeof error);
+      console.error('❌ [DEBUG] Error constructor:', error?.constructor?.name);
+      setError(error instanceof Error ? error.message : 'Failed to create creation');
     } finally {
       setIsCreating(false);
+      console.log('🚀 [DEBUG] Creation process finished, isCreating set to false');
     }
   };
 
@@ -171,7 +308,19 @@ export default function CreationsPage() {
         method: 'POST',
       });
 
-      if (!response.ok) throw new Error('Failed to generate plan');
+      if (!response.ok) {
+        // Parse backend error for plan generation
+        let errorMessage = 'Failed to generate architecture plan';
+        try {
+          const errorData = await response.json();
+          if (errorData.error) {
+            errorMessage = errorData.error;
+          }
+        } catch (parseError) {
+          console.error('Error parsing plan generation response:', parseError);
+        }
+        throw new Error(errorMessage);
+      }
       
       await fetchCreations(); // Refresh the list
       if (selectedCreation?.id === creation.id) {
@@ -179,7 +328,7 @@ export default function CreationsPage() {
       }
     } catch (error) {
       console.error('Error generating plan:', error);
-      setError('Failed to generate architecture plan');
+      setError(error instanceof Error ? error.message : 'Failed to generate architecture plan');
     }
   };
 
@@ -190,7 +339,19 @@ export default function CreationsPage() {
         method: 'POST',
       });
 
-      if (!response.ok) throw new Error('Failed to start building');
+      if (!response.ok) {
+        // Parse backend error for build start
+        let errorMessage = 'Failed to start building';
+        try {
+          const errorData = await response.json();
+          if (errorData.error) {
+            errorMessage = errorData.error;
+          }
+        } catch (parseError) {
+          console.error('Error parsing build start response:', parseError);
+        }
+        throw new Error(errorMessage);
+      }
       
       await fetchCreations(); // Refresh the list
       if (selectedCreation?.id === creation.id) {
@@ -198,7 +359,7 @@ export default function CreationsPage() {
       }
     } catch (error) {
       console.error('Error starting build:', error);
-      setError('Failed to start building');
+      setError(error instanceof Error ? error.message : 'Failed to start building');
     }
   };
 
@@ -211,7 +372,19 @@ export default function CreationsPage() {
         method: 'DELETE',
       });
 
-      if (!response.ok) throw new Error('Failed to delete creation');
+      if (!response.ok) {
+        // Parse backend error for deletion
+        let errorMessage = 'Failed to delete creation';
+        try {
+          const errorData = await response.json();
+          if (errorData.error) {
+            errorMessage = errorData.error;
+          }
+        } catch (parseError) {
+          console.error('Error parsing delete response:', parseError);
+        }
+        throw new Error(errorMessage);
+      }
       
       setCreations(prev => prev.filter(c => c.id !== creation.id));
       if (selectedCreation?.id === creation.id) {
@@ -220,7 +393,7 @@ export default function CreationsPage() {
       }
     } catch (error) {
       console.error('Error deleting creation:', error);
-      setError('Failed to delete creation');
+      setError(error instanceof Error ? error.message : 'Failed to delete creation');
     }
   };
 
@@ -266,7 +439,12 @@ export default function CreationsPage() {
           </p>
         </div>
         
-        <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+        <Dialog open={isCreateDialogOpen} onOpenChange={(open) => {
+          setIsCreateDialogOpen(open);
+          if (open) {
+            setError(null); // Clear any previous errors when opening dialog
+          }
+        }}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="w-4 h-4 mr-2" />
@@ -289,6 +467,9 @@ export default function CreationsPage() {
                   value={newCreation.title}
                   onChange={(e) => setNewCreation(prev => ({ ...prev, title: e.target.value }))}
                 />
+                <p className="text-xs text-muted-foreground mt-1">
+                  {newCreation.title.length}/100 characters
+                </p>
               </div>
               <div>
                 <Label htmlFor="description">Description</Label>
@@ -299,6 +480,9 @@ export default function CreationsPage() {
                   onChange={(e) => setNewCreation(prev => ({ ...prev, description: e.target.value }))}
                   rows={4}
                 />
+                <p className="text-xs text-muted-foreground mt-1">
+                  {newCreation.description.length}/2000 characters (minimum 10 required)
+                </p>
               </div>
               <div>
                 <Label htmlFor="pageName">Page Name (Optional)</Label>

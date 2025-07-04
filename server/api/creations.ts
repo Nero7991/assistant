@@ -99,7 +99,21 @@ app.post("/api/creations", async (req, res) => {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
-    const validatedData = insertCreationSchema.parse(req.body);
+    let validatedData;
+    try {
+      validatedData = insertCreationSchema.parse(req.body);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ 
+          error: "Validation failed", 
+          details: error.errors.map((e: any) => ({
+            field: e.path.join('.'),
+            message: e.message
+          }))
+        });
+      }
+      throw error;
+    }
 
     // Generate a page name if not provided
     let pageName = validatedData.pageName;
@@ -113,11 +127,17 @@ app.post("/api/creations", async (req, res) => {
       // Ensure uniqueness
       let counter = 1;
       let uniquePageName = pageName;
-      while (true) {
+      let attempts = 0;
+      const maxAttempts = 100; // Prevent infinite loops
+      
+      while (attempts < maxAttempts) {
         const existing = await db
           .select()
           .from(creations)
-          .where(eq(creations.pageName, uniquePageName))
+          .where(and(
+            eq(creations.pageName, uniquePageName),
+            isNull(creations.deletedAt)
+          ))
           .limit(1);
         
         if (existing.length === 0) {
@@ -127,6 +147,31 @@ app.post("/api/creations", async (req, res) => {
         
         uniquePageName = `${pageName}-${counter}`;
         counter++;
+        attempts++;
+      }
+      
+      if (attempts >= maxAttempts) {
+        return res.status(400).json({ 
+          error: "Unable to generate a unique page name. Please specify a custom page name." 
+        });
+      }
+    }
+
+    // Check for page name conflicts with non-deleted creations
+    if (pageName) {
+      const existingPageName = await db
+        .select()
+        .from(creations)
+        .where(and(
+          eq(creations.pageName, pageName),
+          isNull(creations.deletedAt)
+        ))
+        .limit(1);
+      
+      if (existingPageName.length > 0) {
+        return res.status(409).json({ 
+          error: "Page name already exists. Please choose a different page name." 
+        });
       }
     }
 
@@ -146,9 +191,70 @@ app.post("/api/creations", async (req, res) => {
       .returning();
 
     res.status(201).json(newCreation[0]);
-  } catch (error) {
-    console.error("Error creating creation:", error);
-    res.status(500).json({ error: "Failed to create creation" });
+  } catch (error: any) {
+    console.error("Creation error:", error.message);
+    
+    // Extract error information from nested error objects (Drizzle wraps database errors)
+    const errorToCheck = error.cause || error.original || error;
+    const errorCode = errorToCheck.code || error.code;
+    const errorDetail = errorToCheck.detail || error.detail || errorToCheck.message || error.message;
+    const errorConstraint = errorToCheck.constraint || error.constraint;
+    
+    // Handle specific database constraint violations
+    if (errorCode === '23505') { // PostgreSQL unique constraint violation
+      // Check for page name constraint
+      const isPageNameError = (
+        errorConstraint?.includes('page_name') ||
+        errorConstraint?.includes('pageName') ||
+        errorDetail?.includes('page_name') ||
+        errorDetail?.includes('pageName') ||
+        (errorDetail && errorDetail.toLowerCase().includes('duplicate key')) ||
+        (errorDetail && errorDetail.toLowerCase().includes('already exists'))
+      );
+      
+      if (isPageNameError) {
+        return res.status(409).json({ 
+          error: "Page name already exists. Please choose a different page name." 
+        });
+      }
+      
+      return res.status(409).json({ 
+        error: "A creation with these details already exists." 
+      });
+    }
+    
+    // Handle other database errors
+    if (errorCode === '23503') { // Foreign key constraint violation
+      return res.status(400).json({ 
+        error: "Invalid user reference. Please log in again." 
+      });
+    }
+    
+    if (errorCode === '23514') { // Check constraint violation
+      return res.status(400).json({ 
+        error: "Data violates database constraints. Please check your input." 
+      });
+    }
+    
+    // Check for common error messages that indicate constraint violations
+    if (errorDetail && typeof errorDetail === 'string') {
+      const lowerDetail = errorDetail.toLowerCase();
+      if (lowerDetail.includes('duplicate key') || lowerDetail.includes('already exists')) {
+        if (lowerDetail.includes('page_name') || lowerDetail.includes('pagename')) {
+          return res.status(409).json({ 
+            error: "Page name already exists. Please choose a different page name." 
+          });
+        }
+        return res.status(409).json({ 
+          error: "A creation with these details already exists." 
+        });
+      }
+    }
+    
+    // Generic error fallback
+    return res.status(500).json({ 
+      error: `Creation failed: ${errorDetail || error.message || 'Unknown error'}` 
+    });
   }
 });
 
@@ -190,14 +296,16 @@ app.post("/api/creations/:id/plan", async (req, res) => {
       .where(eq(creations.id, creationId));
 
     try {
-      // Generate architecture plan using LLM
+      // Generate architecture plan using user's preferred LLM
       const architecturePlan = await generateArchitecturePlan(
+        req.user.id,
         currentCreation.title,
         currentCreation.description
       );
 
-      // Generate task breakdown
+      // Generate task breakdown using user's preferred LLM
       const taskBreakdown = await generateTaskBreakdown(
+        req.user.id,
         currentCreation.title,
         currentCreation.description,
         architecturePlan
